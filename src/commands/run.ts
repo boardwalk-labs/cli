@@ -156,5 +156,5 @@ function printOutcome(log: (line: string) => void, run: RunSummary): void {
   log(`run:     ${run.id}`);
   log(`status:  ${run.status}`);
   log(`outcome: ${run.outcomeStatus ?? "(none)"}`);
-  log("output:  view the full output + logs in the Boardwalk dashboard");
+  log("output:  view the full output + logs in the dashboard");
 }

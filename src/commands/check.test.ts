@@ -23,7 +23,7 @@ describe("runCheck", () => {
          triggers: [{ kind: "manual" }, { kind: "cron", expr: "0 9 * * 1-5" }],
          secrets: [{ name: "API_KEY" }],
        };
-       export default async function run() {}`,
+       console.log("ok-wf would run here");`,
     );
     const lines: string[] = [];
     await runCheck({ file }, { log: (l) => lines.push(l) });

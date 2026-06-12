@@ -33,7 +33,7 @@ const REGISTRY = JSON.stringify({
 const REMOTE_FILES: Record<string, string> = {
   "/registry.json": REGISTRY,
   "/templates/remote-digest/index.ts": `export const meta = { name: "remote-digest", triggers: [{ kind: "manual" }] };
-export default async function run(): Promise<void> {}`,
+console.log("remote-digest ran");`,
   "/templates/remote-digest/package.json": `{ "name": "remote-digest", "private": true }`,
   "/templates/remote-digest/.env.example": "API_KEY=…\n",
   "/templates/remote-digest/lib/util.ts": "export const x = 1;\n",

@@ -78,7 +78,7 @@ export function createRenderer(
 function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
   switch (event.kind) {
     case "run_status": {
-      const line = `● run ${event.status}`;
+      const line = `● workflow ${event.status}`;
       if (event.error !== undefined) {
         return `${line}\n  ${event.error.code}: ${event.error.message}\n`;
       }

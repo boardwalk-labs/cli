@@ -36,15 +36,14 @@ export const meta = {
   triggers: [{ kind: "manual" }],
 } satisfies WorkflowMeta;
 
-export default async function run(): Promise<void> {
-  const who = typeof input === "string" && input.length > 0 ? input : "world";
+// A workflow is a script: it runs top to bottom, and top-level await just works.
+const who = typeof input === "string" && input.length > 0 ? input : "world";
 
-  // Next step: give it a brain. agent() runs a full agent loop and resolves to its answer:
-  //   const greeting = await agent(\`Write a one-line greeting for \${who}.\`);
-  // (agent() needs an engine — \`boardwalk run\` today, the local engine soon.)
+// Next step: give it a brain. agent() runs a full agent loop and resolves to its answer:
+//   const greeting = await agent(\`Write a one-line greeting for \${who}.\`);
+// (agent() needs an engine — \`boardwalk run\` today, the local engine soon.)
 
-  output(\`Hello, \${who}!\`);
-}
+output(\`Hello, \${who}!\`);
 `;
 
 const HELLO_PACKAGE_JSON = `{

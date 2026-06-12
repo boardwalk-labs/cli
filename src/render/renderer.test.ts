@@ -54,7 +54,7 @@ describe("createRenderer", () => {
       event({ kind: "output", value: { ok: true } }),
     ];
     const out = rendered(parseChannels({ verbose: false }), events);
-    expect(out).toContain("● run running");
+    expect(out).toContain("● workflow running");
     expect(out).toContain("▸ Fetch");
     expect(out).toContain('"ok": true');
     expect(out).not.toContain("noise");
@@ -76,7 +76,7 @@ describe("createRenderer", () => {
         error: { code: "PROGRAM_ERROR", message: "boom" },
       }),
     ]);
-    expect(out).toContain("● run failed");
+    expect(out).toContain("● workflow failed");
     expect(out).toContain("PROGRAM_ERROR: boom");
   });
 

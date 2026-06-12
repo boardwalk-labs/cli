@@ -96,16 +96,11 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
 
     emit({ kind: "run_status", status: "running" });
 
-    const mod = (await import(pathToFileURL(bundlePath).href)) as { default?: unknown };
-    if (typeof mod.default !== "function") {
-      throw new CliError(
-        "The workflow program must `export default` an async run function.",
-        "export default async function run(): Promise<void> { … }",
-      );
-    }
-
+    // A workflow program is a SCRIPT: importing the module IS running it (top-level body +
+    // top-level awaits). The import settles when the run completes; a top-level throw rejects it.
+    let mod: { default?: unknown };
     try {
-      await (mod.default as () => Promise<unknown>)();
+      mod = (await import(pathToFileURL(bundlePath).href)) as { default?: unknown };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       emit({
@@ -115,6 +110,13 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
       });
       const hint = err instanceof CliError ? err.hint : undefined;
       throw new CliError(`Run failed: ${message}`, hint, undefined, 1);
+    }
+
+    if (typeof mod.default === "function") {
+      console.error(
+        "warning: the program has a default export, which Boardwalk does not call — a workflow " +
+          "runs top-to-bottom as a script. Move the body to the top level (top-level await is fine).",
+      );
     }
 
     const declared = takeDeclaredOutput();
