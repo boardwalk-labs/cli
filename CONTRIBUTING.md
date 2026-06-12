@@ -1,6 +1,6 @@
 # Contributing to @boardwalk/cli
 
-Thanks for improving the front door. The CLI is UX plus a thin Cloud client — contracts live in
+Thanks for improving the front door. The CLI is UX plus a thin platform client — contracts live in
 [`@boardwalk/workflow`](https://github.com/boardwalk-dev/boardwalk-sdk), engine behavior in
 `@boardwalk/engine`; if your change is really one of those, it goes there.
 
@@ -14,7 +14,7 @@ Thanks for improving the front door. The CLI is UX plus a thin Cloud client — 
   keep them passing.
 - **Errors are actionable.** User-facing failures throw `CliError` with a message and (usually)
   a hint that names the fix. Stack traces are for bugs, not for expected failures.
-- **Cloud calls use only documented public endpoints.** If a capability isn't in the public
+- **Platform calls use only documented public endpoints.** If a capability isn't in the public
   API, the API grows first — the CLI never reaches around it.
 
 ## Workflow

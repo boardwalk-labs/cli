@@ -7,7 +7,7 @@ boardwalk init my-workflow                 # scaffold a project from a template
 boardwalk dev ./index.ts                   # run it NOW, locally — no account needed
 boardwalk check ./index.ts                 # validate locally (no auth/network)
 boardwalk login                            # browser OAuth (PKCE) → stores a session
-boardwalk deploy ./index.ts --org my-team  # ship it to Boardwalk Cloud
+boardwalk deploy ./index.ts --org my-team  # ship it to the Boardwalk platform
 boardwalk run ./index.ts --org my-team --input '{"who":"world"}'   # deploy + trigger a real run
 boardwalk cancel <runId>
 boardwalk logout / whoami
@@ -82,7 +82,7 @@ deploy and trigger/read runs, but cannot mint API keys, manage billing/members, 
 
 ## Configuration (env)
 
-Point the CLI at any deployment — Boardwalk Cloud (default), or a **self-hosted** install on your
+Point the CLI at any deployment — the Boardwalk platform (default), or a **self-hosted** install on your
 own domain — without rebuilding:
 
 | Variable                    | Default                    | Purpose                                        |

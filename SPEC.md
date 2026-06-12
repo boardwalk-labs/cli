@@ -2,11 +2,11 @@
 
 > The front door: author, validate, run locally, and deploy workflows. MIT. Public in **Phase 1**.
 >
-> Governing context: root [`MASTER_SPEC.md`](../MASTER_SPEC.md) §3 (engines), §6.1 (Cloud only via public API).
+> Governing context: root [`MASTER_SPEC.md`](../MASTER_SPEC.md) §3 (engines), §6.1 (the platform only via public API).
 
 ## 1. Purpose
 
-One binary, `boardwalk`, covering the full author journey: `init` (start from a template) → `dev` (run it now, locally, no account) → `check` (validate) → `login`/`deploy`/`run` (Boardwalk Cloud). The CLI contains UX and a Cloud API client — engine logic lives in `@boardwalk/engine`, contracts in `@boardwalk/workflow`.
+One binary, `boardwalk`, covering the full author journey: `init` (start from a template) → `dev` (run it now, locally, no account) → `check` (validate) → `login`/`deploy`/`run` (the Boardwalk platform). The CLI contains UX and a platform API client — engine logic lives in `@boardwalk/engine`, contracts in `@boardwalk/workflow`.
 
 ## 2. Commands (v1)
 
@@ -17,9 +17,9 @@ One binary, `boardwalk`, covering the full author journey: `init` (start from a 
 | `check <file>`      | —                                                                                                                                                                       | Validate program + manifest locally. No auth, no network                                                                                                                                                                |
 | `login`             | `--token <key>`                                                                                                                                                         | Browser PKCE flow against the configured issuer; `--token` stores an API key (`bwk_…`) instead. Precedence: `--token` > `BOARDWALK_API_KEY` > stored session                                                            |
 | `logout` / `whoami` | —                                                                                                                                                                       | Session management                                                                                                                                                                                                      |
-| `deploy <file>`     | `--org <slug>`, `--dry-run`, `--bundle`, `--token`                                                                                                                      | Deploy to Boardwalk Cloud; creates/updates the linked workflow, prints the new version. `--bundle` esbuild-bundles dependencies (automatic for directories)                                                             |
-| `run <file>`        | `--org`, `--input <json>`, `--bundle`, `--no-wait`, `--verbose`, `--stream <channels>`, `--token`                                                                       | Deploy-and-trigger against Cloud; default waits, streaming the same event renderer as `dev`                                                                                                                             |
-| `cancel <runId>`    | `--token`                                                                                                                                                               | Cancel a Cloud run                                                                                                                                                                                                      |
+| `deploy <file>`     | `--org <slug>`, `--dry-run`, `--bundle`, `--token`                                                                                                                      | Deploy to the Boardwalk platform; creates/updates the linked workflow, prints the new version. `--bundle` esbuild-bundles dependencies (automatic for directories)                                                      |
+| `run <file>`        | `--org`, `--input <json>`, `--bundle`, `--no-wait`, `--verbose`, `--stream <channels>`, `--token`                                                                       | Deploy-and-trigger against the platform; default waits, streaming the same event renderer as `dev`                                                                                                                      |
+| `cancel <runId>`    | `--token`                                                                                                                                                               | Cancel a hosted run                                                                                                                                                                                                     |
 
 `<file>` is a workflow program file or a package directory throughout.
 
@@ -53,7 +53,7 @@ silently): `agent()`, `workflows.call()`; program stdout/stderr passes straight 
 terminal rather than being captured as `program_output` events. Swapping the built-in host for
 `@boardwalk/engine` embedded mode removes those gaps without changing any flag or frame.
 
-## 5. Cloud API client
+## 5. platform API client
 
 - Hand-rolled thin client (no codegen frameworks) with runtime shape guards on every response;
   generated **types** from the published OpenAPI spec layer in once that spec is published.
@@ -74,7 +74,7 @@ src/
   credentials.ts  — the on-disk session store (0600)
   auth/           — PKCE flow, OAuth discovery, token resolution/refresh
   project.ts      — .boardwalk link file
-  client.ts       — the Cloud API client
+  client.ts       — the platform API client
   deployment.ts   — shared deploy-with-link logic
   artifact.ts     — content-addressed program artifact builder
   bundle.ts       — esbuild integration (deploy externals + dev shared-SDK resolve)
@@ -94,6 +94,6 @@ src/
 
 ## 8. Ready to go public when
 
-1. All §2 commands work against Boardwalk Cloud's public API and a published `@boardwalk/engine` (interim: `dev` may ship one release behind a feature flag if the engine isn't published yet — `init`/`check`/`login`/`deploy`/`run` carry Phase 1 on their own).
+1. All §2 commands work against the Boardwalk platform's public API and a published `@boardwalk/engine` (interim: `dev` may ship one release behind a feature flag if the engine isn't published yet — `init`/`check`/`login`/`deploy`/`run` carry Phase 1 on their own).
 2. `npm i -g @boardwalk/cli` on a clean machine: `init` → `dev` (or `check`) → `login` → `deploy` → green run, documented in the README quickstart.
 3. Startup budget met; no secrets in any output; publication checklist (MASTER_SPEC §8) passes.

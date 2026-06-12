@@ -1,4 +1,4 @@
-// BoardwalkClient — a small hand-rolled REST client over the public Boardwalk Cloud API
+// BoardwalkClient — a small hand-rolled REST client over Boardwalk's public platform API
 // (deliberately no codegen client framework).
 //
 // Targets the workflow endpoints the deploy flow needs:
