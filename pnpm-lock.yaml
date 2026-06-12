@@ -4,16 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  '@boardwalk-labs/workflow': link:../sdk
-
 importers:
 
   .:
     dependencies:
       '@boardwalk-labs/workflow':
-        specifier: link:../sdk
-        version: link:../sdk
+        specifier: ^0.1.0
+        version: 0.1.0
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -84,6 +81,10 @@ packages:
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
+
+  '@boardwalk-labs/workflow@0.1.0':
+    resolution: {integrity: sha512-zc1oaghJgyFkecwd23OPPd/iJXI93d+mD/583PqUiM8hudvQGekIdezu+lzd9EMTDDP2e8udhjqW/FDjtGVujA==}
+    engines: {node: '>=24'}
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -1612,6 +1613,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@ampproject/remapping@2.3.0':
@@ -1633,6 +1637,11 @@ snapshots:
       '@babel/helper-validator-identifier': 7.29.7
 
   '@bcoe/v8-coverage@1.0.2': {}
+
+  '@boardwalk-labs/workflow@0.1.0':
+    dependencies:
+      typescript: 5.9.3
+      zod: 4.4.3
 
   '@esbuild/aix-ppc64@0.25.12':
     optional: true
@@ -2980,3 +2989,5 @@ snapshots:
   yallist@5.0.0: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@4.4.3: {}

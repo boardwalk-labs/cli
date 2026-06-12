@@ -1,7 +1,7 @@
 {
   "name": "@boardwalk-labs/cli",
   "version": "0.1.0",
-  "description": "The boardwalk command — author, validate, run locally, and deploy Boardwalk workflows.",
+  "description": "The boardwalk CLI: author, validate, run, and deploy Boardwalk workflows.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -40,10 +40,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ],
-    "overrides": {
-      "@boardwalk-labs/workflow": "link:../sdk"
-    }
+    ]
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
