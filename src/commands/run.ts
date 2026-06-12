@@ -1,0 +1,160 @@
+// `boardwalk run <file|dir> --org <slug>` — actually run a workflow, for real.
+//
+// Runs on the PLATFORM (where the real worker + real inference live — no mocks): it deploys the
+// current source (via the project link), triggers a run, and polls it to a terminal state. The
+// run's output payload isn't exposed over REST (dashboard-only), so we report the final
+// status/outcome + the run id and point at the dashboard for full output + logs.
+
+import { CliError } from "../errors.js";
+import type { CliConfig } from "../config.js";
+import { CredentialStore } from "../credentials.js";
+import { resolveToken } from "../auth/resolve.js";
+import { BoardwalkClient, type RunSummary } from "../client.js";
+import { deployWithLink, loadProgram } from "../deployment.js";
+import type { FetchLike } from "../auth/pkce.js";
+
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
+const DEFAULT_POLL_INTERVAL_MS = 2_000;
+const DEFAULT_TIMEOUT_MS = 15 * 60_000;
+
+export function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+/** Minimal client surface `pollToTerminal` needs — `BoardwalkClient` satisfies it. */
+export interface RunReader {
+  getRun(runId: string): Promise<RunSummary>;
+}
+
+export interface PollOptions {
+  sleep?: (ms: number) => Promise<void>;
+  intervalMs?: number;
+  timeoutMs?: number;
+  onStatus?: (status: string) => void;
+  now?: () => number;
+}
+
+/** Poll a run until it reaches a terminal state (completed/failed/cancelled), or time out. */
+export async function pollToTerminal(
+  client: RunReader,
+  runId: string,
+  opts: PollOptions = {},
+): Promise<RunSummary> {
+  const sleep =
+    opts.sleep ??
+    ((ms: number) =>
+      new Promise<void>((resolve) => {
+        setTimeout(() => {
+          resolve();
+        }, ms);
+      }));
+  const intervalMs = opts.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const now = opts.now ?? ((): number => Date.now());
+
+  const start = now();
+  let lastStatus = "";
+  for (;;) {
+    const run = await client.getRun(runId);
+    if (run.status !== lastStatus) {
+      opts.onStatus?.(run.status);
+      lastStatus = run.status;
+    }
+    if (isTerminalStatus(run.status)) return run;
+    if (now() - start > timeoutMs) {
+      throw new CliError(
+        `Run ${runId} did not finish within ${String(Math.round(timeoutMs / 1000))}s (still ${run.status}).`,
+        "It may still be running — check the run in the dashboard.",
+      );
+    }
+    await sleep(intervalMs);
+  }
+}
+
+export interface RunOptions {
+  file: string;
+  org?: string | undefined;
+  input?: string | undefined;
+  bundle?: boolean;
+  token?: string | undefined;
+  noWait?: boolean;
+}
+
+export interface RunDeps {
+  config: CliConfig;
+  fetchImpl?: FetchLike;
+  log?: (line: string) => void;
+}
+
+export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
+  const log =
+    deps.log ??
+    ((line: string): void => {
+      console.log(line);
+    });
+
+  const prog = await loadProgram(opts.file);
+  const assets = prog.artifact.assetPaths.length;
+  log(
+    `  built ${prog.entry} (${String(prog.artifact.size)} bytes${assets > 0 ? `, ${String(assets)} asset${assets === 1 ? "" : "s"}` : ""})`,
+  );
+
+  const store = CredentialStore.atConfigDir(deps.config.configDir);
+  const token = await resolveToken({
+    config: deps.config,
+    store,
+    tokenFlag: opts.token,
+    ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+  });
+  const client = new BoardwalkClient({
+    baseUrl: deps.config.apiBaseUrl,
+    token,
+    ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+  });
+
+  const dep = await deployWithLink(client, { orgSlug: opts.org, target: opts.file, prog });
+  if (dep.gitignoreUpdated)
+    log("  linked → .boardwalk/project.json (added .boardwalk/ to .gitignore)");
+  log(`✓ ${dep.outcome} "${prog.name}" version ${String(dep.versionNumber)}`);
+
+  const input = parseInput(opts.input);
+  const run = await client.triggerRun(dep.orgSlug, dep.workflowId, input);
+  log(`▶ run ${run.id} triggered (${run.status})`);
+
+  if (opts.noWait === true) {
+    log("  --no-wait: not polling. Check the run in the dashboard.");
+    return;
+  }
+
+  log(`  (cancel anytime: boardwalk cancel ${run.id})`);
+  const terminal = await pollToTerminal(client, run.id, {
+    onStatus: (status) => {
+      log(`  status → ${status}`);
+    },
+  });
+  printOutcome(log, terminal);
+  if (terminal.status !== "completed") {
+    throw new CliError(
+      `Run ${terminal.status}.`,
+      "See the run in the dashboard for logs + output.",
+    );
+  }
+}
+
+/** Parse `--input '<json>'` to a value; undefined when absent. Throws on malformed JSON. */
+export function parseInput(raw: string | undefined): unknown {
+  if (raw === undefined) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new CliError("--input is not valid JSON.");
+  }
+}
+
+function printOutcome(log: (line: string) => void, run: RunSummary): void {
+  log("──────── run result ────────");
+  log(`run:     ${run.id}`);
+  log(`status:  ${run.status}`);
+  log(`outcome: ${run.outcomeStatus ?? "(none)"}`);
+  log("output:  view the full output + logs in the Boardwalk dashboard");
+}
