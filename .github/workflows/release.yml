@@ -1,0 +1,52 @@
+# Publish to npm with provenance on a version tag (v0.1.0 → @boardwalk/cli@0.1.0).
+# Requires: the NPM_TOKEN repo secret (an npm automation token for the @boardwalk scope).
+#
+# Publish guard: the pnpm `link:` override on @boardwalk/workflow is an incubation-only
+# device — publishing with it present would ship a CLI whose lockfile never exercised the
+# real registry dependency. The guard step blocks the release until it's removed.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm --provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: "No link: overrides in a release"
+        run: |
+          if node -p "JSON.stringify(require('./package.json').pnpm?.overrides ?? {})" | grep -q "link:"; then
+            echo "package.json still has a link: override — remove it and lock against the registry first" >&2
+            exit 1
+          fi
+      - run: pnpm install --frozen-lockfile
+      - name: Tag must match package.json version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "tag $GITHUB_REF_NAME != package.json $PKG_VERSION" >&2
+            exit 1
+          fi
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

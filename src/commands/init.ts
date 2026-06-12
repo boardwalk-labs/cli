@@ -1,11 +1,14 @@
 // `boardwalk init [dir]` — scaffold a new workflow project.
 //
-// v0.1 ships one built-in template (`hello`) that runs green under `boardwalk dev` immediately;
-// the richer template registry comes from the boardwalk-examples repo. Never overwrites: any
-// file that already exists at a target path aborts the scaffold before anything is written.
+// Templates come from the boardwalk-examples registry: `--template <name>` fetches
+// `registry.json` and the template's files from the templates base URL
+// ($BOARDWALK_TEMPLATES_URL to point at a fork/mirror). The default `hello` template is
+// BUILT IN — `init` works offline and with zero configuration.
+//
+// Never overwrites: every target path is checked before anything is written.
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { CliError } from "../errors.js";
 
 export interface InitOptions {
@@ -15,13 +18,15 @@ export interface InitOptions {
 
 export interface InitDeps {
   log?: (line: string) => void;
+  fetchImpl?: typeof fetch;
+  env?: NodeJS.ProcessEnv;
 }
 
-interface Template {
-  description: string;
-  /** relative path → file contents (a `{{name}}` placeholder is replaced with the project name). */
-  files: Record<string, string>;
-}
+/** Where templates live: the boardwalk-examples repo, raw. Overridable for forks/mirrors. */
+const DEFAULT_TEMPLATES_URL =
+  "https://raw.githubusercontent.com/boardwalk-dev/boardwalk-examples/main";
+
+// ── The built-in `hello` template (offline floor) ───────────────────────────────────────
 
 const HELLO_PROGRAM = `import { input, output, type WorkflowMeta } from "@boardwalk/workflow";
 
@@ -63,39 +68,80 @@ const HELLO_GITIGNORE = `node_modules/
 .bw-runs/
 `;
 
-const TEMPLATES: Record<string, Template> = {
+const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
   hello: {
-    description: "A minimal workflow: input → output, ready for boardwalk dev",
-    files: {
-      "index.ts": HELLO_PROGRAM,
-      "package.json": HELLO_PACKAGE_JSON,
-      ".env.example": HELLO_ENV_EXAMPLE,
-      ".gitignore": HELLO_GITIGNORE,
-    },
+    "index.ts": HELLO_PROGRAM,
+    "package.json": HELLO_PACKAGE_JSON,
+    ".env.example": HELLO_ENV_EXAMPLE,
+    ".gitignore": HELLO_GITIGNORE,
   },
 };
 
-export function runInit(opts: InitOptions, deps: InitDeps = {}): void {
+// ── Registry shapes (boardwalk-examples/registry.json) ─────────────────────────────────
+
+interface RegistryTemplate {
+  name: string;
+  description: string;
+  secrets: string[];
+  files: string[];
+}
+
+export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<void> {
   const log =
     deps.log ??
     ((line: string): void => {
       console.log(line);
     });
 
-  const template = TEMPLATES[opts.template];
+  const builtin = BUILTIN_TEMPLATES[opts.template];
+  if (builtin !== undefined) {
+    const dir = resolve(opts.dir);
+    const name = workflowNameFor(dir);
+    const files = Object.fromEntries(
+      Object.entries(builtin).map(([rel, body]) => [rel, body.replaceAll("{{name}}", name)]),
+    );
+    scaffold(dir, files);
+    finish(log, opts, name, opts.template, []);
+    return;
+  }
+
+  // Remote template: registry lookup, then fetch each listed file.
+  const env = deps.env ?? process.env;
+  const baseUrl = (env.BOARDWALK_TEMPLATES_URL ?? DEFAULT_TEMPLATES_URL).replace(/\/+$/, "");
+  const fetchImpl = deps.fetchImpl ?? fetch;
+
+  const registry = await fetchRegistry(baseUrl, fetchImpl);
+  const template = registry.find((t) => t.name === opts.template);
   if (template === undefined) {
+    const available = [...Object.keys(BUILTIN_TEMPLATES), ...registry.map((t) => t.name)];
     throw new CliError(
       `Unknown template "${opts.template}".`,
-      `Available templates: ${Object.keys(TEMPLATES).join(", ")}.`,
+      `Available templates: ${available.join(", ")}.`,
     );
   }
 
-  const dir = resolve(opts.dir);
-  const name = workflowNameFor(dir);
-  mkdirSync(dir, { recursive: true });
+  const files: Record<string, string> = {};
+  for (const rel of template.files) {
+    if (rel.startsWith("/") || rel.split("/").some((s) => s === ".." || s === "")) {
+      throw new CliError(`The registry lists an unsafe file path: ${rel}`);
+    }
+    files[rel] = await fetchText(
+      `${baseUrl}/templates/${template.name}/${rel}`,
+      fetchImpl,
+      `template file ${rel}`,
+    );
+  }
 
-  // Refuse to clobber: check every target before writing anything.
-  for (const rel of Object.keys(template.files)) {
+  scaffold(resolve(opts.dir), files);
+  finish(log, opts, template.name, template.name, template.secrets);
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────────────
+
+/** All-or-nothing write: refuse if ANY target exists, then write every file. */
+function scaffold(dir: string, files: Record<string, string>): void {
+  mkdirSync(dir, { recursive: true });
+  for (const rel of Object.keys(files)) {
     if (existsSync(join(dir, rel))) {
       throw new CliError(
         `${rel} already exists in ${dir}.`,
@@ -103,17 +149,83 @@ export function runInit(opts: InitOptions, deps: InitDeps = {}): void {
       );
     }
   }
-
-  for (const [rel, contents] of Object.entries(template.files)) {
-    writeFileSync(join(dir, rel), contents.replaceAll("{{name}}", name));
+  for (const [rel, contents] of Object.entries(files)) {
+    const target = join(dir, rel);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, contents);
   }
+}
 
-  log(`✓ scaffolded "${name}" (template: ${opts.template})`);
-  for (const rel of Object.keys(template.files)) log(`  ${rel}`);
+function finish(
+  log: (line: string) => void,
+  opts: InitOptions,
+  name: string,
+  template: string,
+  secrets: readonly string[],
+): void {
+  log(`✓ scaffolded "${name}" (template: ${template})`);
   log("");
   log("next:");
   log(`  cd ${opts.dir === "." ? "." : opts.dir} && npm install`);
-  log("  boardwalk dev index.ts --input '\"there\"'");
+  if (secrets.length > 0) {
+    log(`  cp .env.example .env   # fill in: ${secrets.join(", ")}`);
+  }
+  log("  boardwalk dev .");
+}
+
+async function fetchRegistry(
+  baseUrl: string,
+  fetchImpl: typeof fetch,
+): Promise<RegistryTemplate[]> {
+  const raw = await fetchText(`${baseUrl}/registry.json`, fetchImpl, "template registry");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new CliError("The template registry is not valid JSON.", registryHint(baseUrl));
+  }
+  const templates =
+    typeof parsed === "object" && parsed !== null
+      ? (parsed as { templates?: unknown }).templates
+      : undefined;
+  if (!Array.isArray(templates) || !templates.every(isRegistryTemplate)) {
+    throw new CliError("The template registry has an unexpected shape.", registryHint(baseUrl));
+  }
+  return templates;
+}
+
+async function fetchText(url: string, fetchImpl: typeof fetch, what: string): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { signal: AbortSignal.timeout(20_000) });
+  } catch (err) {
+    throw new CliError(
+      `Could not fetch the ${what} (${url}).`,
+      err instanceof Error ? err.message : undefined,
+    );
+  }
+  if (!res.ok) {
+    throw new CliError(`Fetching the ${what} failed (${String(res.status)}) at ${url}.`);
+  }
+  return res.text();
+}
+
+function registryHint(baseUrl: string): string {
+  return `Registry base: ${baseUrl} (override with BOARDWALK_TEMPLATES_URL).`;
+}
+
+function isRegistryTemplate(value: unknown): value is RegistryTemplate {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.name === "string" &&
+    typeof v.description === "string" &&
+    Array.isArray(v.secrets) &&
+    v.secrets.every((s): s is string => typeof s === "string") &&
+    Array.isArray(v.files) &&
+    v.files.every((f): f is string => typeof f === "string") &&
+    v.files.length > 0
+  );
 }
 
 /** Derive a manifest-legal workflow name from the target directory's basename. */

@@ -54,11 +54,15 @@ function buildProgram(): Command {
   program
     .command("init")
     .argument("[dir]", "directory to scaffold into (created if missing)", ".")
-    .option("--template <name>", "project template", "hello")
+    .option(
+      "--template <name>",
+      "template: the built-in `hello`, or any name from the boardwalk-examples registry",
+      "hello",
+    )
     .description("Scaffold a new workflow project from a template.")
     .action(async (dir: string, options: { template?: string }) => {
       const { runInit } = await import("./commands/init.js");
-      runInit({ dir, template: options.template ?? "hello" });
+      await runInit({ dir, template: options.template ?? "hello" });
     });
 
   program
