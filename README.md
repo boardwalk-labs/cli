@@ -19,7 +19,7 @@ boardwalk logout / whoami
   `.gitignore`. The default template runs green under `dev` immediately.
 - **`dev <file|dir>`** — run the workflow right here, right now. Derives + validates the manifest
   (precise errors before anything runs), bundles the program, executes it in-process, and streams
-  the run-event log. Secrets resolve from `.env` (or `--env-file`); values never print.
+  the run-event log. Secrets resolve from `.env` (or `--env <path>`); values never print.
   Exit code is the run's verdict: `0` completed, `1` failed, `130` cancelled (Ctrl-C).
 - **`check <file|dir>`** — everything `dev` validates, without running: full manifest-schema
   validation (the same schema every engine enforces) + an esbuild compile proving every import

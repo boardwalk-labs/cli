@@ -39,7 +39,7 @@ interface RunCliOptions {
 
 interface DevCliOptions {
   input?: string;
-  envFile?: string;
+  env?: string;
   verbose?: boolean;
   stream?: string;
 }
@@ -69,7 +69,9 @@ function buildProgram(): Command {
     .command("dev")
     .argument("<file>", "workflow program file, or a package directory")
     .option("--input <json>", "trigger payload exposed to the program as `input`")
-    .option("--env-file <path>", "env file resolving secrets for the run (default: .env)")
+    // Named --env (not --env-file): Node ≥26 claims --env-file even after the script path,
+    // so that spelling would be processed (or rejected) by node itself before we ever parse it.
+    .option("--env <path>", "env file resolving secrets for the run (default: .env)")
     .option("--verbose", "stream every event channel (agent turns, tool calls, logs)", false)
     .option("--stream <channels>", "comma-separated channels: lifecycle,phase,output,log,agent")
     .description("Run the workflow now, locally — no account needed.")
@@ -78,7 +80,7 @@ function buildProgram(): Command {
       await runDev({
         file,
         input: options.input,
-        envFile: options.envFile,
+        envFile: options.env,
         verbose: options.verbose ?? false,
         stream: options.stream,
       });

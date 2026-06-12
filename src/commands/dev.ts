@@ -57,7 +57,7 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
   const manifest = extractValidatedManifest(readFileSync(entry, "utf8"), entry);
   const input = parseInput(opts.input);
 
-  // 2. The local secret store: the project's env file (explicit --env-file must exist).
+  // 2. The local secret store: the project's env file (explicit --env must exist).
   const projectDir = projectDirFor(opts.file);
   const envPath = opts.envFile ?? join(projectDir, ".env");
   const envVars = loadEnvFile(envPath, opts.envFile !== undefined);
@@ -102,6 +102,12 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
     try {
       mod = (await import(pathToFileURL(bundlePath).href)) as { default?: unknown };
     } catch (err) {
+      // Output declared BEFORE the failure still counts — a failed watch/check often output()s
+      // its verdict and then throws to mark the run failed.
+      const declaredBeforeFailure = takeDeclaredOutput();
+      if (declaredBeforeFailure !== null) {
+        emit({ kind: "output", value: declaredBeforeFailure.value });
+      }
       const message = err instanceof Error ? err.message : String(err);
       emit({
         kind: "run_status",

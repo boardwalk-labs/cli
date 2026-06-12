@@ -72,6 +72,26 @@ describe("runDev (end-to-end, in-process)", () => {
     expect(out).toContain("PROGRAM_ERROR: kapow");
   });
 
+  it("emits output declared before a failure (verdict-then-throw)", async () => {
+    const file = join(dir, "verdict.ts");
+    writeFileSync(
+      file,
+      `import { output } from "@boardwalk/workflow";
+       export const meta = { name: "v", triggers: [{ kind: "manual" }] };
+       output({ healthy: false });
+       throw new Error("deadline passed");`,
+    );
+
+    await expect(
+      runDev(
+        { file, input: undefined, verbose: false, stream: undefined, envFile: undefined },
+        { write, onSigint: noSigint },
+      ),
+    ).rejects.toThrow(/deadline passed/);
+    expect(out).toContain('"healthy": false');
+    expect(out).toContain("● workflow failed");
+  });
+
   it("rejects an invalid manifest before running anything", async () => {
     const file = join(dir, "invalid.ts");
     writeFileSync(file, `export const meta = { name: "x" };\nconsole.log("never runs");`);
@@ -120,7 +140,7 @@ describe("runDev (end-to-end, in-process)", () => {
     expect(out).not.toContain("from the wrapper");
   });
 
-  it("errors on a missing explicit --env-file", async () => {
+  it("errors on a missing explicit --env file", async () => {
     const file = join(dir, "index.ts");
     writeFileSync(file, `export const meta = { name: "e", triggers: [{ kind: "manual" }] };`);
 
