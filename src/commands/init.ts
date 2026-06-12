@@ -23,8 +23,7 @@ export interface InitDeps {
 }
 
 /** Where templates live: the examples repo, raw. Overridable for forks/mirrors. */
-const DEFAULT_TEMPLATES_URL =
-  "https://raw.githubusercontent.com/boardwalk-labs/examples/main";
+const DEFAULT_TEMPLATES_URL = "https://raw.githubusercontent.com/boardwalk-labs/examples/main";
 
 // ── The built-in `hello` template (offline floor) ───────────────────────────────────────
 
