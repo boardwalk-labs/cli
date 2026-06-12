@@ -1,4 +1,4 @@
-# @boardwalk/cli
+# @boardwalk-labs/cli
 
 The `boardwalk` command — author, validate, run locally, and deploy [Boardwalk](https://boardwalk.sh) workflows.
 
@@ -39,7 +39,7 @@ boardwalk dev ./index.ts --stream phase,log
 
 > `dev` today executes the program primitives (secrets, sleeps, phases, output, artifacts)
 > in-process; `agent()` and `workflows.call()` need an engine and fail with a clear pointer.
-> The embedded local engine (`@boardwalk/engine`) makes them work in `dev` — it's next on the
+> The embedded local engine (`@boardwalk-labs/engine`) makes them work in `dev` — it's next on the
 > [roadmap](./SPEC.md).
 
 ## Deploying
@@ -50,7 +50,7 @@ boardwalk dev ./index.ts --stream phase,log
   platform**, and wait for it to finish. `--no-wait` triggers and exits.
 
 `deploy` builds the program into a content-addressed artifact: esbuild bundles your entry (deps
-pinned at deploy, `@boardwalk/workflow` stays external), package assets (markdown skills, prompt
+pinned at deploy, `@boardwalk-labs/workflow` stays external), package assets (markdown skills, prompt
 templates) ride along at their relative paths, and the lot is packed into a deterministic tarball,
 uploaded via a presigned URL, and verified server-side. The server re-derives the manifest from
 your `meta` — the CLI never sends a hand-built manifest.

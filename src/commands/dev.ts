@@ -18,7 +18,7 @@ import {
   installInput,
   resetRuntime,
   takeDeclaredOutput,
-} from "@boardwalk/workflow/runtime";
+} from "@boardwalk-labs/workflow/runtime";
 import { CliError } from "../errors.js";
 import { bundleForDev, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";

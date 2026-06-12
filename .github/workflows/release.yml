@@ -1,7 +1,7 @@
-# Publish to npm with provenance on a version tag (v0.1.0 → @boardwalk/cli@0.1.0).
+# Publish to npm with provenance on a version tag (v0.1.0 → @boardwalk-labs/cli@0.1.0).
 # Requires: the NPM_TOKEN repo secret (an npm automation token for the @boardwalk scope).
 #
-# Publish guard: the pnpm `link:` override on @boardwalk/workflow is an incubation-only
+# Publish guard: the pnpm `link:` override on @boardwalk-labs/workflow is an incubation-only
 # device — publishing with it present would ship a CLI whose lockfile never exercised the
 # real registry dependency. The guard step blocks the release until it's removed.
 

@@ -28,7 +28,7 @@ describe("runDev (end-to-end, in-process)", () => {
     const file = join(dir, "index.ts");
     writeFileSync(
       file,
-      `import { Phase, input, output, secrets, type WorkflowMeta } from "@boardwalk/workflow";
+      `import { Phase, input, output, secrets, type WorkflowMeta } from "@boardwalk-labs/workflow";
        export const meta = {
          name: "greet",
          triggers: [{ kind: "manual" }],
@@ -76,7 +76,7 @@ describe("runDev (end-to-end, in-process)", () => {
     const file = join(dir, "verdict.ts");
     writeFileSync(
       file,
-      `import { output } from "@boardwalk/workflow";
+      `import { output } from "@boardwalk-labs/workflow";
        export const meta = { name: "v", triggers: [{ kind: "manual" }] };
        output({ healthy: false });
        throw new Error("deadline passed");`,
@@ -120,7 +120,7 @@ describe("runDev (end-to-end, in-process)", () => {
     const file = join(dir, "legacy.ts");
     writeFileSync(
       file,
-      `import { output } from "@boardwalk/workflow";
+      `import { output } from "@boardwalk-labs/workflow";
        export const meta = { name: "legacy", triggers: [{ kind: "manual" }] };
        export default async function run(): Promise<void> {
          output("from the wrapper — must NOT appear");
@@ -162,7 +162,7 @@ describe("runDev (end-to-end, in-process)", () => {
     const file = join(dir, "index.ts");
     writeFileSync(
       file,
-      `import { output } from "@boardwalk/workflow";
+      `import { output } from "@boardwalk-labs/workflow";
        export const meta = { name: "pipe", triggers: [{ kind: "manual" }] };
        output({ answer: 42 });`,
     );
@@ -178,7 +178,7 @@ describe("runDev (end-to-end, in-process)", () => {
     const file = join(dir, "agentic.ts");
     writeFileSync(
       file,
-      `import { agent } from "@boardwalk/workflow";
+      `import { agent } from "@boardwalk-labs/workflow";
        export const meta = { name: "a", triggers: [{ kind: "manual" }] };
        await agent("hi");`,
     );

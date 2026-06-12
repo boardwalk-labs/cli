@@ -13,7 +13,7 @@ import {
   matchesChannels,
   type Channel,
   type RunEvent,
-} from "@boardwalk/workflow";
+} from "@boardwalk-labs/workflow";
 import { CliError } from "../errors.js";
 
 export interface ChannelFlags {

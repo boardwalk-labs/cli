@@ -1,6 +1,6 @@
 // The `boardwalk dev` WorkflowHost — the minimal embedded host backing a one-off local run.
 //
-// Scope (v0.1, until `@boardwalk/engine` ships and `dev` delegates to its embedded mode):
+// Scope (v0.1, until `@boardwalk-labs/engine` ships and `dev` delegates to its embedded mode):
 //   - secrets resolve from the project's env file (fail-closed against `meta.secrets`)
 //   - sleep really sleeps (hold-and-pay semantics: locals survive, the process waits)
 //   - Phase() markers and output() flow into the run-event stream
@@ -18,9 +18,9 @@ import type {
   PhaseOptions,
   SleepArg,
   WorkflowManifest,
-} from "@boardwalk/workflow";
-import type { WorkflowHost } from "@boardwalk/workflow/runtime";
-import type { RunEvent } from "@boardwalk/workflow";
+} from "@boardwalk-labs/workflow";
+import type { WorkflowHost } from "@boardwalk-labs/workflow/runtime";
+import type { RunEvent } from "@boardwalk-labs/workflow";
 import { CliError } from "../errors.js";
 
 /** A run event minus its envelope — the emitter (dev.ts) stamps runId/turnId/seq/t. */
@@ -54,7 +54,7 @@ export function createDevHost(ctx: DevHostContext): WorkflowHost {
     agent(): Promise<unknown> {
       throw new CliError(
         "agent() isn't available in `boardwalk dev` yet.",
-        "The embedded local engine ships with @boardwalk/engine — until then, deploy and use " +
+        "The embedded local engine ships with @boardwalk-labs/engine — until then, deploy and use " +
           "`boardwalk run` to execute agent loops.",
       );
     },

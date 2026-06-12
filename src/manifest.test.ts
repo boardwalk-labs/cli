@@ -9,7 +9,7 @@ describe("extractWorkflowName", () => {
 
   it("unwraps `satisfies WorkflowMeta`", () => {
     const src = `
-      import type { WorkflowMeta } from "@boardwalk/workflow";
+      import type { WorkflowMeta } from "@boardwalk-labs/workflow";
       export const meta = { name: "wf", description: "d" } satisfies WorkflowMeta;
     `;
     expect(extractWorkflowName(src)).toBe("wf");

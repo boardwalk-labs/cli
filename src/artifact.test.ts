@@ -38,7 +38,7 @@ describe("buildArtifact — single file", () => {
     const entry = join(dir, "wf.ts");
     writeFileSync(
       entry,
-      `import { sleep } from "@boardwalk/workflow";
+      `import { sleep } from "@boardwalk-labs/workflow";
        export const meta = { name: "solo-wf", description: "d" };
        await sleep(1);`,
     );
@@ -65,7 +65,7 @@ describe("buildArtifact — single file", () => {
     const entry = join(dir, "wf.ts");
     const original = `export const meta = { name: "spaced", description: "d" };
 
-import { agent } from "@boardwalk/workflow";
+import { agent } from "@boardwalk-labs/workflow";
 
 // breathing room
 await agent("go");
@@ -82,7 +82,7 @@ await agent("go");
     const entry = join(dir, "wf.ts");
     writeFileSync(
       entry,
-      `import { agent } from "@boardwalk/workflow";
+      `import { agent } from "@boardwalk-labs/workflow";
        export const meta = { name: "stable", description: "d" };
        await agent("hi", { model: "anthropic/claude-sonnet-4.5" });`,
     );
@@ -107,12 +107,12 @@ describe("buildArtifact — package with assets", () => {
   it("inlines local deps, ships assets at their relative paths, resolves the SDK version", async () => {
     writeFileSync(
       join(pkg, "package.json"),
-      JSON.stringify({ name: "pkg-wf", dependencies: { "@boardwalk/workflow": "^1.2.0" } }),
+      JSON.stringify({ name: "pkg-wf", dependencies: { "@boardwalk-labs/workflow": "^1.2.0" } }),
     );
     writeFileSync(join(pkg, "helper.ts"), `export const GREETING = "from-helper";`);
     writeFileSync(
       join(pkg, "index.ts"),
-      `import { agent } from "@boardwalk/workflow";
+      `import { agent } from "@boardwalk-labs/workflow";
        import { GREETING } from "./helper.ts";
        export const meta = { name: "pkg-wf", description: "d" };
        await agent(GREETING, { model: "anthropic/claude-sonnet-4.5" });`,
@@ -208,11 +208,11 @@ describe("resolveSdkVersion", () => {
   it("prefers the installed version over the declared range", () => {
     writeFileSync(
       join(pkg, "package.json"),
-      JSON.stringify({ dependencies: { "@boardwalk/workflow": "^1.0.0" } }),
+      JSON.stringify({ dependencies: { "@boardwalk-labs/workflow": "^1.0.0" } }),
     );
-    mkdirSync(join(pkg, "node_modules", "@boardwalk", "workflow"), { recursive: true });
+    mkdirSync(join(pkg, "node_modules", "@boardwalk-labs", "workflow"), { recursive: true });
     writeFileSync(
-      join(pkg, "node_modules", "@boardwalk", "workflow", "package.json"),
+      join(pkg, "node_modules", "@boardwalk-labs", "workflow", "package.json"),
       JSON.stringify({ version: "1.4.2" }),
     );
     expect(resolveSdkVersion(pkg)).toBe("1.4.2");
@@ -221,7 +221,7 @@ describe("resolveSdkVersion", () => {
   it("falls back to the declared range, then UNPINNED", () => {
     writeFileSync(
       join(pkg, "package.json"),
-      JSON.stringify({ devDependencies: { "@boardwalk/workflow": "2.0.0-beta" } }),
+      JSON.stringify({ devDependencies: { "@boardwalk-labs/workflow": "2.0.0-beta" } }),
     );
     expect(resolveSdkVersion(pkg)).toBe("2.0.0-beta");
 

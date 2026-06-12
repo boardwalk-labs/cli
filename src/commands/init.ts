@@ -24,11 +24,11 @@ export interface InitDeps {
 
 /** Where templates live: the boardwalk-examples repo, raw. Overridable for forks/mirrors. */
 const DEFAULT_TEMPLATES_URL =
-  "https://raw.githubusercontent.com/boardwalk-dev/boardwalk-examples/main";
+  "https://raw.githubusercontent.com/boardwalk-labs/boardwalk-examples/main";
 
 // ── The built-in `hello` template (offline floor) ───────────────────────────────────────
 
-const HELLO_PROGRAM = `import { input, output, type WorkflowMeta } from "@boardwalk/workflow";
+const HELLO_PROGRAM = `import { input, output, type WorkflowMeta } from "@boardwalk-labs/workflow";
 
 export const meta = {
   name: "{{name}}",
@@ -51,7 +51,7 @@ const HELLO_PACKAGE_JSON = `{
   "private": true,
   "type": "module",
   "dependencies": {
-    "@boardwalk/workflow": "^0.1.0"
+    "@boardwalk-labs/workflow": "^0.1.0"
   }
 }
 `;

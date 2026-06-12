@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateMeta } from "@boardwalk/workflow";
+import { validateMeta } from "@boardwalk-labs/workflow";
 import { createDevHost, type RunEventBody } from "./host.js";
 
 function makeCtx(over: { secrets?: { name: string }[]; env?: [string, string][] } = {}) {

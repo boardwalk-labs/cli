@@ -1,4 +1,4 @@
-// Manifest extraction for CLI commands — thin wrappers over `@boardwalk/workflow/extract`,
+// Manifest extraction for CLI commands — thin wrappers over `@boardwalk-labs/workflow/extract`,
 // translating extraction/validation failures into actionable `CliError`s.
 //
 // Two tiers, on purpose:
@@ -15,8 +15,8 @@ import {
   extractManifest,
   extractMetaLiteral,
   MetaExtractionError,
-} from "@boardwalk/workflow/extract";
-import { MetaValidationError, type WorkflowManifest } from "@boardwalk/workflow";
+} from "@boardwalk-labs/workflow/extract";
+import { MetaValidationError, type WorkflowManifest } from "@boardwalk-labs/workflow";
 import { CliError } from "./errors.js";
 
 /**

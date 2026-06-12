@@ -1,8 +1,8 @@
-# Contributing to @boardwalk/cli
+# Contributing to @boardwalk-labs/cli
 
 Thanks for improving the front door. The CLI is UX plus a thin platform client — contracts live in
-[`@boardwalk/workflow`](https://github.com/boardwalk-dev/boardwalk-sdk), engine behavior in
-`@boardwalk/engine`; if your change is really one of those, it goes there.
+[`@boardwalk-labs/workflow`](https://github.com/boardwalk-labs/boardwalk-sdk), engine behavior in
+`@boardwalk-labs/engine`; if your change is really one of those, it goes there.
 
 ## Ground rules
 

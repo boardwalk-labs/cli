@@ -70,12 +70,12 @@ describe("bundleWorkflow", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("inlines a local dependency and leaves @boardwalk/workflow external", async () => {
+  it("inlines a local dependency and leaves @boardwalk-labs/workflow external", async () => {
     writeFileSync(join(dir, "helper.ts"), `export const GREETING = "from-helper";`);
     const entry = join(dir, "index.ts");
     writeFileSync(
       entry,
-      `import { agent } from "@boardwalk/workflow";
+      `import { agent } from "@boardwalk-labs/workflow";
        import { GREETING } from "./helper.ts";
        export const meta = { name: "bundled-wf", description: "d" };
        await agent(GREETING, undefined);`,
@@ -84,7 +84,7 @@ describe("bundleWorkflow", () => {
     const out = await bundleWorkflow(entry);
     // Local dep is inlined (its value present), SDK import is preserved as an external import.
     expect(out).toContain("from-helper");
-    expect(out).toMatch(/from\s*"@boardwalk\/workflow"/);
+    expect(out).toMatch(/from\s*"@boardwalk-labs\/workflow"/);
     expect(out).not.toContain("./helper");
   });
 
@@ -92,7 +92,7 @@ describe("bundleWorkflow", () => {
     const entry = join(dir, "index.ts");
     writeFileSync(
       entry,
-      `import { sleep } from "@boardwalk/workflow";
+      `import { sleep } from "@boardwalk-labs/workflow";
        export const meta = { name: "still-extractable", description: "d" };
        await sleep(1);`,
     );

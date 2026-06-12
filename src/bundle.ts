@@ -3,7 +3,7 @@
 // A workflow is a package with an `index` entrypoint; a single file is the no-deps case. When a
 // program pulls in npm packages, we bundle it AT DEPLOY (not at runtime) via esbuild into one
 // self-contained, version-pinned ESM artifact and upload THAT as the run's `source`:
-//   - `@boardwalk/workflow` is marked EXTERNAL (host-provided — bundling a copy would give the
+//   - `@boardwalk-labs/workflow` is marked EXTERNAL (host-provided — bundling a copy would give the
 //     program its own host state, separate from the engine's, and break the host seam).
 //   - `meta` stays a pure literal in the output, so engines re-derive the manifest from it.
 //   - Bundling at deploy keeps run cold-start fast and pins deps at PR time.
@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { CliError } from "./errors.js";
 
-const SDK_PACKAGE = "@boardwalk/workflow";
+const SDK_PACKAGE = "@boardwalk-labs/workflow";
 const ENTRY_CANDIDATES = ["index.ts", "index.mts", "index.js", "index.mjs"];
 
 /** True when `target` is a directory (a workflow package), vs. a single program file. */
@@ -59,7 +59,7 @@ export function resolveEntry(target: string): string {
 }
 
 /**
- * esbuild-bundle the entry into one self-contained ESM string. `@boardwalk/workflow` is left
+ * esbuild-bundle the entry into one self-contained ESM string. `@boardwalk-labs/workflow` is left
  * external (host-provided). Not minified — the `meta` literal must stay statically extractable.
  */
 export async function bundleWorkflow(entryFile: string): Promise<string> {
@@ -89,7 +89,7 @@ export async function bundleWorkflow(entryFile: string): Promise<string> {
 
 /** A bundled program plus its external sourcemap (for run-error symbolication back to user files). */
 export interface BundledProgram {
-  /** The bundled ESM (`index.mjs`); `@boardwalk/workflow` left external, not minified. */
+  /** The bundled ESM (`index.mjs`); `@boardwalk-labs/workflow` left external, not minified. */
   code: string;
   /** The external sourcemap JSON (`index.mjs.map`). */
   map: string;
@@ -134,7 +134,7 @@ export async function bundleWorkflowWithMap(entryFile: string): Promise<BundledP
 
 /**
  * esbuild-bundle the entry for `boardwalk dev` — like {@link bundleWorkflow}, but
- * `@boardwalk/workflow` imports are rewritten to the ABSOLUTE path of the CLI's own installed
+ * `@boardwalk-labs/workflow` imports are rewritten to the ABSOLUTE path of the CLI's own installed
  * copy. The SDK's host state is a module-level singleton, so the program and the CLI must load
  * the SAME module instance for `installHost` (called by the CLI) to be visible to the program's
  * hooks; an absolute specifier guarantees that regardless of where the bundle file lives or
@@ -157,7 +157,7 @@ export async function bundleForDev(entryFile: string): Promise<string> {
         {
           name: "boardwalk-sdk-shared-instance",
           setup(b) {
-            b.onResolve({ filter: /^@boardwalk\/workflow(\/.+)?$/ }, (args) => ({
+            b.onResolve({ filter: /^@boardwalk-labs\/workflow(\/.+)?$/ }, (args) => ({
               path: requireFromCli.resolve(args.path),
               external: true,
             }));

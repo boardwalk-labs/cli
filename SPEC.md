@@ -1,4 +1,4 @@
-# SPEC — `boardwalk-cli` (`@boardwalk/cli`)
+# SPEC — `boardwalk-cli` (`@boardwalk-labs/cli`)
 
 > The front door: author, validate, run locally, and deploy workflows. MIT. Public in **Phase 1**.
 >
@@ -6,14 +6,14 @@
 
 ## 1. Purpose
 
-One binary, `boardwalk`, covering the full author journey: `init` (start from a template) → `dev` (run it now, locally, no account) → `check` (validate) → `login`/`deploy`/`run` (the Boardwalk platform). The CLI contains UX and a platform API client — engine logic lives in `@boardwalk/engine`, contracts in `@boardwalk/workflow`.
+One binary, `boardwalk`, covering the full author journey: `init` (start from a template) → `dev` (run it now, locally, no account) → `check` (validate) → `login`/`deploy`/`run` (the Boardwalk platform). The CLI contains UX and a platform API client — engine logic lives in `@boardwalk-labs/engine`, contracts in `@boardwalk-labs/workflow`.
 
 ## 2. Commands (v1)
 
 | Command             | Args / flags                                                                                                                                                            | Behavior                                                                                                                                                                                                                |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `init [dir]`        | `--template <name>` (default: the built-in `hello` template)                                                                                                            | Scaffold a workflow project from a `boardwalk-examples` template: program file, `package.json`, `.env.example`, `.gitignore` (covers `.env`, `.boardwalk/`)                                                             |
-| `dev <file>`        | `--input <json>`, `--env <path>` (default `.env`; named `--env` because Node ≥26 intercepts a literal `--env-file` argument itself), `--verbose`, `--stream <channels>` | **Run the workflow now, locally, no account.** Derives the manifest, validates, spawns the run via `@boardwalk/engine`, streams the run-event log, exits with the run's status (0 completed / 1 failed / 130 cancelled) |
+| `dev <file>`        | `--input <json>`, `--env <path>` (default `.env`; named `--env` because Node ≥26 intercepts a literal `--env-file` argument itself), `--verbose`, `--stream <channels>` | **Run the workflow now, locally, no account.** Derives the manifest, validates, spawns the run via `@boardwalk-labs/engine`, streams the run-event log, exits with the run's status (0 completed / 1 failed / 130 cancelled) |
 | `check <file>`      | —                                                                                                                                                                       | Validate program + manifest locally. No auth, no network                                                                                                                                                                |
 | `login`             | `--token <key>`                                                                                                                                                         | Browser PKCE flow against the configured issuer; `--token` stores an API key (`bwk_…`) instead. Precedence: `--token` > `BOARDWALK_API_KEY` > stored session                                                            |
 | `logout` / `whoami` | —                                                                                                                                                                       | Session management                                                                                                                                                                                                      |
@@ -35,23 +35,23 @@ One binary, `boardwalk`, covering the full author journey: `init` (start from a 
 
 1. Load `.env` (or `--env <path>`) into the run's secret/env resolution; never print values.
 2. Derive + validate the manifest (`extractValidatedManifest`, over the SDK's `/extract` + schema); fail with precise, friendly errors before anything runs.
-3. Spawn the run through `@boardwalk/engine`'s embedded mode (one run, in-process supervisor, exit on terminal status).
+3. Spawn the run through `@boardwalk-labs/engine`'s embedded mode (one run, in-process supervisor, exit on terminal status).
 4. Render the event stream live, honoring the **channel subscription** (SDK kind→channel mapping, MASTER_SPEC §2.5): default = `lifecycle + phase + output` (plus errors — quiet, readable); `--stream <channels>` picks channels explicitly (e.g. `--stream output` for result-only, pipe-friendly); `--verbose` subscribes to everything (agent turns streamed, tool calls, captured stdout/stderr, token usage + duration summary). One renderer, channel-driven. (These flags are on `dev`; `run` polls to a terminal status in v0.1 and does not stream.)
 5. Missing secret → error naming the variable and pointing at `.env`. Omitted `agent()` model → error naming the config key for a local default model.
 
 Deliberately absent from `dev` v1: cron/webhook listening, run history, daemon mode. Production scheduling = `deploy` or the self-hosted server (MASTER_SPEC §3).
 
-### 4.1 v0.1 implementation status (pre-`@boardwalk/engine`)
+### 4.1 v0.1 implementation status (pre-`@boardwalk-labs/engine`)
 
 `dev` ships now with a **minimal built-in host** instead of step 3's embedded engine (the §8.1
-interim): the program is esbuild-bundled with `@boardwalk/workflow` resolved to the CLI's own
+interim): the program is esbuild-bundled with `@boardwalk-labs/workflow` resolved to the CLI's own
 installed copy (one module instance ⇒ the host singleton is shared) and executed in-process.
 Working today: manifest validation, `.env` secrets (fail-closed against `meta.secrets`), real
 `sleep`, `Phase()` / `output()` frames, artifacts under `.bw-runs/<runId>/`, channel-filtered
 rendering, exit codes (0 / 1 / 130 on Ctrl-C). Not yet (each fails with a clear pointer, never
 silently): `agent()`, `workflows.call()`; program stdout/stderr passes straight through to the
 terminal rather than being captured as `program_output` events. Swapping the built-in host for
-`@boardwalk/engine` embedded mode removes those gaps without changing any flag or frame.
+`@boardwalk-labs/engine` embedded mode removes those gaps without changing any flag or frame.
 
 ## 5. platform API client
 
@@ -94,6 +94,6 @@ src/
 
 ## 8. Ready to go public when
 
-1. All §2 commands work against the Boardwalk platform's public API and a published `@boardwalk/engine` (interim: `dev` may ship one release behind a feature flag if the engine isn't published yet — `init`/`check`/`login`/`deploy`/`run` carry Phase 1 on their own).
-2. `npm i -g @boardwalk/cli` on a clean machine: `init` → `dev` (or `check`) → `login` → `deploy` → green run, documented in the README quickstart.
+1. All §2 commands work against the Boardwalk platform's public API and a published `@boardwalk-labs/engine` (interim: `dev` may ship one release behind a feature flag if the engine isn't published yet — `init`/`check`/`login`/`deploy`/`run` carry Phase 1 on their own).
+2. `npm i -g @boardwalk-labs/cli` on a clean machine: `init` → `dev` (or `check`) → `login` → `deploy` → green run, documented in the README quickstart.
 3. Startup budget met; no secrets in any output; publication checklist (MASTER_SPEC §8) passes.

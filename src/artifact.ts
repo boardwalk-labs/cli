@@ -2,7 +2,7 @@
 //
 // The packaging model: a workflow is built into a JS artifact AT DEPLOY (never at runtime).
 // `buildArtifact` esbuild-bundles the entry into one `index.mjs` (+ external sourcemap,
-// `@boardwalk/workflow` left external — the host layer), collects the package's non-code assets
+// `@boardwalk-labs/workflow` left external — the host layer), collects the package's non-code assets
 // (markdown skills, prompt templates) at their relative paths, and packs the lot into a
 // DETERMINISTIC `tar.gz`. The artifact is content-addressed by the sha256 of its bytes: the same
 // bytes the CLI uploads are the bytes the runner downloads + verifies, so integrity holds
@@ -27,7 +27,7 @@ import { create as tarCreate } from "tar";
 import { bundleWorkflowWithMap, isPackageDir, resolveEntry } from "./bundle.js";
 import { CliError } from "./errors.js";
 
-const SDK_PACKAGE = "@boardwalk/workflow";
+const SDK_PACKAGE = "@boardwalk-labs/workflow";
 /** The entry module the runner imports after extraction. The whole local graph bundles into it. */
 export const ENTRY_OUTPUT = "index.mjs";
 /** The author's ORIGINAL entry source, stored verbatim under the `.bw-src/` tree so a dashboard's
@@ -84,7 +84,7 @@ export interface BuiltArtifact {
   size: number;
   /** Entry module within the extracted tree ({@link ENTRY_OUTPUT}). */
   entry: string;
-  /** Resolved `@boardwalk/workflow` version the program was built against, or {@link UNPINNED_SDK}. */
+  /** Resolved `@boardwalk-labs/workflow` version the program was built against, or {@link UNPINNED_SDK}. */
   sdkVersion: string;
   /** sha256 of the project's lockfile (reproducibility anchor), or null when there is none. */
   lockfileDigest: string | null;
@@ -222,7 +222,7 @@ function readAssetGlobs(pkgDir: string): string[] | null {
 }
 
 /**
- * Resolve the `@boardwalk/workflow` version the program is built against (for runner SDK-layer
+ * Resolve the `@boardwalk-labs/workflow` version the program is built against (for runner SDK-layer
  * compat): prefer the actually-installed version, then the declared dependency range, else UNPINNED.
  */
 export function resolveSdkVersion(pkgDir: string | null): string {
