@@ -1,6 +1,6 @@
 // `boardwalk init [dir]` — scaffold a new workflow project.
 //
-// Templates come from the boardwalk-examples registry: `--template <name>` fetches
+// Templates come from the examples registry: `--template <name>` fetches
 // `registry.json` and the template's files from the templates base URL
 // ($BOARDWALK_TEMPLATES_URL to point at a fork/mirror). The default `hello` template is
 // BUILT IN — `init` works offline and with zero configuration.
@@ -22,9 +22,9 @@ export interface InitDeps {
   env?: NodeJS.ProcessEnv;
 }
 
-/** Where templates live: the boardwalk-examples repo, raw. Overridable for forks/mirrors. */
+/** Where templates live: the examples repo, raw. Overridable for forks/mirrors. */
 const DEFAULT_TEMPLATES_URL =
-  "https://raw.githubusercontent.com/boardwalk-labs/boardwalk-examples/main";
+  "https://raw.githubusercontent.com/boardwalk-labs/examples/main";
 
 // ── The built-in `hello` template (offline floor) ───────────────────────────────────────
 
@@ -76,7 +76,7 @@ const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
   },
 };
 
-// ── Registry shapes (boardwalk-examples/registry.json) ─────────────────────────────────
+// ── Registry shapes (examples/registry.json) ─────────────────────────────────
 
 interface RegistryTemplate {
   name: string;

@@ -42,7 +42,7 @@
       "esbuild"
     ],
     "overrides": {
-      "@boardwalk-labs/workflow": "link:../boardwalk-sdk"
+      "@boardwalk-labs/workflow": "link:../sdk"
     }
   },
   "devDependencies": {

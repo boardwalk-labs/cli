@@ -54,7 +54,7 @@ function buildProgram(): Command {
     .argument("[dir]", "directory to scaffold into (created if missing)", ".")
     .option(
       "--template <name>",
-      "template: the built-in `hello`, or any name from the boardwalk-examples registry",
+      "template: the built-in `hello`, or any name from the examples registry",
       "hello",
     )
     .description("Scaffold a new workflow project from a template.")
