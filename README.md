@@ -4,7 +4,7 @@ The `boardwalk` command — author, validate, run locally, and deploy [Boardwalk
 
 ```
 boardwalk init my-workflow                 # scaffold a project from a template
-boardwalk dev ./index.ts                   # run it NOW, locally — no account needed
+boardwalk dev ./index.ts                   # run it locally — no account needed
 boardwalk check ./index.ts                 # validate locally (no auth/network)
 boardwalk login                            # browser OAuth (PKCE) → stores a session
 boardwalk deploy ./index.ts --org my-team  # ship it to the Boardwalk platform
@@ -17,7 +17,7 @@ boardwalk logout / whoami
 
 - **`init [dir]`** — scaffold a workflow project: program file, `package.json`, `.env.example`,
   `.gitignore`. The default template runs green under `dev` immediately.
-- **`dev <file|dir>`** — run the workflow right here, right now. Derives + validates the manifest
+- **`dev <file|dir>`** — run the workflow locally. Derives and validates the manifest
   (precise errors before anything runs), bundles the program, executes it in-process, and streams
   the run-event log. Secrets resolve from `.env` (or `--env <path>`); values never print.
   Exit code is the run's verdict: `0` completed, `1` failed, `130` cancelled (Ctrl-C).
