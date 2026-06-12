@@ -75,7 +75,6 @@ export interface RunOptions {
   file: string;
   org?: string | undefined;
   input?: string | undefined;
-  bundle?: boolean;
   token?: string | undefined;
   noWait?: boolean;
 }

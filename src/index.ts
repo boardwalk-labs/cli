@@ -25,14 +25,12 @@ const VERSION = "0.1.0";
 interface DeployCliOptions {
   org?: string;
   dryRun?: boolean;
-  bundle?: boolean;
   token?: string;
 }
 
 interface RunCliOptions {
   org?: string;
   input?: string;
-  bundle?: boolean;
   token?: string;
   wait?: boolean;
 }
@@ -125,11 +123,6 @@ function buildProgram(): Command {
     .argument("<file>", "workflow program file, or a package directory")
     .option("--org <slug>", "the org to deploy into (optional once the project is linked)")
     .option("--dry-run", "print the plan (create vs update) without writing", false)
-    .option(
-      "--bundle",
-      "esbuild-bundle deps into the uploaded source (auto for a directory)",
-      false,
-    )
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Create or update a workflow from a program file.")
     .action(async (file: string, options: DeployCliOptions) => {
@@ -139,7 +132,6 @@ function buildProgram(): Command {
           file,
           org: options.org,
           check: options.dryRun ?? false,
-          bundle: options.bundle ?? false,
           token: options.token,
         },
         { config: loadConfig() },
@@ -151,11 +143,6 @@ function buildProgram(): Command {
     .argument("<file>", "workflow program file, or a package directory")
     .option("--org <slug>", "the org to run in (optional once the project is linked)")
     .option("--input <json>", "trigger payload exposed to the program as `input`")
-    .option(
-      "--bundle",
-      "esbuild-bundle deps into the uploaded source (auto for a directory)",
-      false,
-    )
     .option("--no-wait", "trigger and exit without waiting for the run to finish")
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Deploy the program, trigger a real run, and wait for the result.")
@@ -166,7 +153,6 @@ function buildProgram(): Command {
           file,
           org: options.org,
           input: options.input,
-          bundle: options.bundle ?? false,
           noWait: options.wait === false,
           token: options.token,
         },

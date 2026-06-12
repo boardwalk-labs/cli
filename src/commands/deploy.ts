@@ -17,7 +17,6 @@ export interface DeployOptions {
   org?: string | undefined;
   check: boolean;
   /** Force esbuild bundling even for a single file (auto-on for a package directory). */
-  bundle?: boolean;
   token?: string | undefined;
 }
 
