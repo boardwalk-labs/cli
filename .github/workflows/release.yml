@@ -1,9 +1,16 @@
-# Publish to npm with provenance on a version tag (v0.1.0 → @boardwalk-labs/cli@0.1.0).
-# Requires: the NPM_TOKEN repo secret (an npm automation token for the @boardwalk scope).
+# Publish to npm with provenance on a version tag (v0.1.0 -> @boardwalk-labs/cli@0.1.0), then bump
+# the Homebrew tap.
 #
-# Publish guard: the pnpm `link:` override on @boardwalk-labs/workflow is an incubation-only
-# device — publishing with it present would ship a CLI whose lockfile never exercised the
-# real registry dependency. The guard step blocks the release until it's removed.
+# Auth: npm Trusted Publishing via GitHub OIDC (no stored token). Configure the trusted publisher
+# for @boardwalk-labs/cli on npmjs.com: org boardwalk-labs, repo boardwalk-labs/cli, workflow
+# .github/workflows/release.yml.
+#
+# Publish guard: the pnpm `link:` override on @boardwalk-labs/workflow is an incubation-only device.
+# Publishing with it present would ship a CLI whose lockfile never exercised the real registry
+# dependency, so the guard step blocks the release until it is removed (cut over to the npm SDK).
+#
+# Homebrew: bump-homebrew updates boardwalk-labs/homebrew-tap; needs the HOMEBREW_TAP_TOKEN secret
+# (a token with write access to that tap repo). brew-smoke-test installs the bumped formula.
 
 name: Release
 
@@ -16,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm --provenance
+      id-token: write # npm --provenance (Trusted Publishing)
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -28,7 +35,7 @@ jobs:
       - name: "No link: overrides in a release"
         run: |
           if node -p "JSON.stringify(require('./package.json').pnpm?.overrides ?? {})" | grep -q "link:"; then
-            echo "package.json still has a link: override — remove it and lock against the registry first" >&2
+            echo "package.json still has a link: override; remove it and lock against the registry first" >&2
             exit 1
           fi
       - run: pnpm install --frozen-lockfile
@@ -45,6 +52,51 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      # Trusted Publishing needs a recent npm (>= 11.5.1); node 24's bundled npm may be older.
+      - run: npm install -g npm@latest
       - run: npm publish --provenance --access public
+
+  bump-homebrew:
+    needs: publish
+    if: ${{ !contains(github.ref_name, '-') }} # skip prereleases
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for the npm registry to propagate
+        run: sleep 30
+      - name: Update the Homebrew tap formula
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${REF_NAME#v}"
+          TARBALL_URL="https://registry.npmjs.org/@boardwalk-labs/cli/-/cli-${VERSION}.tgz"
+          SHA256=$(curl -sSL "$TARBALL_URL" | shasum -a 256 | cut -d' ' -f1)
+          echo "version=$VERSION  sha256=$SHA256"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/boardwalk-labs/homebrew-tap.git" tap
+          cd tap
+          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/boardwalk.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/boardwalk.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/boardwalk.rb
+          git diff --cached --quiet && { echo "no formula change; skipping commit"; exit 0; }
+          git commit -m "boardwalk ${VERSION}"
+          git push
+
+  brew-smoke-test:
+    needs: bump-homebrew
+    if: ${{ !contains(github.ref_name, '-') }} # skip prereleases
+    runs-on: macos-latest
+    steps:
+      - name: Install the freshly-bumped formula
+        env:
+          HOMEBREW_NO_ANALYTICS: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew update
+          brew install --verbose boardwalk-labs/tap/boardwalk
+      - name: Run the formula test block
+        env:
+          HOMEBREW_NO_ANALYTICS: "1"
+        run: brew test boardwalk-labs/tap/boardwalk
