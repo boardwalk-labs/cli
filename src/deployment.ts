@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Shared deploy logic for `boardwalk deploy` and `boardwalk run`.
 //
 // Deploy is artifact-based: build the program into a content-addressed tarball, upload it straight

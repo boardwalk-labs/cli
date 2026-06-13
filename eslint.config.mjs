@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Flat ESLint config (ESLint 9+).
 // All rules are errors, never warnings — CI runs with `--max-warnings 0`.
 //

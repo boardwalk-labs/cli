@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk build <file|dir> [--out <path>]` — bundle a workflow to a single deployable file.
 //
 // Emits one ESM file with `@boardwalk-labs/workflow` left EXTERNAL (the engine resolves its own

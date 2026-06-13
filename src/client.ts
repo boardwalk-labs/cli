@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // BoardwalkClient — a small hand-rolled REST client over Boardwalk's public platform API
 // (deliberately no codegen client framework).
 //

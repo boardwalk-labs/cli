@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // performLogin — orchestrates the browser PKCE handshake and persists the session.
 //
 // Flow: start the loopback callback server → open the issuer's /oauth/authorize in the browser →

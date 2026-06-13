@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk dev <file|dir>` — run the workflow NOW, locally, no account.
 //
 // The tightest possible author loop: derive + validate the manifest (precise errors before

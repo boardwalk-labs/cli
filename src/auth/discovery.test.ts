@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { describe, it, expect } from "vitest";
 import { discoverOAuth } from "./discovery.js";
 import type { FetchLike } from "./pkce.js";

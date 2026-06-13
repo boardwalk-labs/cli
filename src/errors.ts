@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // CliError — a user-facing error. The top-level handler prints `message` (and `hint`, if any) to
 // stderr and exits non-zero, WITHOUT a stack trace. Throw this for expected failures (not
 // authenticated, file missing, API rejected the request); let unexpected errors surface their stack.

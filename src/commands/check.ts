@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk check <file|dir>` — validate a workflow locally (no auth, no network).
 //
 // A fast pre-flight, all local:

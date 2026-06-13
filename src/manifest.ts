@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Manifest extraction for CLI commands — thin wrappers over `@boardwalk-labs/workflow/extract`,
 // translating extraction/validation failures into actionable `CliError`s.
 //

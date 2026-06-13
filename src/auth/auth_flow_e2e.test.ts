@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // End-to-end auth integration test — exercises BOTH credential methods through the REAL CLI code,
 // not stubs of it:
 //

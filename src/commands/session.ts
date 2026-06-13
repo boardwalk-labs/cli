@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk login` / `logout` / `whoami` — session lifecycle.
 
 import { CliError } from "../errors.js";

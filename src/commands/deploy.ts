@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk deploy <file|dir> [--org <slug>]` — ship a workflow program.
 //
 // Thin front-end over the REST create/update (which derives the manifest + reconciles triggers

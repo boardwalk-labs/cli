@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The engine seam for `boardwalk dev`.
 //
 // `dev` delegates a one-off local run to @boardwalk-labs/engine in EMBEDDED mode: construct →

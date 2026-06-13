@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { describe, it, expect } from "vitest";
 import { BoardwalkClient } from "./client.js";
 import type { FetchLike } from "./auth/pkce.js";

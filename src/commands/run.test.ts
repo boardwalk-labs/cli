@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { describe, it, expect } from "vitest";
 import { isTerminalStatus, pollToTerminal, parseInput, type RunReader } from "./run.js";
 import type { RunSummary } from "../client.js";

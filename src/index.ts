@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // boardwalk CLI entrypoint — argument parsing + command dispatch (commander).
 //
 // Commands:

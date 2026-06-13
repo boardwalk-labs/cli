@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // OAuth discovery — one `BOARDWALK_ISSUER_URL` resolves BOTH the authorize page and the token
 // endpoint, which live on different hosts in Boardwalk's self-hosted OAuth server (the themed consent
 // page on the web app, the token exchange on the api-server). The CLI fetches the RFC 8414 metadata

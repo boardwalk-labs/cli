@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // The run-event renderer — one renderer for `boardwalk dev` (and, later, `run --wait` streaming),
 // driven entirely by the SDK's channel mapping so `--stream phase,output` means the same thing
 // everywhere.

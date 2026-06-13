@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // OAuth 2.0 Authorization Code + PKCE — the primitives `boardwalk login` runs against the
 // platform's identity provider (an internal detail; the CLI only knows the issuer URL).
 //

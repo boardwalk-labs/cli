@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk cancel <runId>` — stop a queued or in-flight run.
 //
 // Thin front-end over POST /v1/runs/:id/cancel (idempotent server-side). The endpoint resolves the

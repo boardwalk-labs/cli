@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 /** @type {import("prettier").Config} */
 export default {
   printWidth: 100,

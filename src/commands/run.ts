@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk run <file|dir> --org <slug>` — actually run a workflow, for real.
 //
 // Runs on the PLATFORM (where the real worker + real inference live — no mocks): it deploys the

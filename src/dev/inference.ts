@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Managed-inference wiring for `boardwalk dev`.
 //
 // The north star (THE_OPEN_SOURCE_MISSION §4.5): install → login → `agent()` works locally, no

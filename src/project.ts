@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Project link — the Vercel-style tie between a local workflow directory and its deployed workflow.
 //
 // `<projectDir>/.boardwalk/project.json` (gitignored) stores `{ orgSlug, workflowId }`. Once linked,

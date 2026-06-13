@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // `boardwalk init [dir]` — scaffold a new workflow project.
 //
 // Templates come from the examples registry: `--template <name>` fetches

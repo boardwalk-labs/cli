@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Build a deploy ARTIFACT — the frozen, content-addressed program the runner executes.
 //
 // The packaging model: a workflow is built into a JS artifact AT DEPLOY (never at runtime).

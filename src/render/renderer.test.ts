@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { describe, it, expect } from "vitest";
 import type { RunEvent } from "@boardwalk-labs/workflow";
 import { CHANNELS, DEFAULT_CHANNELS } from "@boardwalk-labs/workflow";

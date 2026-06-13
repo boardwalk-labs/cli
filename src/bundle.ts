@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // Bundle-at-deploy.
 //
 // A workflow is a package with an `index` entrypoint; a single file is the no-deps case. When a

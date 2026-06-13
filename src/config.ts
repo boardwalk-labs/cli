@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // CLI configuration — resolved from environment variables with sane defaults.
 //
 // Endpoints are NOT hardcoded into logic; they derive from env so the same binary targets prod

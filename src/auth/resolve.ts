@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // resolveToken — the single place a command turns "the user" into a Bearer token.
 //
 // Precedence (highest first):

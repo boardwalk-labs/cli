@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { describe, it, expect } from "vitest";
 import { cancelMessage, runCancel } from "./cancel.js";
 import type { CliConfig } from "../config.js";

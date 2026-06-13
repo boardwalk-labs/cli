@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 // CredentialStore — the on-disk session written by `boardwalk login`, read by every authenticated
 // command.
 //
