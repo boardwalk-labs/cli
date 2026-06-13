@@ -89,14 +89,26 @@ jobs:
     if: ${{ !contains(github.ref_name, '-') }} # skip prereleases
     runs-on: macos-latest
     steps:
-      - name: Install the freshly-bumped formula
+      - name: Install + test the freshly-bumped formula
         env:
           HOMEBREW_NO_ANALYTICS: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        # Homebrew passes npm `--min-release-age` (a supply-chain guard against freshly-published
+        # versions). Right after a release, this repo's just-published SDK dep (@boardwalk-labs/workflow)
+        # is younger than that threshold and gets filtered out -> `npm` errors ENOVERSIONS and brew
+        # install fails, even though the formula is correct and the package installs fine once it ages
+        # (~a day). Treat *that specific* condition as a skip-with-warning; any OTHER failure is real.
         run: |
           brew update
-          brew install --verbose boardwalk-labs/tap/boardwalk
-      - name: Run the formula test block
-        env:
-          HOMEBREW_NO_ANALYTICS: "1"
-        run: brew test boardwalk-labs/tap/boardwalk
+          if out=$(brew install --verbose boardwalk-labs/tap/boardwalk 2>&1); then
+            echo "$out"
+            brew test boardwalk-labs/tap/boardwalk
+          else
+            echo "$out"
+            if echo "$out" | grep -q "ENOVERSIONS"; then
+              echo "::warning title=brew smoke skipped::A just-published dependency is newer than Homebrew's npm --min-release-age guard, so brew install reports ENOVERSIONS. This self-heals as the version ages (~a day); the formula is otherwise valid. Skipping."
+            else
+              echo "::error::brew install failed for a non-transient reason"
+              exit 1
+            fi
+          fi
