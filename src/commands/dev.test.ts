@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runDev } from "./dev.js";
+import { runDev, type DevDeps } from "./dev.js";
 import type { DevEngine, DevEngineFactory, DevRunResult } from "../dev/engine.js";
 import { CliError } from "../errors.js";
 
@@ -265,5 +265,43 @@ describe("runDev (end-to-end via the engine)", () => {
     if (err instanceof CliError) {
       expect(err.exitCode).toBe(130);
     }
+  });
+
+  it("merges the managed-inference overlay into the engine env and threads --org through", async () => {
+    writeFileSync(join(dir, ".env"), "FOO=bar\n");
+    const file = join(dir, "index.ts");
+    writeFileSync(file, `export const meta = { name: "i", triggers: [{ kind: "manual" }] };`);
+
+    let captured: Record<string, string> = {};
+    let seenOrg: string | null = "unset";
+    const fakeEngine: DevEngine = {
+      onEvent: () => () => undefined,
+      deploy: () => ({ name: "i" }),
+      start: () => ({ id: "run-1" }),
+      wait: () => Promise.resolve<DevRunResult>({ status: "completed", output: null, error: null }),
+      cancel: () => Promise.resolve(),
+      close: () => undefined,
+    };
+    const createEngine: DevEngineFactory = (o) => {
+      captured = o.env;
+      return fakeEngine;
+    };
+    const resolveInference: NonNullable<DevDeps["resolveInference"]> = (d) => {
+      seenOrg = d.orgSlug;
+      return Promise.resolve({
+        BOARDWALK_API_KEY: "bwk_x",
+        BOARDWALK_INFERENCE_URL: "https://api/v1/inference",
+      });
+    };
+
+    await runDev(
+      { file, input: undefined, verbose: false, stream: undefined, envFile: undefined, org: "acme" },
+      { write, onSigint: noSigint, createEngine, resolveInference },
+    );
+
+    expect(captured.FOO).toBe("bar"); // the .env still flows through
+    expect(captured.BOARDWALK_API_KEY).toBe("bwk_x"); // overlay merged in
+    expect(captured.BOARDWALK_INFERENCE_URL).toBe("https://api/v1/inference");
+    expect(seenOrg).toBe("acme"); // --org reached the resolver
   });
 });

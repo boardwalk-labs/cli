@@ -58,6 +58,8 @@ interface DevCliOptions {
   env?: string;
   verbose?: boolean;
   stream?: string;
+  org?: string;
+  token?: string;
 }
 
 interface BuildCliOptions {
@@ -94,6 +96,10 @@ function buildProgram(): Command {
     .option("--env <path>", "env file resolving secrets for the run (default: .env)")
     .option("--verbose", "stream every event channel (agent turns, tool calls, logs)", false)
     .option("--stream <channels>", "comma-separated channels: lifecycle,phase,output,log,agent")
+    // agent() with no provider uses Boardwalk managed inference; --org bills it (else the project
+    // link's org, else set BOARDWALK_API_KEY / name a provider). Needs `boardwalk login`.
+    .option("--org <slug>", "org to bill managed inference to (for agent() with no provider)")
+    .option("--token <token>", "bearer to mint the inference key with, instead of stored login")
     .description("Run the workflow now, locally (no account needed).")
     .action(async (file: string, options: DevCliOptions) => {
       const { runDev } = await import("./commands/dev.js");
@@ -103,6 +109,8 @@ function buildProgram(): Command {
         envFile: options.env,
         verbose: options.verbose ?? false,
         stream: options.stream,
+        org: options.org,
+        token: options.token,
       });
     });
 

@@ -48,6 +48,13 @@ export interface RunSummary {
   completedAt: number | null;
 }
 
+/** A freshly-minted inference-gateway key: the plaintext token (shown once) + its expiry/id. */
+export interface MintedInferenceKey {
+  token: string;
+  expiresAt: number | null;
+  id: string | null;
+}
+
 export interface BoardwalkClientOptions {
   baseUrl: string;
   token: string;
@@ -149,6 +156,19 @@ export class BoardwalkClient {
     await this.request<undefined>("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`);
   }
 
+  /**
+   * Mint an inference-only key for the gateway (scope inference:invoke, a default spend cap), the
+   * credential `boardwalk dev` injects so the engine's default `boardwalk` provider works. The
+   * server fixes scopes/cap/expiry — no request body. Returns the plaintext token ONCE.
+   */
+  async mintInferenceKey(orgSlug: string): Promise<MintedInferenceKey> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/inference-keys`,
+    );
+    return this.mintedInferenceKey(body);
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.token}`,
@@ -202,6 +222,24 @@ export class BoardwalkClient {
       if (isRunSummary(run)) return run;
     }
     throw new CliError("The API returned an unexpected run response shape.");
+  }
+
+  private mintedInferenceKey(body: unknown): MintedInferenceKey {
+    if (typeof body === "object" && body !== null) {
+      const b = body as { token?: unknown; apiKey?: unknown };
+      if (typeof b.token === "string" && b.token.length > 0) {
+        const apiKey =
+          typeof b.apiKey === "object" && b.apiKey !== null
+            ? (b.apiKey as { id?: unknown; expiresAt?: unknown })
+            : {};
+        return {
+          token: b.token,
+          expiresAt: typeof apiKey.expiresAt === "number" ? apiKey.expiresAt : null,
+          id: typeof apiKey.id === "string" ? apiKey.id : null,
+        };
+      }
+    }
+    throw new CliError("The API returned an unexpected inference-key response shape.");
   }
 }
 

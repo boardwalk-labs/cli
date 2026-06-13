@@ -15,8 +15,13 @@ import type { JsonValue } from "@boardwalk-labs/workflow";
 import { CliError } from "../errors.js";
 import { bundleWorkflow, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
-import { projectDirFor } from "../project.js";
+import { projectDirFor, readLink } from "../project.js";
+import { loadConfig, type CliConfig } from "../config.js";
 import { createDevEngine, type DevEngineFactory } from "../dev/engine.js";
+import {
+  resolveInferenceEnv,
+  type ResolveInferenceEnvDeps,
+} from "../dev/inference.js";
 import { createRenderer, parseChannels } from "../render/renderer.js";
 import { parseInput } from "./run.js";
 
@@ -26,6 +31,10 @@ export interface DevOptions {
   envFile?: string | undefined;
   verbose: boolean;
   stream?: string | undefined;
+  /** Org for managed inference when `agent()` names no provider (else the project link's org). */
+  org?: string | undefined;
+  /** A one-off bearer for minting the inference key, instead of the stored login session. */
+  token?: string | undefined;
 }
 
 export interface DevDeps {
@@ -35,6 +44,10 @@ export interface DevDeps {
   onSigint?: (handler: () => void) => () => void;
   /** Engine factory — injected so tests can drive orchestration without spawning processes. */
   createEngine?: DevEngineFactory;
+  /** CLI config (endpoints + config dir); defaults to the env-derived config. */
+  config?: CliConfig;
+  /** Managed-inference resolver — injected so tests don't touch the network/credential store. */
+  resolveInference?: (deps: ResolveInferenceEnvDeps) => Promise<Record<string, string>>;
 }
 
 export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void> {
@@ -44,6 +57,8 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
       process.stdout.write(text);
     });
   const createEngine = deps.createEngine ?? createDevEngine;
+  const config = deps.config ?? loadConfig();
+  const resolveInference = deps.resolveInference ?? resolveInferenceEnv;
 
   const channels = parseChannels({ verbose: opts.verbose, stream: opts.stream });
   const renderer = createRenderer(channels, write);
@@ -58,15 +73,27 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
   const envPath = opts.envFile ?? join(projectDir, ".env");
   const envVars = loadEnvFile(envPath, opts.envFile !== undefined);
 
-  // 3. Bundle the program — `@boardwalk-labs/workflow` left EXTERNAL; the engine resolves it from
+  // 3. Managed inference: so `agent()` with no provider works locally after `boardwalk login`,
+  //    overlay a short-lived inference key + gateway URL. Best-effort — empty when the user set
+  //    their own BOARDWALK_API_KEY, no org is resolvable, or they're logged out. The .env wins over
+  //    process.env for the "already has a key?" decision; the overlay never clobbers either.
+  const orgSlug = opts.org ?? readLink(projectDir)?.orgSlug ?? null;
+  const inferenceEnv = await resolveInference({
+    config,
+    orgSlug,
+    env: { ...process.env, ...Object.fromEntries(envVars) },
+    ...(opts.token !== undefined ? { tokenFlag: opts.token } : {}),
+  });
+
+  // 4. Bundle the program — `@boardwalk-labs/workflow` left EXTERNAL; the engine resolves it from
   //    its own copy (one shared SDK instance, so the host seam works) when it runs the program.
   const program = await bundleWorkflow(entry);
 
-  // 4. Run it on the embedded engine in a throwaway data dir; stream its events.
+  // 5. Run it on the embedded engine in a throwaway data dir; stream its events.
   const dataDir = mkdtempSync(join(tmpdir(), "bw-dev-"));
   const engine = createEngine({
     dataDir,
-    env: Object.fromEntries(envVars),
+    env: { ...Object.fromEntries(envVars), ...inferenceEnv },
     envLabel: envPath,
   });
   const unsubscribe = engine.onEvent((event) => {

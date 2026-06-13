@@ -182,6 +182,37 @@ describe("BoardwalkClient.cancelRun", () => {
   });
 });
 
+describe("BoardwalkClient.mintInferenceKey", () => {
+  it("POSTs /v1/orgs/:slug/inference-keys (no body) and returns token + expiry + id", async () => {
+    const { fetchImpl, calls } = recordingFetch(201, {
+      token: "bwk_inf",
+      apiKey: { id: "01H_k", expiresAt: 1_900_000_000_000, scopes: ["inference:invoke"] },
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const minted = await client.mintInferenceKey("my-org");
+    expect(minted).toEqual({ token: "bwk_inf", expiresAt: 1_900_000_000_000, id: "01H_k" });
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.x/v1/orgs/my-org/inference-keys");
+    expect(calls[0]?.body).toBeUndefined();
+  });
+
+  it("tolerates a missing apiKey.expiresAt/id (null) but requires the token", async () => {
+    const { fetchImpl } = recordingFetch(201, { token: "bwk_inf", apiKey: {} });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    expect(await client.mintInferenceKey("o")).toEqual({
+      token: "bwk_inf",
+      expiresAt: null,
+      id: null,
+    });
+  });
+
+  it("throws on a response missing the token", async () => {
+    const { fetchImpl } = recordingFetch(201, { apiKey: { id: "x" } });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    await expect(client.mintInferenceKey("o")).rejects.toBeDefined();
+  });
+});
+
 describe("BoardwalkClient error mapping", () => {
   it("maps 401 to an actionable message", async () => {
     const { fetchImpl } = recordingFetch(401, { error: { message: "nope" } });
