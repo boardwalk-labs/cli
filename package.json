@@ -3,13 +3,18 @@
   "version": "0.1.1",
   "description": "The boardwalk CLI: author, validate, run, and deploy Boardwalk workflows.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/boardwalk-labs/cli.git"
+  },
+  "homepage": "https://github.com/boardwalk-labs/cli#readme",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
   },
   "packageManager": "pnpm@10.23.0",
   "bin": {
-    "boardwalk": "./bin/boardwalk.js"
+    "boardwalk": "bin/boardwalk.js"
   },
   "files": [
     "dist",
