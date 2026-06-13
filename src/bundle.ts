@@ -10,7 +10,6 @@
 
 import { build } from "esbuild";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { CliError } from "./errors.js";
 
@@ -130,50 +129,6 @@ export async function bundleWorkflowWithMap(entryFile: string): Promise<BundledP
     throw new CliError(`Bundling produced no output for ${entryFile}.`);
   }
   return { code: js.text, map: map.text };
-}
-
-/**
- * esbuild-bundle the entry for `boardwalk dev` — like {@link bundleWorkflow}, but
- * `@boardwalk-labs/workflow` imports are rewritten to the ABSOLUTE path of the CLI's own installed
- * copy. The SDK's host state is a module-level singleton, so the program and the CLI must load
- * the SAME module instance for `installHost` (called by the CLI) to be visible to the program's
- * hooks; an absolute specifier guarantees that regardless of where the bundle file lives or
- * whether the project has its own `node_modules`.
- */
-export async function bundleForDev(entryFile: string): Promise<string> {
-  const requireFromCli = createRequire(import.meta.url);
-  let result;
-  try {
-    result = await build({
-      entryPoints: [entryFile],
-      bundle: true,
-      format: "esm",
-      platform: "node",
-      target: "node24",
-      write: false,
-      logLevel: "silent",
-      legalComments: "none",
-      plugins: [
-        {
-          name: "boardwalk-sdk-shared-instance",
-          setup(b) {
-            b.onResolve({ filter: /^@boardwalk-labs\/workflow(\/.+)?$/ }, (args) => ({
-              path: requireFromCli.resolve(args.path),
-              external: true,
-            }));
-          },
-        },
-      ],
-    });
-  } catch (err) {
-    throw new CliError(
-      `Bundling failed for ${entryFile}.`,
-      err instanceof Error ? err.message : undefined,
-    );
-  }
-  const out = result.outputFiles[0];
-  if (out === undefined) throw new CliError(`Bundling produced no output for ${entryFile}.`);
-  return out.text;
 }
 
 function readPkgEntry(pkgPath: string): string | null {

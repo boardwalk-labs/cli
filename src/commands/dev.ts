@@ -1,29 +1,22 @@
 // `boardwalk dev <file|dir>` — run the workflow NOW, locally, no account.
 //
 // The tightest possible author loop: derive + validate the manifest (precise errors before
-// anything runs), bundle the program, execute it in-process against the minimal dev host
-// (secrets from .env, real sleeps, Phase/output events), and stream the run-event log through
-// the channel-filtered renderer — the same flags and frames every engine speaks.
+// anything runs), bundle the program, then hand the whole run to @boardwalk-labs/engine in
+// embedded mode and stream its run-event log through the channel-filtered renderer — the same
+// flags, frames, and run semantics (agent(), workflows.call, sleep, secrets) every engine speaks.
 //
 // Exit codes: 0 completed · 1 failed · 130 cancelled (Ctrl-C).
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { parseEnv } from "node:util";
-import {
-  installConfig,
-  installHost,
-  installInput,
-  resetRuntime,
-  takeDeclaredOutput,
-} from "@boardwalk-labs/workflow/runtime";
+import type { JsonValue } from "@boardwalk-labs/workflow";
 import { CliError } from "../errors.js";
-import { bundleForDev, resolveEntry } from "../bundle.js";
+import { bundleWorkflow, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
 import { projectDirFor } from "../project.js";
-import { createDevHost, type RunEventBody } from "../dev/host.js";
+import { createDevEngine, type DevEngineFactory } from "../dev/engine.js";
 import { createRenderer, parseChannels } from "../render/renderer.js";
 import { parseInput } from "./run.js";
 
@@ -40,6 +33,8 @@ export interface DevDeps {
   write?: (text: string) => void;
   /** SIGINT hook installer — injected so tests don't touch real process signals. */
   onSigint?: (handler: () => void) => () => void;
+  /** Engine factory — injected so tests can drive orchestration without spawning processes. */
+  createEngine?: DevEngineFactory;
 }
 
 export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void> {
@@ -48,90 +43,59 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
     ((text: string): void => {
       process.stdout.write(text);
     });
+  const createEngine = deps.createEngine ?? createDevEngine;
 
   const channels = parseChannels({ verbose: opts.verbose, stream: opts.stream });
   const renderer = createRenderer(channels, write);
 
   // 1. Validate before anything runs — errors point at the author's real file.
   const entry = resolveEntry(opts.file);
-  const manifest = extractValidatedManifest(readFileSync(entry, "utf8"), entry);
-  const input = parseInput(opts.input);
+  extractValidatedManifest(readFileSync(entry, "utf8"), entry);
+  const input = jsonInput(parseInput(opts.input));
 
   // 2. The local secret store: the project's env file (explicit --env must exist).
   const projectDir = projectDirFor(opts.file);
   const envPath = opts.envFile ?? join(projectDir, ".env");
   const envVars = loadEnvFile(envPath, opts.envFile !== undefined);
 
-  // 3. The run-event emitter: a single dev turn, 1-based seq, rendered through the channel filter.
-  const runId = `dev-${Date.now().toString(36)}`;
-  let seq = 0;
-  const emit = (body: RunEventBody): void => {
-    seq += 1;
-    renderer.render({ ...body, runId, turnId: runId, seq, t: Date.now() });
-  };
+  // 3. Bundle the program — `@boardwalk-labs/workflow` left EXTERNAL; the engine resolves it from
+  //    its own copy (one shared SDK instance, so the host seam works) when it runs the program.
+  const program = await bundleWorkflow(entry);
 
-  // 4. Install the host + run inputs, bundle, and execute the program in-process.
-  const runsDir = join(projectDir, ".bw-runs", runId);
-  resetRuntime();
-  installHost(
-    createDevHost({
-      manifest,
-      envVars,
-      envLabel: envPath,
-      artifactsDir: join(runsDir, "artifacts"),
-      emit,
-    }),
-  );
-  installInput(input);
-  installConfig({});
-
-  const staging = mkdtempSync(join(tmpdir(), "bw-dev-"));
-  const restoreSigint = (deps.onSigint ?? defaultOnSigint)(() => {
-    emit({ kind: "run_status", status: "cancelled" });
-    process.exit(130);
+  // 4. Run it on the embedded engine in a throwaway data dir; stream its events.
+  const dataDir = mkdtempSync(join(tmpdir(), "bw-dev-"));
+  const engine = createEngine({
+    dataDir,
+    env: Object.fromEntries(envVars),
+    envLabel: envPath,
   });
+  const unsubscribe = engine.onEvent((event) => {
+    renderer.render(event);
+  });
+
+  // Ctrl-C cancels the run cooperatively; `wait` then resolves `cancelled` → exit 130.
+  let runId: string | null = null;
+  const restoreSigint = (deps.onSigint ?? defaultOnSigint)(() => {
+    if (runId !== null) void engine.cancel(runId);
+  });
+
   try {
-    const bundlePath = join(staging, "index.mjs");
-    writeFileSync(bundlePath, await bundleForDev(entry), "utf8");
+    const workflow = engine.deploy(program);
+    const run = engine.start(workflow.name, input);
+    runId = run.id;
+    const result = await engine.wait(run.id);
 
-    emit({ kind: "run_status", status: "running" });
-
-    // A workflow program is a SCRIPT: importing the module IS running it (top-level body +
-    // top-level awaits). The import settles when the run completes; a top-level throw rejects it.
-    let mod: { default?: unknown };
-    try {
-      mod = (await import(pathToFileURL(bundlePath).href)) as { default?: unknown };
-    } catch (err) {
-      // Output declared BEFORE the failure still counts — a failed watch/check often output()s
-      // its verdict and then throws to mark the run failed.
-      const declaredBeforeFailure = takeDeclaredOutput();
-      if (declaredBeforeFailure !== null) {
-        emit({ kind: "output", value: declaredBeforeFailure.value });
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      emit({
-        kind: "run_status",
-        status: "failed",
-        error: { code: "PROGRAM_ERROR", message },
-      });
-      const hint = err instanceof CliError ? err.hint : undefined;
-      throw new CliError(`Run failed: ${message}`, hint, undefined, 1);
+    if (result.status === "completed") return;
+    if (result.status === "cancelled") {
+      throw new CliError("Run cancelled.", undefined, undefined, 130);
     }
-
-    if (typeof mod.default === "function") {
-      console.error(
-        "warning: the program has a default export, which Boardwalk does not call — a workflow " +
-          "runs top-to-bottom as a script. Move the body to the top level (top-level await is fine).",
-      );
-    }
-
-    const declared = takeDeclaredOutput();
-    if (declared !== null) emit({ kind: "output", value: declared.value });
-    emit({ kind: "run_status", status: "completed" });
+    const message = result.error?.message ?? "the run failed";
+    throw new CliError(`Run failed: ${message}`, undefined, undefined, 1);
   } finally {
+    unsubscribe();
     restoreSigint();
-    resetRuntime();
-    rmSync(staging, { recursive: true, force: true });
+    engine.close();
+    rmSync(dataDir, { recursive: true, force: true });
   }
 }
 
@@ -152,6 +116,33 @@ function loadEnvFile(path: string, explicit: boolean): ReadonlyMap<string, strin
     if (typeof value === "string") out.set(key, value);
   }
   return out;
+}
+
+/** Narrow a `parseInput` result (always JSON.parse output, or undefined) to a JsonValue. */
+function jsonInput(value: unknown): JsonValue | undefined {
+  return value === undefined ? undefined : asJsonValue(value);
+}
+
+function asJsonValue(value: unknown): JsonValue {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(asJsonValue);
+  }
+  if (typeof value === "object") {
+    const out: Record<string, JsonValue> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = asJsonValue(entry);
+    }
+    return out;
+  }
+  throw new CliError("--input must be JSON (no functions or undefined values).");
 }
 
 function defaultOnSigint(handler: () => void): () => void {

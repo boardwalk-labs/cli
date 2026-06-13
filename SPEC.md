@@ -37,21 +37,24 @@ One binary, `boardwalk`, covering the full author journey: `init` (start from a 
 2. Derive + validate the manifest (`extractValidatedManifest`, over the SDK's `/extract` + schema); fail with precise, friendly errors before anything runs.
 3. Spawn the run through `@boardwalk-labs/engine`'s embedded mode (one run, in-process supervisor, exit on terminal status).
 4. Render the event stream live, honoring the **channel subscription** (SDK kind→channel mapping, MASTER_SPEC §2.5): default = `lifecycle + phase + output` (plus errors — quiet, readable); `--stream <channels>` picks channels explicitly (e.g. `--stream output` for result-only, pipe-friendly); `--verbose` subscribes to everything (agent turns streamed, tool calls, captured stdout/stderr, token usage + duration summary). One renderer, channel-driven. (These flags are on `dev`; `run` polls to a terminal status in v0.1 and does not stream.)
-5. Missing secret → error naming the variable and pointing at `.env`. Omitted `agent()` model → error naming the config key for a local default model.
+5. Resolution is the engine's: a missing secret fails the run naming the variable and `.env`; an `agent()` call with no resolvable inference fails naming the fixes (a managed key, an explicit provider, or a local OpenAI-compatible endpoint).
 
 Deliberately absent from `dev` v1: cron/webhook listening, run history, daemon mode. Production scheduling = `deploy` or the self-hosted server (MASTER_SPEC §3).
 
-### 4.1 v0.1 implementation status (pre-`@boardwalk-labs/engine`)
+### 4.1 Implementation: embedded `@boardwalk-labs/engine`
 
-`dev` ships now with a **minimal built-in host** instead of step 3's embedded engine (the §8.1
-interim): the program is esbuild-bundled with `@boardwalk-labs/workflow` resolved to the CLI's own
-installed copy (one module instance ⇒ the host singleton is shared) and executed in-process.
-Working today: manifest validation, `.env` secrets (fail-closed against `meta.secrets`), real
-`sleep`, `Phase()` / `output()` frames, artifacts under `.bw-runs/<runId>/`, channel-filtered
-rendering, exit codes (0 / 1 / 130 on Ctrl-C). Not yet (each fails with a clear pointer, never
-silently): `agent()`, `workflows.call()`; program stdout/stderr passes straight through to the
-terminal rather than being captured as `program_output` events. Swapping the built-in host for
-`@boardwalk-labs/engine` embedded mode removes those gaps without changing any flag or frame.
+`dev` hands the whole run to the engine facade (construct → `deployWorkflow` → `startRun` →
+`onEvent` → `waitForRun` → `close`) in a throwaway data dir, mapping the terminal status to the
+exit code (0 / 1 / 130 on Ctrl-C, which cancels the run cooperatively). The program is
+esbuild-bundled with `@boardwalk-labs/workflow` left **external**; the engine writes the bundle
+into its run dir and symlinks its own SDK copy beside it, so the program and the engine's run
+process load one SDK module instance (the host singleton is shared). Because the engine owns the
+run process, `agent()`, `workflows.call()`, secret resolution from env, hold-and-pay `sleep`,
+captured `program_output`, and crash-restart all behave exactly as on the server and hosted
+engines — `dev` adds nothing beyond pre-run manifest validation, env loading, and channel-filtered
+rendering, which is what makes it a parity surface, not a second implementation. The seam
+(`src/dev/engine.ts`) is a thin interface over the facade so tests can drive orchestration with a
+fake instead of spawning processes.
 
 ## 5. platform API client
 
@@ -77,23 +80,23 @@ src/
   client.ts       — the platform API client
   deployment.ts   — shared deploy-with-link logic
   artifact.ts     — content-addressed program artifact builder
-  bundle.ts       — esbuild integration (deploy externals + dev shared-SDK resolve)
+  bundle.ts       — esbuild integration (bundles with @boardwalk-labs/workflow left external)
   manifest.ts     — CliError wrappers over the SDK's /extract
-  dev/            — the minimal built-in dev host (§4.1)
+  dev/            — the engine seam: delegates a run to @boardwalk-labs/engine (§4.1)
   render/         — the channel-filtered event-stream renderer (used by dev)
 ```
 
-- **Startup budget: `boardwalk --help` < 300ms** (CODE_QUALITY §4.1). Nothing heavy (the dev host, esbuild, the SDK extractor, the API client) is imported until its command runs. Measured ~80ms.
+- **Startup budget: `boardwalk --help` < 300ms** (CODE_QUALITY §4.1). Nothing heavy (the engine, esbuild, the SDK extractor, the API client) is imported until its command runs. Measured ~80ms.
 - Renderer is line-oriented and pipe-friendly; agent text streams raw, everything else is one prefixed line. (Richer TTY treatment can layer on without changing the frames.)
 
 ## 7. Testing
 
 - Command-level tests with an injected fetch + temp project dirs (login token flow, deploy plan, project-link lifecycle, cancel statuses).
-- `dev` end-to-end on fixture workflows (success, program throw, invalid manifest, missing env file, missing/undeclared secret, `--stream output` piping, agent() pointer) asserting exit behavior and rendered frames.
+- `dev` end-to-end through the real engine on fixture workflows (success with secrets + `Phase` + `output`, program throw, verdict-then-throw output preservation, do-nothing, legacy default export, `--stream output` piping, `agent()` reaching the engine) asserting exit behavior and rendered frames; plus a fake-engine Ctrl-C cancel test for the 130 path.
 - Renderer/channel-flag matrix; manifest extraction + validation fixtures; artifact determinism; config precedence; `.env` loading; secret non-printing.
 
 ## 8. Ready to go public when
 
-1. All §2 commands work against the Boardwalk platform's public API and a published `@boardwalk-labs/engine` (interim: `dev` may ship one release behind a feature flag if the engine isn't published yet — `init`/`check`/`login`/`deploy`/`run` carry Phase 1 on their own).
+1. All §2 commands work against the Boardwalk platform's public API; `dev` runs on the published `@boardwalk-labs/engine` (`agent()` / `workflows.call()` work locally).
 2. `npm i -g @boardwalk-labs/cli` on a clean machine: `init` → `dev` (or `check`) → `login` → `deploy` → green run, documented in the README quickstart.
 3. Startup budget met; no secrets in any output; publication checklist (MASTER_SPEC §8) passes.
