@@ -2,7 +2,7 @@
 //
 // Commands:
 //   boardwalk init [dir]                Scaffold a new workflow project from a template.
-//   boardwalk dev <file>                Run the workflow now, locally — no account needed.
+//   boardwalk dev <file>                Run the workflow now, locally (no account needed).
 //   boardwalk check <file>              Validate a workflow locally (no auth/network).
 //   boardwalk login                     Authenticate via browser (OAuth PKCE).
 //   boardwalk logout                    Remove local credentials.
@@ -46,7 +46,7 @@ function buildProgram(): Command {
   const program = new Command();
   program
     .name("boardwalk")
-    .description("Boardwalk CLI — author and ship agent workflows.")
+    .description("Boardwalk CLI: author and ship agent workflows.")
     .version(VERSION);
 
   program
@@ -72,7 +72,7 @@ function buildProgram(): Command {
     .option("--env <path>", "env file resolving secrets for the run (default: .env)")
     .option("--verbose", "stream every event channel (agent turns, tool calls, logs)", false)
     .option("--stream <channels>", "comma-separated channels: lifecycle,phase,output,log,agent")
-    .description("Run the workflow now, locally — no account needed.")
+    .description("Run the workflow now, locally (no account needed).")
     .action(async (file: string, options: DevCliOptions) => {
       const { runDev } = await import("./commands/dev.js");
       await runDev({

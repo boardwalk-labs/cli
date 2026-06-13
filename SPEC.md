@@ -1,4 +1,4 @@
-# SPEC — `boardwalk-cli` (`@boardwalk-labs/cli`)
+# SPEC — `cli` (`@boardwalk-labs/cli`)
 
 > The front door: author, validate, run locally, and deploy workflows. MIT. Public in **Phase 1**.
 >
