@@ -1,6 +1,6 @@
 {
   "name": "@boardwalk-labs/cli",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "The boardwalk CLI: author, validate, run, and deploy Boardwalk workflows.",
   "license": "MIT",
   "repository": {
@@ -35,8 +35,8 @@
     "boardwalk": "tsx src/index.ts"
   },
   "dependencies": {
-    "@boardwalk-labs/engine": "^0.1.0",
-    "@boardwalk-labs/workflow": "^0.1.0",
+    "@boardwalk-labs/engine": "^0.1.2",
+    "@boardwalk-labs/workflow": "^0.1.2",
     "commander": "^13.1.0",
     "env-paths": "^3.0.0",
     "esbuild": "^0.25.0",

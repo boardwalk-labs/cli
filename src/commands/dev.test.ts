@@ -32,20 +32,20 @@ describe("runDev (end-to-end via the engine)", () => {
   });
 
   it(
-    "runs a script-style workflow to completion: input → secrets → Phase → output",
+    "runs a script-style workflow to completion: input → secrets → phase → output",
     async () => {
       writeFileSync(join(dir, ".env"), "GREETING_PREFIX=Hey\n");
       const file = join(dir, "index.ts");
       writeFileSync(
         file,
-        `import { Phase, input, output, secrets, type WorkflowMeta } from "@boardwalk-labs/workflow";
+        `import { phase, input, output, secrets, type WorkflowMeta } from "@boardwalk-labs/workflow";
          export const meta = {
            name: "greet",
            triggers: [{ kind: "manual" }],
            secrets: [{ name: "GREETING_PREFIX" }],
          } satisfies WorkflowMeta;
 
-         Phase("Greet");
+         phase("Greet");
          const prefix = await secrets.get("GREETING_PREFIX");
          output(\`\${prefix}, \${String(input)}!\`);`,
       );

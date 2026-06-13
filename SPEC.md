@@ -93,7 +93,7 @@ src/
 ## 7. Testing
 
 - Command-level tests with an injected fetch + temp project dirs (login token flow, deploy plan, project-link lifecycle, cancel statuses).
-- `dev` end-to-end through the real engine on fixture workflows (success with secrets + `Phase` + `output`, program throw, verdict-then-throw output preservation, do-nothing, legacy default export, `--stream output` piping, `agent()` reaching the engine) asserting exit behavior and rendered frames; plus a fake-engine Ctrl-C cancel test for the 130 path.
+- `dev` end-to-end through the real engine on fixture workflows (success with secrets + `phase` + `output`, program throw, verdict-then-throw output preservation, do-nothing, legacy default export, `--stream output` piping, `agent()` reaching the engine) asserting exit behavior and rendered frames; plus a fake-engine Ctrl-C cancel test for the 130 path.
 - Renderer/channel-flag matrix; manifest extraction + validation fixtures; artifact determinism; config precedence; `.env` loading; secret non-printing.
 
 ## 8. Ready to go public when
