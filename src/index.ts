@@ -60,6 +60,10 @@ interface DevCliOptions {
   stream?: string;
 }
 
+interface BuildCliOptions {
+  out?: string;
+}
+
 function buildProgram(): Command {
   const program = new Command();
   program
@@ -109,6 +113,18 @@ function buildProgram(): Command {
     .action(async (file: string) => {
       const { runCheck } = await import("./commands/check.js");
       await runCheck({ file });
+    });
+
+  program
+    .command("build")
+    .argument("<file>", "workflow program file, or a package directory")
+    .option("--out <path>", "output file (default: <workflow-name>.mjs in the cwd)")
+    .description(
+      "Bundle a workflow to one deployable .mjs (for a self-hosted server's workflows dir).",
+    )
+    .action(async (file: string, options: BuildCliOptions) => {
+      const { runBuild } = await import("./commands/build.js");
+      await runBuild({ file, out: options.out });
     });
 
   program
