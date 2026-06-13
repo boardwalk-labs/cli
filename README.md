@@ -57,7 +57,7 @@ your `meta` — the CLI never sends a hand-built manifest.
 
 ### Project link (`.boardwalk/project.json`)
 
-The first `deploy`/`run` in a directory writes `.boardwalk/project.json` (gitignored, Vercel-style)
+The first `deploy`/`run` in a directory writes a gitignored `.boardwalk/project.json`
 with `{ orgSlug, workflowId }`. After that the workflow is identified by that stored **id**, so
 `--org` is optional and renaming `meta.name` or the entry file updates the same workflow instead of
 forking a new one. On a fresh clone, pass `--org` once to re-link (it adopts an existing same-name
