@@ -295,7 +295,14 @@ describe("runDev (end-to-end via the engine)", () => {
     };
 
     await runDev(
-      { file, input: undefined, verbose: false, stream: undefined, envFile: undefined, org: "acme" },
+      {
+        file,
+        input: undefined,
+        verbose: false,
+        stream: undefined,
+        envFile: undefined,
+        org: "acme",
+      },
       { write, onSigint: noSigint, createEngine, resolveInference },
     );
 

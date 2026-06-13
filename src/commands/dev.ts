@@ -18,10 +18,7 @@ import { extractValidatedManifest } from "../manifest.js";
 import { projectDirFor, readLink } from "../project.js";
 import { loadConfig, type CliConfig } from "../config.js";
 import { createDevEngine, type DevEngineFactory } from "../dev/engine.js";
-import {
-  resolveInferenceEnv,
-  type ResolveInferenceEnvDeps,
-} from "../dev/inference.js";
+import { resolveInferenceEnv, type ResolveInferenceEnvDeps } from "../dev/inference.js";
 import { createRenderer, parseChannels } from "../render/renderer.js";
 import { parseInput } from "./run.js";
 
