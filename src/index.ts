@@ -16,11 +16,29 @@
 // Every command body is lazy-imported inside its action — `boardwalk --help` must stay fast, so
 // nothing heavy (esbuild, the SDK extractor, the API client) loads until its command actually runs.
 
+import { readFileSync } from "node:fs";
 import { Command } from "commander";
 import { CliError } from "./errors.js";
 import { loadConfig } from "./config.js";
 
-const VERSION = "0.1.0";
+// Read the version from package.json (one level up from both src/ and dist/) so `--version`
+// can never drift from the published package. Cheap sync read at load — doesn't touch the
+// lazy-import budget that keeps `--help` fast.
+function readVersion(): string {
+  try {
+    const raw = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null && "version" in parsed) {
+      const version: unknown = parsed.version;
+      if (typeof version === "string" && version.length > 0) return version;
+    }
+  } catch {
+    // Fall through — a missing/unreadable package.json shouldn't break the CLI.
+  }
+  return "0.0.0";
+}
+
+const VERSION = readVersion();
 
 interface DeployCliOptions {
   org?: string;

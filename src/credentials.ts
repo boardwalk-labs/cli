@@ -6,7 +6,7 @@
 // hardening follow-up; the interface here (get/put/clear a session) doesn't change when that lands.
 
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /** A logged-in user's OAuth session. `null` fields = the IdP omitted them (e.g. no refresh token). */
 export interface StoredSession {
@@ -70,14 +70,9 @@ export class CredentialStore {
   }
 
   private write(file: CredentialsFile): void {
-    mkdirSync(dirOf(this.filePath), { recursive: true, mode: 0o700 });
+    mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
     writeFileSync(this.filePath, `${JSON.stringify(file, null, 2)}\n`, { mode: 0o600 });
   }
-}
-
-function dirOf(filePath: string): string {
-  const idx = filePath.lastIndexOf("/");
-  return idx <= 0 ? "." : filePath.slice(0, idx);
 }
 
 function isValidSession(value: unknown): value is StoredSession {

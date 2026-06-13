@@ -37,6 +37,16 @@ describe("CredentialStore", () => {
     expect(store.getSession()).toEqual(s);
   });
 
+  it("creates missing parent directories on write", () => {
+    // The config dir often doesn't exist yet on first `login`; write() must mkdir -p its
+    // parent. Uses node:path dirname so the parent is resolved correctly on every platform.
+    const file = join(dir, "nested", "deeper", "credentials.json");
+    const store = new CredentialStore(file);
+    const s = session();
+    store.putSession(s);
+    expect(store.getSession()).toEqual(s);
+  });
+
   it("writes the file with 0600 permissions", () => {
     const store = CredentialStore.atConfigDir(dir);
     store.putSession(session());
