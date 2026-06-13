@@ -1,6 +1,6 @@
 {
   "name": "@boardwalk-labs/cli",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "The boardwalk CLI: author, validate, run, and deploy Boardwalk workflows.",
   "license": "MIT",
   "repository": {

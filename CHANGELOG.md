@@ -2,6 +2,17 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.4
+
+### Added
+
+- **`boardwalk dev` uses Boardwalk managed inference for `agent()`.** After `boardwalk login`, an
+  `agent()` call that names no provider just works — `dev` mints a short-lived, inference-only key
+  (scoped to the gateway, with a default spend cap) for the resolved org, caches it, and injects it
+  for the embedded engine. No keys to paste; a user-set `BOARDWALK_API_KEY` is always respected, and
+  a logged-out / agent-free run is unaffected. New `--org` (which org to bill, else the project
+  link's org) and `--token` flags.
+
 ## 0.1.3
 
 ### Added
