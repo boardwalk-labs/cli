@@ -2,7 +2,7 @@
 
 > The front door: author, validate, run locally, and deploy workflows. MIT. Public in **Phase 1**.
 >
-> Governing context: root [`MASTER_SPEC.md`](../MASTER_SPEC.md) §3 (engines), §6.1 (the platform only via public API).
+> Scope: the CLI talks to engines and to the hosted platform only via its public API.
 
 ## 1. Purpose
 
@@ -36,10 +36,10 @@ One binary, `boardwalk`, covering the full author journey: `init` (start from a 
 1. Load `.env` (or `--env <path>`) into the run's secret/env resolution; never print values.
 2. Derive + validate the manifest (`extractValidatedManifest`, over the SDK's `/extract` + schema); fail with precise, friendly errors before anything runs.
 3. Spawn the run through `@boardwalk-labs/engine`'s embedded mode (one run, in-process supervisor, exit on terminal status).
-4. Render the event stream live, honoring the **channel subscription** (SDK kind→channel mapping, MASTER_SPEC §2.5): default = `lifecycle + phase + output` (plus errors — quiet, readable); `--stream <channels>` picks channels explicitly (e.g. `--stream output` for result-only, pipe-friendly); `--verbose` subscribes to everything (agent turns streamed, tool calls, captured stdout/stderr, token usage + duration summary). One renderer, channel-driven. (These flags are on `dev`; `run` polls to a terminal status in v0.1 and does not stream.)
+4. Render the event stream live, honoring the **channel subscription** (SDK kind→channel mapping): default = `lifecycle + phase + output` (plus errors — quiet, readable); `--stream <channels>` picks channels explicitly (e.g. `--stream output` for result-only, pipe-friendly); `--verbose` subscribes to everything (agent turns streamed, tool calls, captured stdout/stderr, token usage + duration summary). One renderer, channel-driven. (These flags are on `dev`; `run` polls to a terminal status in v0.1 and does not stream.)
 5. Resolution is the engine's: a missing secret fails the run naming the variable and `.env`; an `agent()` call with no resolvable inference fails naming the fixes (a managed key, an explicit provider, or a local OpenAI-compatible endpoint).
 
-Deliberately absent from `dev` v1: cron/webhook listening, run history, daemon mode. Production scheduling = `deploy` or the self-hosted server (MASTER_SPEC §3).
+Deliberately absent from `dev` v1: cron/webhook listening, run history, daemon mode. Production scheduling = `deploy` or the self-hosted server.
 
 ### 4.1 Implementation: embedded `@boardwalk-labs/engine`
 
@@ -60,7 +60,7 @@ fake instead of spawning processes.
 
 - Hand-rolled thin client (no codegen frameworks) with runtime shape guards on every response;
   generated **types** from the published OpenAPI spec layer in once that spec is published.
-- Talks **only** to documented public endpoints — if a capability isn't in the public API, the API grows first (MASTER_SPEC §6.1).
+- Talks **only** to documented public endpoints — if a capability isn't in the public API, the API grows first.
 - Bearer auth (session token or API key); friendly mapping of 401/403/404/422 to actionable messages.
 - Deploys are artifact-based: deterministic content-addressed tarball (bundled entry + sourcemap +
   original source + package assets), uploaded via a presigned PUT, finalized by digest reference.
@@ -86,7 +86,7 @@ src/
   render/         — the channel-filtered event-stream renderer (used by dev)
 ```
 
-- **Startup budget: `boardwalk --help` < 300ms** (CODE_QUALITY §4.1). Nothing heavy (the engine, esbuild, the SDK extractor, the API client) is imported until its command runs. Measured ~80ms.
+- **Startup budget: `boardwalk --help` < 300ms**. Nothing heavy (the engine, esbuild, the SDK extractor, the API client) is imported until its command runs. Measured ~80ms.
 - Renderer is line-oriented and pipe-friendly; agent text streams raw, everything else is one prefixed line. (Richer TTY treatment can layer on without changing the frames.)
 
 ## 7. Testing
@@ -99,4 +99,4 @@ src/
 
 1. All §2 commands work against the Boardwalk platform's public API; `dev` runs on the published `@boardwalk-labs/engine` (`agent()` / `workflows.call()` work locally).
 2. `npm i -g @boardwalk-labs/cli` on a clean machine: `init` → `dev` (or `check`) → `login` → `deploy` → green run, documented in the README quickstart.
-3. Startup budget met; no secrets in any output; publication checklist (MASTER_SPEC §8) passes.
+3. Startup budget met; no secrets in any output; publication checklist passes.
