@@ -2,6 +2,15 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.3
+
+### Added
+
+- **`boardwalk build <file> [--out <path>]`** — bundle a workflow to one deployable `.mjs`
+  (`@boardwalk-labs/workflow` left external, `meta` intact). This is what a self-hosted
+  `boardwalk-server` loads from its `BOARDWALK_WORKFLOWS_DIR`: `boardwalk build` → drop the file
+  in the dir → `docker run`. Default output is `<workflow-name>.mjs`.
+
 ## 0.1.2
 
 ### Changed
