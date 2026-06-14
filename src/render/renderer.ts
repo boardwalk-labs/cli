@@ -42,15 +42,20 @@ export function parseChannels(flags: ChannelFlags): readonly Channel[] {
   }
   const out: Channel[] = [];
   for (const name of names) {
-    if (!(CHANNELS as readonly string[]).includes(name)) {
+    if (!isChannel(name)) {
       throw new CliError(
         `Unknown channel "${name}".`,
         `Valid channels: ${CHANNELS.join(", ")} (or --verbose for all).`,
       );
     }
-    if (!out.includes(name as Channel)) out.push(name as Channel);
+    if (!out.includes(name)) out.push(name);
   }
   return out;
+}
+
+/** Narrow a raw `--stream` token to a known {@link Channel} (predicate, no cast). */
+function isChannel(name: string): name is Channel {
+  return CHANNELS.some((c) => c === name);
 }
 
 export interface EventRenderer {

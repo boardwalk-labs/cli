@@ -28,6 +28,7 @@ import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { create as tarCreate } from "tar";
 import { bundleWorkflowWithMap, isPackageDir, resolveEntry } from "./bundle.js";
 import { CliError } from "./errors.js";
+import { isRecord } from "./guards.js";
 
 const SDK_PACKAGE = "@boardwalk-labs/workflow";
 /** The entry module the runner imports after extraction. The whole local graph bundles into it. */
@@ -206,14 +207,8 @@ function readAssetGlobs(pkgDir: string): string[] | null {
   if (!existsSync(pkgPath)) return null;
   try {
     const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    const boardwalk =
-      typeof parsed === "object" && parsed !== null
-        ? (parsed as Record<string, unknown>).boardwalk
-        : undefined;
-    const assets =
-      typeof boardwalk === "object" && boardwalk !== null
-        ? (boardwalk as Record<string, unknown>).assets
-        : undefined;
+    const boardwalk = isRecord(parsed) ? parsed.boardwalk : undefined;
+    const assets = isRecord(boardwalk) ? boardwalk.assets : undefined;
     if (Array.isArray(assets) && assets.every((a): a is string => typeof a === "string")) {
       return assets;
     }
@@ -288,8 +283,8 @@ function toPosix(p: string): string {
 function readJsonField(jsonPath: string, field: string): string | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(jsonPath, "utf8"));
-    if (typeof parsed === "object" && parsed !== null) {
-      const v = (parsed as Record<string, unknown>)[field];
+    if (isRecord(parsed)) {
+      const v = parsed[field];
       if (typeof v === "string" && v.length > 0) return v;
     }
   } catch {
@@ -301,12 +296,9 @@ function readJsonField(jsonPath: string, field: string): string | null {
 function readDepRange(pkgPath: string, field: string, dep: string): string | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    const deps =
-      typeof parsed === "object" && parsed !== null
-        ? (parsed as Record<string, unknown>)[field]
-        : undefined;
-    if (typeof deps === "object" && deps !== null) {
-      const range = (deps as Record<string, unknown>)[dep];
+    const deps = isRecord(parsed) ? parsed[field] : undefined;
+    if (isRecord(deps)) {
+      const range = deps[dep];
       if (typeof range === "string" && range.length > 0) return range;
     }
   } catch {

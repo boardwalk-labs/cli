@@ -12,6 +12,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { isRecord } from "./guards.js";
 
 export interface ProjectLink {
   orgSlug: string;
@@ -42,11 +43,12 @@ export function readLink(projectDir: string): ProjectLink | null {
   }
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed === "object" && parsed !== null) {
-      const p = parsed as Record<string, unknown>;
-      if (typeof p.orgSlug === "string" && typeof p.workflowId === "string") {
-        return { orgSlug: p.orgSlug, workflowId: p.workflowId };
-      }
+    if (
+      isRecord(parsed) &&
+      typeof parsed.orgSlug === "string" &&
+      typeof parsed.workflowId === "string"
+    ) {
+      return { orgSlug: parsed.orgSlug, workflowId: parsed.workflowId };
     }
   } catch {
     // Malformed → treat as unlinked.

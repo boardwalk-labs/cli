@@ -12,6 +12,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { CliError } from "../errors.js";
+import { isRecord } from "../guards.js";
 
 export interface InitOptions {
   dir: string;
@@ -184,10 +185,7 @@ async function fetchRegistry(
   } catch {
     throw new CliError("The template registry is not valid JSON.", registryHint(baseUrl));
   }
-  const templates =
-    typeof parsed === "object" && parsed !== null
-      ? (parsed as { templates?: unknown }).templates
-      : undefined;
+  const templates = isRecord(parsed) ? parsed.templates : undefined;
   if (!Array.isArray(templates) || !templates.every(isRegistryTemplate)) {
     throw new CliError("The template registry has an unexpected shape.", registryHint(baseUrl));
   }
@@ -215,16 +213,15 @@ function registryHint(baseUrl: string): string {
 }
 
 function isRegistryTemplate(value: unknown): value is RegistryTemplate {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
   return (
-    typeof v.name === "string" &&
-    typeof v.description === "string" &&
-    Array.isArray(v.secrets) &&
-    v.secrets.every((s): s is string => typeof s === "string") &&
-    Array.isArray(v.files) &&
-    v.files.every((f): f is string => typeof f === "string") &&
-    v.files.length > 0
+    typeof value.name === "string" &&
+    typeof value.description === "string" &&
+    Array.isArray(value.secrets) &&
+    value.secrets.every((s): s is string => typeof s === "string") &&
+    Array.isArray(value.files) &&
+    value.files.every((f): f is string => typeof f === "string") &&
+    value.files.length > 0
   );
 }
 

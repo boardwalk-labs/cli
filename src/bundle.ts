@@ -14,6 +14,7 @@ import { build } from "esbuild";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CliError } from "./errors.js";
+import { isRecord } from "./guards.js";
 
 const SDK_PACKAGE = "@boardwalk-labs/workflow";
 const ENTRY_CANDIDATES = ["index.ts", "index.mts", "index.js", "index.mjs"];
@@ -136,10 +137,9 @@ export async function bundleWorkflowWithMap(entryFile: string): Promise<BundledP
 function readPkgEntry(pkgPath: string): string | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    if (typeof parsed === "object" && parsed !== null) {
-      const pkg = parsed as Record<string, unknown>;
-      if (typeof pkg.module === "string") return pkg.module;
-      if (typeof pkg.main === "string") return pkg.main;
+    if (isRecord(parsed)) {
+      if (typeof parsed.module === "string") return parsed.module;
+      if (typeof parsed.main === "string") return parsed.main;
     }
   } catch {
     // Unreadable package.json → fall back to index.* discovery.

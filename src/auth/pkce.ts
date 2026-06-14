@@ -17,6 +17,7 @@
 import { randomBytes, createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { CliError } from "../errors.js";
+import { isRecord } from "../guards.js";
 
 export type FetchLike = typeof fetch;
 
@@ -163,10 +164,10 @@ function parseTokenBody(bodyText: string, now: number): TokenResponse {
   } catch {
     throw new CliError("Token endpoint returned a non-JSON body.");
   }
-  if (typeof body !== "object" || body === null) {
+  if (!isRecord(body)) {
     throw new CliError("Token endpoint returned an unexpected body.");
   }
-  const b = body as Record<string, unknown>;
+  const b = body;
   const accessToken = b.access_token;
   if (typeof accessToken !== "string" || accessToken.length === 0) {
     throw new CliError("Token endpoint response is missing an access_token.");
@@ -184,9 +185,8 @@ function parseTokenBody(bodyText: string, now: number): TokenResponse {
 function oauthErrorDetail(bodyText: string): string | undefined {
   try {
     const body: unknown = JSON.parse(bodyText);
-    if (typeof body === "object" && body !== null) {
-      const b = body as Record<string, unknown>;
-      const detail = b.error_description ?? b.error;
+    if (isRecord(body)) {
+      const detail = body.error_description ?? body.error;
       if (typeof detail === "string" && detail.length > 0) return detail;
     }
   } catch {

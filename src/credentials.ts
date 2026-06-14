@@ -9,6 +9,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isRecord } from "./guards.js";
 
 /** A logged-in user's OAuth session. `null` fields = the IdP omitted them (e.g. no refresh token). */
 export interface StoredSession {
@@ -111,19 +112,17 @@ export class CredentialStore {
 }
 
 function isValidSession(value: unknown): value is StoredSession {
-  if (typeof value !== "object" || value === null) return false;
-  const s = value as Record<string, unknown>;
-  return typeof s.accessToken === "string" && s.accessToken.length > 0;
+  if (!isRecord(value)) return false;
+  return typeof value.accessToken === "string" && value.accessToken.length > 0;
 }
 
 function isValidInferenceKey(value: unknown): value is StoredInferenceKey {
-  if (typeof value !== "object" || value === null) return false;
-  const k = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
   return (
-    typeof k.token === "string" &&
-    k.token.length > 0 &&
-    typeof k.expiresAt === "number" &&
-    (k.id === null || typeof k.id === "string")
+    typeof value.token === "string" &&
+    value.token.length > 0 &&
+    typeof value.expiresAt === "number" &&
+    (value.id === null || typeof value.id === "string")
   );
 }
 

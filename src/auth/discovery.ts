@@ -6,6 +6,7 @@
 // document and reads `authorization_endpoint` + `token_endpoint` from it.
 
 import { CliError } from "../errors.js";
+import { isRecord } from "../guards.js";
 import type { FetchLike } from "./pkce.js";
 
 const DISCOVERY_PATH = "/.well-known/oauth-authorization-server";
@@ -51,7 +52,7 @@ export async function discoverOAuth(
     throw new CliError("OAuth discovery returned a non-JSON body.");
   }
 
-  const b = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const b: Record<string, unknown> = isRecord(body) ? body : {};
   const authorizationEndpoint = b.authorization_endpoint;
   const tokenEndpoint = b.token_endpoint;
   if (typeof authorizationEndpoint !== "string" || authorizationEndpoint.length === 0) {

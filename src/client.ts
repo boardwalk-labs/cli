@@ -19,6 +19,7 @@
 
 import { randomUUID } from "node:crypto";
 import { CliError } from "./errors.js";
+import { isRecord } from "./guards.js";
 import type { FetchLike } from "./auth/pkce.js";
 
 export interface WorkflowSummary {
@@ -200,6 +201,9 @@ export class BoardwalkClient {
         res.status,
       );
     }
+    // The only two casts left in this file, confined to the deserialization boundary: a parsed JSON
+    // body is `unknown`, and callers re-validate its shape with `isRecord` + the `is*` guards below
+    // before reading any field. `T` is just the caller's expected shape, never trusted at runtime.
     if (text.length === 0) return undefined as T;
     try {
       return JSON.parse(text) as T;
@@ -209,68 +213,53 @@ export class BoardwalkClient {
   }
 
   private deployResult(body: unknown): DeployResult {
-    if (typeof body === "object" && body !== null) {
-      const b = body as { workflow?: unknown; version?: unknown };
-      if (isWorkflowSummary(b.workflow) && isVersion(b.version)) {
-        return { workflow: b.workflow, version: b.version };
-      }
+    if (isRecord(body) && isWorkflowSummary(body.workflow) && isVersion(body.version)) {
+      return { workflow: body.workflow, version: body.version };
     }
     throw new CliError("The API returned an unexpected workflow response shape.");
   }
 
   private runSummary(body: unknown): RunSummary {
-    if (typeof body === "object" && body !== null) {
-      const run = (body as { run?: unknown }).run;
-      if (isRunSummary(run)) return run;
-    }
+    if (isRecord(body) && isRunSummary(body.run)) return body.run;
     throw new CliError("The API returned an unexpected run response shape.");
   }
 
   private mintedInferenceKey(body: unknown): MintedInferenceKey {
-    if (typeof body === "object" && body !== null) {
-      const b = body as { token?: unknown; apiKey?: unknown };
-      if (typeof b.token === "string" && b.token.length > 0) {
-        const apiKey =
-          typeof b.apiKey === "object" && b.apiKey !== null
-            ? (b.apiKey as { id?: unknown; expiresAt?: unknown })
-            : {};
-        return {
-          token: b.token,
-          expiresAt: typeof apiKey.expiresAt === "number" ? apiKey.expiresAt : null,
-          id: typeof apiKey.id === "string" ? apiKey.id : null,
-        };
-      }
+    if (isRecord(body) && typeof body.token === "string" && body.token.length > 0) {
+      const apiKey: Record<string, unknown> = isRecord(body.apiKey) ? body.apiKey : {};
+      return {
+        token: body.token,
+        expiresAt: typeof apiKey.expiresAt === "number" ? apiKey.expiresAt : null,
+        id: typeof apiKey.id === "string" ? apiKey.id : null,
+      };
     }
     throw new CliError("The API returned an unexpected inference-key response shape.");
   }
 }
 
 function isWorkflowSummary(value: unknown): value is WorkflowSummary {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
   return (
-    typeof v.id === "string" &&
-    typeof v.name === "string" &&
-    (v.currentVersionId === null || typeof v.currentVersionId === "string")
+    typeof value.id === "string" &&
+    typeof value.name === "string" &&
+    (value.currentVersionId === null || typeof value.currentVersionId === "string")
   );
 }
 
 function isVersion(value: unknown): value is { id: string; number: number } {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return typeof v.id === "string" && typeof v.number === "number";
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && typeof value.number === "number";
 }
 
 function isRunSummary(value: unknown): value is RunSummary {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
+  if (!isRecord(value)) return false;
   return (
-    typeof v.id === "string" &&
-    typeof v.workflowId === "string" &&
-    typeof v.status === "string" &&
-    (v.outcomeStatus === null || typeof v.outcomeStatus === "string") &&
-    (v.startedAt === null || typeof v.startedAt === "number") &&
-    (v.completedAt === null || typeof v.completedAt === "number")
+    typeof value.id === "string" &&
+    typeof value.workflowId === "string" &&
+    typeof value.status === "string" &&
+    (value.outcomeStatus === null || typeof value.outcomeStatus === "string") &&
+    (value.startedAt === null || typeof value.startedAt === "number") &&
+    (value.completedAt === null || typeof value.completedAt === "number")
   );
 }
 
@@ -290,14 +279,15 @@ function apiErrorMessage(text: string, status: number): string {
   if (status === 403) return "Forbidden — your account lacks permission for this org.";
   try {
     const body: unknown = JSON.parse(text);
-    if (typeof body === "object" && body !== null) {
-      const err = (body as { error?: unknown }).error;
-      if (typeof err === "object" && err !== null) {
-        const message = (err as { message?: unknown }).message;
-        if (typeof message === "string" && message.length > 0) return message;
+    if (isRecord(body)) {
+      if (
+        isRecord(body.error) &&
+        typeof body.error.message === "string" &&
+        body.error.message.length > 0
+      ) {
+        return body.error.message;
       }
-      const topMessage = (body as { message?: unknown }).message;
-      if (typeof topMessage === "string" && topMessage.length > 0) return topMessage;
+      if (typeof body.message === "string" && body.message.length > 0) return body.message;
     }
   } catch {
     // not JSON
