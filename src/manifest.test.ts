@@ -60,13 +60,13 @@ describe("extractValidatedManifest", () => {
         name: "ok-wf",
         description: "d",
         triggers: [{ kind: "manual" }],
-        secrets: [{ name: "API_KEY" }],
+        permissions: { secrets: [{ name: "API_KEY" }] },
       };
     `;
     const manifest = extractValidatedManifest(src);
     expect(manifest.name).toBe("ok-wf");
     expect(manifest.triggers).toEqual([{ kind: "manual" }]);
-    expect(manifest.secrets).toEqual([{ name: "API_KEY" }]);
+    expect(manifest.permissions?.secrets).toEqual([{ name: "API_KEY" }]);
     // Schema defaults applied:
     expect(manifest.runs_on).toBe("boardwalk/linux");
     expect(manifest.concurrency).toEqual({ mode: "unlimited" });

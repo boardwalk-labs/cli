@@ -23,7 +23,7 @@ describe("runCheck", () => {
          name: "ok-wf",
          description: "d",
          triggers: [{ kind: "manual" }, { kind: "cron", expr: "0 9 * * 1-5" }],
-         secrets: [{ name: "API_KEY" }],
+         permissions: { secrets: [{ name: "API_KEY" }] },
        };
        console.log("ok-wf would run here");`,
     );

@@ -58,7 +58,7 @@ const HELLO_PACKAGE_JSON = `{
 }
 `;
 
-const HELLO_ENV_EXAMPLE = `# Secrets for local runs — \`boardwalk dev\` resolves meta.secrets from .env.
+const HELLO_ENV_EXAMPLE = `# Secrets for local runs — \`boardwalk dev\` resolves permissions.secrets from .env.
 # Copy to .env (gitignored) and fill in real values.
 # MY_API_KEY=…
 `;

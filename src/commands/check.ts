@@ -40,8 +40,9 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   log(`✓ "${manifest.name}" is valid`);
   log(`  entry:    ${artifact.entry}`);
   log(`  triggers: ${manifest.triggers.map((t) => t.kind).join(", ")}`);
-  if (manifest.secrets !== undefined && manifest.secrets.length > 0) {
-    log(`  secrets:  ${manifest.secrets.map((s) => s.name).join(", ")}`);
+  const secrets = manifest.permissions?.secrets;
+  if (secrets !== undefined && secrets.length > 0) {
+    log(`  secrets:  ${secrets.map((s) => s.name).join(", ")}`);
   }
   log(`  artifact: ${String(artifact.size)} bytes (sha256 ${artifact.digest.slice(0, 12)}…)`);
   if (assets > 0) log(`  assets:   ${artifact.assetPaths.join(", ")}`);
