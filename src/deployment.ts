@@ -12,7 +12,7 @@
 //      adopt an existing same-name workflow / create a new one — then (re)write the link.
 
 import { CliError } from "./errors.js";
-import { extractWorkflowName } from "./manifest.js";
+import { extractWorkflowSlug } from "./manifest.js";
 import { buildArtifact, type BuiltArtifact } from "./artifact.js";
 import { projectDirFor, readLink, writeLink } from "./project.js";
 import type { BoardwalkClient, DeployArtifactRef, WorkflowSummary } from "./client.js";
@@ -31,7 +31,7 @@ export interface PreparedProgram {
  */
 export async function loadProgram(file: string): Promise<PreparedProgram> {
   const artifact = await buildArtifact(file);
-  const name = extractWorkflowName(artifact.entrySource, artifact.entry);
+  const name = extractWorkflowSlug(artifact.entrySource, artifact.entry);
   return { name, entry: artifact.entry, artifact };
 }
 

@@ -14,7 +14,7 @@ import {
   SOURCE_FILE,
   UNPINNED_SDK,
 } from "./artifact.js";
-import { extractWorkflowName } from "./manifest.js";
+import { extractWorkflowSlug } from "./manifest.js";
 
 /** Extract a `.tgz` buffer into a fresh dir and return it (for asserting artifact contents). */
 function extractTo(tarball: Uint8Array, dir: string): string {
@@ -41,7 +41,7 @@ describe("buildArtifact — single file", () => {
     writeFileSync(
       entry,
       `import { sleep } from "@boardwalk-labs/workflow";
-       export const meta = { name: "solo-wf", description: "d" };
+       export const meta = { slug: "solo-wf", description: "d" };
        await sleep(1);`,
     );
 
@@ -55,7 +55,7 @@ describe("buildArtifact — single file", () => {
     expect(art.lockfileDigest).toBeNull();
     expect(art.assetPaths).toEqual([]);
     // meta survives bundling so the backend can re-derive the manifest from the entry.
-    expect(extractWorkflowName(art.entrySource, "index.mjs")).toBe("solo-wf");
+    expect(extractWorkflowSlug(art.entrySource, "index.mjs")).toBe("solo-wf");
 
     const out = extractTo(art.tarball, dir);
     expect(existsSync(join(out, "index.mjs"))).toBe(true);
@@ -65,7 +65,7 @@ describe("buildArtifact — single file", () => {
 
   it("stores the author's ORIGINAL source verbatim (blank lines intact) for the Code tab", async () => {
     const entry = join(dir, "wf.ts");
-    const original = `export const meta = { name: "spaced", description: "d" };
+    const original = `export const meta = { slug: "spaced", description: "d" };
 
 import { agent } from "@boardwalk-labs/workflow";
 
@@ -85,7 +85,7 @@ await agent("go");
     writeFileSync(
       entry,
       `import { agent } from "@boardwalk-labs/workflow";
-       export const meta = { name: "stable", description: "d" };
+       export const meta = { slug: "stable", description: "d" };
        await agent("hi", { model: "anthropic/claude-sonnet-4.5" });`,
     );
     const a = await buildArtifact(entry);
@@ -116,7 +116,7 @@ describe("buildArtifact — package with assets", () => {
       join(pkg, "index.ts"),
       `import { agent } from "@boardwalk-labs/workflow";
        import { GREETING } from "./helper.ts";
-       export const meta = { name: "pkg-wf", description: "d" };
+       export const meta = { slug: "pkg-wf", description: "d" };
        await agent(GREETING, { model: "anthropic/claude-sonnet-4.5" });`,
     );
     mkdirSync(join(pkg, "skills"));
@@ -139,7 +139,7 @@ describe("buildArtifact — package with assets", () => {
   });
 
   it("changes the digest when an asset changes (content addressing)", async () => {
-    writeFileSync(join(pkg, "index.ts"), `export const meta = { name: "cad", description: "d" };`);
+    writeFileSync(join(pkg, "index.ts"), `export const meta = { slug: "cad", description: "d" };`);
     mkdirSync(join(pkg, "skills"));
     writeFileSync(join(pkg, "skills", "s.md"), "v1");
     const a = await buildArtifact(pkg);

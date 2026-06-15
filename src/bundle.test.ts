@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bundleWorkflow, resolveEntry, isPackageDir } from "./bundle.js";
-import { extractWorkflowName } from "./manifest.js";
+import { extractWorkflowSlug } from "./manifest.js";
 
 describe("isPackageDir", () => {
   let dir: string;
@@ -18,7 +18,7 @@ describe("isPackageDir", () => {
 
   it("is true for a directory, false for a file", () => {
     const file = join(dir, "index.ts");
-    writeFileSync(file, "export const meta = { name: 'x' };");
+    writeFileSync(file, "export const meta = { slug: 'x' };");
     expect(isPackageDir(dir)).toBe(true);
     expect(isPackageDir(file)).toBe(false);
   });
@@ -39,18 +39,18 @@ describe("resolveEntry", () => {
 
   it("returns a file path unchanged", () => {
     const file = join(dir, "wf.ts");
-    writeFileSync(file, "export const meta = { name: 'x' };");
+    writeFileSync(file, "export const meta = { slug: 'x' };");
     expect(resolveEntry(file)).toBe(file);
   });
 
   it("resolves index.ts inside a directory", () => {
-    writeFileSync(join(dir, "index.ts"), "export const meta = { name: 'x' };");
+    writeFileSync(join(dir, "index.ts"), "export const meta = { slug: 'x' };");
     expect(resolveEntry(dir)).toBe(join(dir, "index.ts"));
   });
 
   it("honors package.json module/main", () => {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ module: "main.ts" }));
-    writeFileSync(join(dir, "main.ts"), "export const meta = { name: 'x' };");
+    writeFileSync(join(dir, "main.ts"), "export const meta = { slug: 'x' };");
     expect(resolveEntry(dir)).toBe(join(dir, "main.ts"));
   });
 
@@ -79,7 +79,7 @@ describe("bundleWorkflow", () => {
       entry,
       `import { agent } from "@boardwalk-labs/workflow";
        import { GREETING } from "./helper.ts";
-       export const meta = { name: "bundled-wf", description: "d" };
+       export const meta = { slug: "bundled-wf", description: "d" };
        await agent(GREETING, undefined);`,
     );
 
@@ -95,18 +95,18 @@ describe("bundleWorkflow", () => {
     writeFileSync(
       entry,
       `import { sleep } from "@boardwalk-labs/workflow";
-       export const meta = { name: "still-extractable", description: "d" };
+       export const meta = { slug: "still-extractable", description: "d" };
        await sleep(1);`,
     );
     const out = await bundleWorkflow(entry);
     // The backend re-derives the manifest from the uploaded (bundled) source — name must survive.
-    expect(extractWorkflowName(out, "bundle.js")).toBe("still-extractable");
+    expect(extractWorkflowSlug(out, "bundle.js")).toBe("still-extractable");
   });
 
   it("resolves and bundles a package directory via its entry", async () => {
     mkdirSync(join(dir, "pkg"));
-    writeFileSync(join(dir, "pkg", "index.ts"), `export const meta = { name: "pkg-wf" };`);
+    writeFileSync(join(dir, "pkg", "index.ts"), `export const meta = { slug: "pkg-wf" };`);
     const out = await bundleWorkflow(resolveEntry(join(dir, "pkg")));
-    expect(extractWorkflowName(out, "bundle.js")).toBe("pkg-wf");
+    expect(extractWorkflowSlug(out, "bundle.js")).toBe("pkg-wf");
   });
 });

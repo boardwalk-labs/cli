@@ -4,8 +4,8 @@
 // translating extraction/validation failures into actionable `CliError`s.
 //
 // Two tiers, on purpose:
-//   - `extractWorkflowName` — name only. `deploy`/`run` need the deploy identity (create-vs-update
-//     is matched by NAME, which is environment-independent, unlike a path or stored id); the server
+//   - `extractWorkflowSlug` — slug only. `deploy`/`run` need the deploy identity (create-vs-update
+//     is matched by SLUG, which is environment-independent, unlike a path or stored id); the server
 //     re-derives and validates the FULL manifest from the uploaded source, so the CLI doesn't
 //     pre-judge field-level validity on the way to a deploy.
 //   - `extractValidatedManifest` — the full schema. `check` and `dev` run entirely locally, so they
@@ -22,20 +22,20 @@ import { MetaValidationError, type WorkflowManifest } from "@boardwalk-labs/work
 import { CliError } from "./errors.js";
 
 /**
- * Statically read `export const meta = { name: "...", ... }` and return the name string.
- * Throws `CliError` when there is no pure-literal `meta` or `name` is missing/empty/not a string.
+ * Statically read `export const meta = { slug: "...", ... }` and return the slug string.
+ * Throws `CliError` when there is no pure-literal `meta` or `slug` is missing/empty/not a string.
  */
-export function extractWorkflowName(source: string, fileName = "index.ts"): string {
+export function extractWorkflowSlug(source: string, fileName = "index.ts"): string {
   const meta = extractLiteralOrThrow(source, fileName);
-  const name = meta.name;
-  if (name !== undefined && typeof name !== "string") {
-    throw new CliError("`meta.name` must be a plain string literal.");
+  const slug = meta.slug;
+  if (slug !== undefined && typeof slug !== "string") {
+    throw new CliError("`meta.slug` must be a plain string literal.");
   }
-  const trimmed = typeof name === "string" ? name.trim() : "";
+  const trimmed = typeof slug === "string" ? slug.trim() : "";
   if (trimmed.length === 0) {
     throw new CliError(
-      "`meta.name` is missing or empty.",
-      "Give the workflow a stable name — it's the deploy identity used to match create vs update.",
+      "`meta.slug` is missing or empty.",
+      "Give the workflow a stable slug — it's the deploy identity used to match create vs update.",
     );
   }
   return trimmed;

@@ -7,7 +7,7 @@ import { join, sep } from "node:path";
 import { runBuild } from "./build.js";
 
 const WORKFLOW = `import { output } from "@boardwalk-labs/workflow";
-export const meta = { name: "my-routine", triggers: [{ kind: "manual" }] };
+export const meta = { slug: "my-routine", triggers: [{ kind: "manual" }] };
 output({ ok: true });`;
 
 describe("runBuild", () => {
@@ -34,7 +34,7 @@ describe("runBuild", () => {
     // it must NOT be inlined, or the program would load a second SDK instance.
     expect(built).toContain('from "@boardwalk-labs/workflow"');
     // The pure-literal meta survives so engines can re-derive the manifest.
-    expect(built).toContain('name: "my-routine"');
+    expect(built).toContain('slug: "my-routine"');
   });
 
   it("derives the default output name from the manifest", async () => {
@@ -64,7 +64,7 @@ describe("runBuild", () => {
 
   it("rejects an invalid manifest before writing anything", async () => {
     const file = join(dir, "index.ts");
-    writeFileSync(file, `export const meta = { name: "x" };`); // no triggers
+    writeFileSync(file, `export const meta = { slug: "x" };`); // no triggers
     const out = join(dir, "x.mjs");
 
     await expect(runBuild({ file, out }, { log: () => undefined })).rejects.toThrow(/triggers/);

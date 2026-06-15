@@ -47,7 +47,7 @@ describe("loadProgram", () => {
 
   it("builds a single file into a content-addressed artifact", async () => {
     const file = join(dir, "wf.ts");
-    writeFileSync(file, `export const meta = { name: "solo", description: "d" };`);
+    writeFileSync(file, `export const meta = { slug: "solo", description: "d" };`);
     const prog = await loadProgram(file);
     expect(prog.name).toBe("solo");
     expect(prog.entry).toBe("index.mjs");
@@ -59,7 +59,7 @@ describe("loadProgram", () => {
   it("builds a package directory + its assets", async () => {
     mkdirSync(join(dir, "skills"));
     writeFileSync(join(dir, "skills", "s.md"), "# skill");
-    writeFileSync(join(dir, "index.ts"), `export const meta = { name: "pkg" };`);
+    writeFileSync(join(dir, "index.ts"), `export const meta = { slug: "pkg" };`);
     const prog = await loadProgram(dir);
     expect(prog.name).toBe("pkg");
     expect(prog.artifact.assetPaths).toEqual(["skills/s.md"]);
@@ -96,7 +96,7 @@ describe("deployWithLink", () => {
     entry: "index.mjs",
     sdkVersion: "*",
     lockfileDigest: null,
-    entrySource: `export const meta = { name: "n" };`,
+    entrySource: `export const meta = { slug: "n" };`,
     assetPaths: [],
   };
   const prog: PreparedProgram = { name: "n", entry: "index.mjs", artifact };

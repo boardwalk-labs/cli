@@ -20,7 +20,7 @@ describe("runCheck", () => {
     writeFileSync(
       file,
       `export const meta = {
-         name: "ok-wf",
+         slug: "ok-wf",
          description: "d",
          triggers: [{ kind: "manual" }, { kind: "cron", expr: "0 9 * * 1-5" }],
          permissions: { secrets: [{ name: "API_KEY" }] },
@@ -43,7 +43,7 @@ describe("runCheck", () => {
 
   it("fails a manifest-schema violation (missing triggers)", async () => {
     const file = join(dir, "no-triggers.ts");
-    writeFileSync(file, `export const meta = { name: "no-triggers" };`);
+    writeFileSync(file, `export const meta = { slug: "no-triggers" };`);
     await expect(runCheck({ file }, { log: () => undefined })).rejects.toThrow(/triggers/);
   });
 
@@ -52,7 +52,7 @@ describe("runCheck", () => {
     writeFileSync(
       file,
       `import { x } from "./does-not-exist.ts";
-       export const meta = { name: "broken", triggers: [{ kind: "manual" }] };
+       export const meta = { slug: "broken", triggers: [{ kind: "manual" }] };
        console.log(x);`,
     );
     await expect(runCheck({ file }, { log: () => undefined })).rejects.toThrow(/Bundling failed/);

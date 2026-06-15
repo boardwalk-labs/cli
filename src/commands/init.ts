@@ -33,7 +33,8 @@ const DEFAULT_TEMPLATES_URL = "https://raw.githubusercontent.com/boardwalk-labs/
 const HELLO_PROGRAM = `import { input, output, type WorkflowMeta } from "@boardwalk-labs/workflow";
 
 export const meta = {
-  name: "{{name}}",
+  slug: "{{slug}}",
+  title: "{{title}}",
   description: "A starting point — run it locally with \`boardwalk dev\`.",
   triggers: [{ kind: "manual" }],
 } satisfies WorkflowMeta;
@@ -97,12 +98,19 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
   const builtin = BUILTIN_TEMPLATES[opts.template];
   if (builtin !== undefined) {
     const dir = resolve(opts.dir);
-    const name = workflowNameFor(dir);
+    const slug = workflowNameFor(dir);
+    const title = titleCaseSlug(slug);
     const files = Object.fromEntries(
-      Object.entries(builtin).map(([rel, body]) => [rel, body.replaceAll("{{name}}", name)]),
+      Object.entries(builtin).map(([rel, body]) => [
+        rel,
+        body
+          .replaceAll("{{slug}}", slug)
+          .replaceAll("{{title}}", title)
+          .replaceAll("{{name}}", slug),
+      ]),
     );
     scaffold(dir, files);
-    finish(log, opts, name, opts.template, []);
+    finish(log, opts, slug, opts.template, []);
     return;
   }
 
@@ -225,7 +233,7 @@ function isRegistryTemplate(value: unknown): value is RegistryTemplate {
   );
 }
 
-/** Derive a manifest-legal workflow name from the target directory's basename. */
+/** Derive a manifest-legal workflow slug from the target directory's basename. */
 export function workflowNameFor(absDir: string): string {
   const base = basename(absDir)
     .toLowerCase()
@@ -233,4 +241,13 @@ export function workflowNameFor(absDir: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 100);
   return base.length > 0 ? base : "my-workflow";
+}
+
+/** A human-friendly title from a slug: "morning-digest" → "Morning Digest". */
+function titleCaseSlug(slug: string): string {
+  return slug
+    .split("-")
+    .filter((s) => s.length > 0)
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(" ");
 }

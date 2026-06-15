@@ -40,9 +40,9 @@ describe("runDev (end-to-end via the engine)", () => {
         file,
         `import { phase, input, output, secrets, type WorkflowMeta } from "@boardwalk-labs/workflow";
          export const meta = {
-           name: "greet",
+           slug: "greet",
            triggers: [{ kind: "manual" }],
-           secrets: [{ name: "GREETING_PREFIX" }],
+           permissions: { secrets: [{ name: "GREETING_PREFIX" }] },
          } satisfies WorkflowMeta;
 
          phase("Greet");
@@ -72,7 +72,7 @@ describe("runDev (end-to-end via the engine)", () => {
       const file = join(dir, "boom.ts");
       writeFileSync(
         file,
-        `export const meta = { name: "boom", triggers: [{ kind: "manual" }] };
+        `export const meta = { slug: "boom", triggers: [{ kind: "manual" }] };
          throw new Error("kapow");`,
       );
 
@@ -95,7 +95,7 @@ describe("runDev (end-to-end via the engine)", () => {
       writeFileSync(
         file,
         `import { output } from "@boardwalk-labs/workflow";
-         export const meta = { name: "v", triggers: [{ kind: "manual" }] };
+         export const meta = { slug: "v", triggers: [{ kind: "manual" }] };
          output({ healthy: false });
          throw new Error("deadline passed");`,
       );
@@ -116,7 +116,7 @@ describe("runDev (end-to-end via the engine)", () => {
     "a do-nothing script completes (no entrypoint convention to satisfy)",
     async () => {
       const file = join(dir, "noop.ts");
-      writeFileSync(file, `export const meta = { name: "n", triggers: [{ kind: "manual" }] };`);
+      writeFileSync(file, `export const meta = { slug: "n", triggers: [{ kind: "manual" }] };`);
 
       await runDev(
         { file, input: undefined, verbose: false, stream: undefined, envFile: undefined },
@@ -134,7 +134,7 @@ describe("runDev (end-to-end via the engine)", () => {
       writeFileSync(
         file,
         `import { output } from "@boardwalk-labs/workflow";
-         export const meta = { name: "legacy", triggers: [{ kind: "manual" }] };
+         export const meta = { slug: "legacy", triggers: [{ kind: "manual" }] };
          export default async function run(): Promise<void> {
            output("from the wrapper — must NOT appear");
          }`,
@@ -159,7 +159,7 @@ describe("runDev (end-to-end via the engine)", () => {
       writeFileSync(
         file,
         `import { output } from "@boardwalk-labs/workflow";
-         export const meta = { name: "pipe", triggers: [{ kind: "manual" }] };
+         export const meta = { slug: "pipe", triggers: [{ kind: "manual" }] };
          output({ answer: 42 });`,
       );
 
@@ -179,7 +179,7 @@ describe("runDev (end-to-end via the engine)", () => {
       writeFileSync(
         file,
         `import { agent } from "@boardwalk-labs/workflow";
-         export const meta = { name: "a", triggers: [{ kind: "manual" }] };
+         export const meta = { slug: "a", triggers: [{ kind: "manual" }] };
          await agent("hi", { provider: "no-such-provider" });`,
       );
 
@@ -199,7 +199,7 @@ describe("runDev (end-to-end via the engine)", () => {
 
   it("rejects an invalid manifest before running anything", async () => {
     const file = join(dir, "invalid.ts");
-    writeFileSync(file, `export const meta = { name: "x" };\nconsole.log("never runs");`);
+    writeFileSync(file, `export const meta = { slug: "x" };\nconsole.log("never runs");`);
 
     await expect(
       runDev(
@@ -212,7 +212,7 @@ describe("runDev (end-to-end via the engine)", () => {
 
   it("errors on a missing explicit --env file", async () => {
     const file = join(dir, "index.ts");
-    writeFileSync(file, `export const meta = { name: "e", triggers: [{ kind: "manual" }] };`);
+    writeFileSync(file, `export const meta = { slug: "e", triggers: [{ kind: "manual" }] };`);
 
     await expect(
       runDev(
@@ -230,7 +230,7 @@ describe("runDev (end-to-end via the engine)", () => {
 
   it("Ctrl-C cancels the run and exits 130", async () => {
     const file = join(dir, "index.ts");
-    writeFileSync(file, `export const meta = { name: "c", triggers: [{ kind: "manual" }] };`);
+    writeFileSync(file, `export const meta = { slug: "c", triggers: [{ kind: "manual" }] };`);
 
     // A fake engine whose run never finishes on its own — only a cancel() resolves it. The injected
     // SIGINT hook fires once the run has started (mid-wait), exercising the cooperative-cancel path
@@ -272,7 +272,7 @@ describe("runDev (end-to-end via the engine)", () => {
   it("merges the managed-inference overlay into the engine env and threads --org through", async () => {
     writeFileSync(join(dir, ".env"), "FOO=bar\n");
     const file = join(dir, "index.ts");
-    writeFileSync(file, `export const meta = { name: "i", triggers: [{ kind: "manual" }] };`);
+    writeFileSync(file, `export const meta = { slug: "i", triggers: [{ kind: "manual" }] };`);
 
     let captured: Record<string, string> = {};
     let seenOrg: string | null = "unset";

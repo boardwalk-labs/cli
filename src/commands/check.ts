@@ -37,7 +37,7 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   const artifact = await buildArtifact(opts.file);
   const assets = artifact.assetPaths.length;
 
-  log(`✓ "${manifest.name}" is valid`);
+  log(`✓ "${manifest.slug}" is valid`);
   log(`  entry:    ${artifact.entry}`);
   log(`  triggers: ${manifest.triggers.map((t) => t.kind).join(", ")}`);
   const secrets = manifest.permissions?.secrets;

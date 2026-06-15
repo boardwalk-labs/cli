@@ -35,10 +35,10 @@ export async function runBuild(opts: BuildOptions, deps: BuildDeps = {}): Promis
   const manifest = extractValidatedManifest(readFileSync(entry, "utf8"), entry);
   const program = await bundleWorkflow(entry);
 
-  const outPath = resolve(opts.out ?? `${manifest.name}.mjs`);
+  const outPath = resolve(opts.out ?? `${manifest.slug}.mjs`);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, program, "utf8");
 
-  log(`built "${manifest.name}" → ${outPath}`);
+  log(`built "${manifest.slug}" → ${outPath}`);
   return outPath;
 }

@@ -34,7 +34,7 @@ const REGISTRY = JSON.stringify({
 
 const REMOTE_FILES: Record<string, string> = {
   "/registry.json": REGISTRY,
-  "/templates/remote-digest/index.ts": `export const meta = { name: "remote-digest", triggers: [{ kind: "manual" }] };
+  "/templates/remote-digest/index.ts": `export const meta = { slug: "remote-digest", triggers: [{ kind: "manual" }] };
 console.log("remote-digest ran");`,
   "/templates/remote-digest/package.json": `{ "name": "remote-digest", "private": true }`,
   "/templates/remote-digest/.env.example": "API_KEY=…\n",
@@ -69,7 +69,7 @@ describe("runInit (built-in template)", () => {
       expect(existsSync(join(target, f)), f).toBe(true);
     }
     const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
-    expect(manifest.name).toBe("my-digest");
+    expect(manifest.slug).toBe("my-digest");
     expect(lines.join("\n")).toContain('scaffolded "my-digest"');
   });
 
@@ -113,7 +113,7 @@ describe("runInit (registry template)", () => {
 
     expect(readFileSync(join(target, "lib", "util.ts"), "utf8")).toBe("export const x = 1;\n");
     const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
-    expect(manifest.name).toBe("remote-digest"); // verbatim — no {{name}} substitution
+    expect(manifest.slug).toBe("remote-digest"); // verbatim — no {{name}} substitution
     const out = lines.join("\n");
     expect(out).toContain("cp .env.example .env");
     expect(out).toContain("API_KEY");
