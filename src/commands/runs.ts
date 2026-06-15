@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: MIT
 
-// `boardwalk runs [--org <slug>] [--status <s>] [--limit <n>]` — the org's recent runs, newest first,
-// as a compact table (id, workflow, status, trigger, age, duration). Read-only (GET /orgs/:slug/runs).
+// `boardwalk runs [runId]` — two modes:
+//   • no id  → the org's recent runs as a compact table (GET /orgs/:slug/runs); needs an org.
+//   • <runId> → one run's detail (GET /runs/:id); the endpoint resolves the org, so NO --org needed.
 //
-// Org precedence: --org > the linked project's org (.boardwalk/project.json). Auth precedence matches
-// the other network commands: --token > BOARDWALK_API_KEY env > stored login.
+// Org precedence (list mode): --org > the linked project's org (.boardwalk/project.json). Auth
+// precedence matches the other network commands: --token > BOARDWALK_API_KEY env > stored login.
 
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveToken } from "../auth/resolve.js";
-import { BoardwalkClient, type RunListItem } from "../client.js";
+import { BoardwalkClient, type RunListItem, type RunDetail } from "../client.js";
 import { readLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 export interface RunsOptions {
+  /** When set, show this single run's detail instead of the org list (no --org needed). */
+  runId?: string | undefined;
   org?: string | undefined;
   status?: string | undefined;
   limit?: string | undefined;
@@ -39,15 +42,8 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
       console.log(line);
     });
 
-  const org = (opts.org ?? "").trim() || readLink(deps.cwd ?? process.cwd())?.orgSlug;
-  if (org === undefined || org.length === 0) {
-    throw new CliError(
-      "No org specified.",
-      "Pass --org <slug>, or run from a linked project (deploy/run links one).",
-    );
-  }
-  const limit = parseLimit(opts.limit);
-  const status = (opts.status ?? "").trim();
+  const runId = (opts.runId ?? "").trim();
+  const now = deps.now ?? Date.now();
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const token = await resolveToken({
@@ -62,6 +58,28 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
 
+  // Single-run detail — the endpoint resolves the org from the run id, so no --org is needed.
+  if (runId.length > 0) {
+    const run = await client.getRunDetail(runId);
+    if (opts.json === true) {
+      log(JSON.stringify(run, null, 2));
+      return;
+    }
+    for (const line of formatRunDetail(run, now)) log(line);
+    return;
+  }
+
+  // Org list — needs an org (from --org or the linked project).
+  const org = (opts.org ?? "").trim() || readLink(deps.cwd ?? process.cwd())?.orgSlug;
+  if (org === undefined || org.length === 0) {
+    throw new CliError(
+      "No org specified.",
+      "Pass --org <slug>, or run from a linked project (deploy/run links one).",
+    );
+  }
+  const limit = parseLimit(opts.limit);
+  const status = (opts.status ?? "").trim();
+
   const result = await client.listOrgRuns(org, {
     ...(status.length > 0 ? { status } : {}),
     ...(limit !== undefined ? { limit } : {}),
@@ -71,7 +89,7 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
     log(JSON.stringify(result, null, 2));
     return;
   }
-  for (const line of formatRuns(org, result.runs, deps.now ?? Date.now())) log(line);
+  for (const line of formatRuns(org, result.runs, now)) log(line);
   if (result.nextCursor !== null) {
     log("");
     log("  More runs available — raise --limit or filter with --status.");
@@ -110,6 +128,34 @@ export function formatRuns(org: string, runs: RunListItem[], now: number): strin
   return lines;
 }
 
+/** Render one run's detail as a label/value block (pure — exported for tests). `now` renders ages. */
+export function formatRunDetail(run: RunDetail, now: number): string[] {
+  const status = run.outcomeStatus === null ? run.status : `${run.status} (${run.outcomeStatus})`;
+  const lines = [
+    `Run ${run.id}`,
+    "",
+    field("Workflow", run.workflowName ?? run.workflowId),
+    field("Status", status),
+    field("Trigger", run.triggerKind ?? "—"),
+    field("Created", `${isoUtc(run.createdAt)}  (${age(run.createdAt, now)} ago)`),
+  ];
+  if (run.startedAt !== null) lines.push(field("Started", isoUtc(run.startedAt)));
+  if (run.completedAt !== null) lines.push(field("Finished", isoUtc(run.completedAt)));
+  lines.push(field("Duration", duration(run.runtimeSeconds)));
+
+  const tokens = run.tokensIn + run.tokensOut;
+  if (tokens > 0) {
+    lines.push(
+      field(
+        "Tokens",
+        `${compact(tokens)}  (${compact(run.tokensIn)} in · ${compact(run.tokensOut)} out)`,
+      ),
+    );
+  }
+  if (run.error !== null) lines.push(field("Error", `${run.error.code}: ${run.error.message}`));
+  return lines;
+}
+
 const ID_W = 32;
 const WF_W = 24;
 const STATUS_W = 12;
@@ -119,6 +165,24 @@ const AGE_W = 7;
 /** Left-justify `s` to `width`, truncating with `…` when it's too long. */
 function col(s: string, width: number): string {
   return (s.length > width - 1 ? `${s.slice(0, width - 2)}…` : s).padEnd(width);
+}
+
+/** A "  Label   value" detail row. */
+function field(label: string, value: string): string {
+  return `  ${label.padEnd(10)} ${value}`;
+}
+
+/** Epoch ms → "YYYY-MM-DD HH:MM:SS UTC". */
+function isoUtc(ms: number): string {
+  return `${new Date(ms).toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
+
+/** 18432 → "18.4K", 1_840_000 → "1.8M". Mirrors the usage command's compact format. */
+function compact(n: number): string {
+  if (Math.abs(n) < 1_000) return n.toLocaleString("en-US");
+  if (Math.abs(n) < 1_000_000) return `${(n / 1_000).toFixed(1)}K`;
+  if (Math.abs(n) < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  return `${(n / 1_000_000_000).toFixed(1)}B`;
 }
 
 /** Coarse "time since" label: 45s / 12m / 3h / 5d. */

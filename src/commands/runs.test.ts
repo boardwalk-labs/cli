@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, it, expect } from "vitest";
-import { formatRuns, runRuns } from "./runs.js";
-import type { RunListItem } from "../client.js";
+import { formatRunDetail, formatRuns, runRuns } from "./runs.js";
+import type { RunDetail, RunListItem } from "../client.js";
 import type { CliConfig } from "../config.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -79,6 +79,58 @@ describe("formatRuns", () => {
   });
 });
 
+function detail(over: Partial<RunDetail> = {}): RunDetail {
+  return {
+    ...run(),
+    outcomeStatus: null,
+    tokensIn: 12_100,
+    tokensOut: 6_300,
+    error: null,
+    ...over,
+  };
+}
+
+describe("formatRunDetail", () => {
+  it("renders the run's fields, times, duration, and tokens", () => {
+    const out = formatRunDetail(detail(), NOW).join("\n");
+    expect(out).toContain("Run run_01HABCDEFGHJKMNPQRSTVWXYZ0");
+    expect(out).toMatch(/Workflow\s+nightly-summary/);
+    expect(out).toMatch(/Status\s+completed/);
+    expect(out).toMatch(/Trigger\s+cron/);
+    expect(out).toMatch(/Created\s+2023-11-14 .* UTC\s+\(2h ago\)/);
+    expect(out).toMatch(/Duration\s+1m 23s/);
+    expect(out).toMatch(/Tokens\s+18\.4K\s+\(12\.1K in · 6\.3K out\)/);
+    expect(out).not.toContain("Error");
+  });
+
+  it("shows the curated error for a failed run", () => {
+    const out = formatRunDetail(
+      detail({ status: "failed", error: { code: "TOOL_ERROR", message: "merge tool exited 1" } }),
+      NOW,
+    ).join("\n");
+    expect(out).toMatch(/Status\s+failed/);
+    expect(out).toMatch(/Error\s+TOOL_ERROR: merge tool exited 1/);
+  });
+
+  it("omits started/finished/tokens when absent (in-flight run)", () => {
+    const out = formatRunDetail(
+      detail({
+        status: "running",
+        startedAt: null,
+        completedAt: null,
+        runtimeSeconds: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+      }),
+      NOW,
+    ).join("\n");
+    expect(out).not.toContain("Started");
+    expect(out).not.toContain("Finished");
+    expect(out).not.toContain("Tokens");
+    expect(out).toMatch(/Duration\s+—/);
+  });
+});
+
 describe("runRuns", () => {
   it("fetches the org's runs and renders the table", async () => {
     const { fetchImpl, urls } = runsFetch({ runs: [run()], nextCursor: null });
@@ -89,6 +141,19 @@ describe("runRuns", () => {
     );
     expect(urls).toEqual(["https://api.x/v1/orgs/acme-corp/runs"]);
     expect(lines.join("\n")).toContain("nightly-summary");
+  });
+
+  it("shows one run's detail (via /v1/runs/:id) when a run id is given — no org needed", async () => {
+    const { fetchImpl, urls } = runsFetch({ run: { ...detail(), id: "run_xyz" } });
+    const lines: string[] = [];
+    await runRuns(
+      { runId: "run_xyz", token: "t" },
+      { config: CONFIG, fetchImpl, log: (l) => lines.push(l), now: NOW },
+    );
+    expect(urls).toEqual(["https://api.x/v1/runs/run_xyz"]);
+    const out = lines.join("\n");
+    expect(out).toContain("Run run_xyz");
+    expect(out).toMatch(/Workflow\s+nightly-summary/);
   });
 
   it("passes --status and --limit through as query params", async () => {

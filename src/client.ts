@@ -71,6 +71,15 @@ export interface RunList {
   nextCursor: string | null;
 }
 
+/** A single run's detail (GET /v1/runs/:id) — the list row plus tokens + a curated error. */
+export interface RunDetail extends RunListItem {
+  outcomeStatus: string | null;
+  tokensIn: number;
+  tokensOut: number;
+  /** Curated failure cause for a failed run; null otherwise. */
+  error: { code: string; message: string } | null;
+}
+
 /** A freshly-minted inference-gateway key: the plaintext token (shown once) + its expiry/id. */
 export interface MintedInferenceKey {
   token: string;
@@ -210,6 +219,12 @@ export class BoardwalkClient {
     return this.runList(body);
   }
 
+  /** Fetch one run's detail. The endpoint resolves the org from the run id, so no slug is needed. */
+  async getRunDetail(runId: string): Promise<RunDetail> {
+    const body = await this.request<unknown>("GET", `/v1/runs/${encodeURIComponent(runId)}`);
+    return this.runDetail(body);
+  }
+
   /**
    * Cancel a run. Idempotent server-side (a terminal/already-cancelling run is a no-op); the
    * endpoint resolves the org from the run id, so no org slug is needed. Returns 204 No Content.
@@ -293,28 +308,34 @@ export class BoardwalkClient {
     throw new CliError("The API returned an unexpected run response shape.");
   }
 
-  /** Validate the `{ runs, nextCursor }` envelope and read each row's columns leniently (rows
-   *  missing an id/status are skipped, so a partial/older response still lists what it can). */
+  /** Validate the `{ runs, nextCursor }` envelope, reading each row leniently (rows missing an
+   *  id/status are skipped, so a partial/older response still lists what it can). */
   private runList(body: unknown): RunList {
     if (!isRecord(body) || !Array.isArray(body.runs)) {
       throw new CliError("The API returned an unexpected runs response shape.");
     }
     const runs: RunListItem[] = [];
     for (const row of body.runs) {
-      if (!isRecord(row) || typeof row.id !== "string" || typeof row.status !== "string") continue;
-      runs.push({
-        id: row.id,
-        workflowId: typeof row.workflowId === "string" ? row.workflowId : "",
-        workflowName: typeof row.workflowName === "string" ? row.workflowName : null,
-        status: row.status,
-        triggerKind: typeof row.triggerKind === "string" ? row.triggerKind : null,
-        createdAt: numOr(row.createdAt, 0),
-        startedAt: typeof row.startedAt === "number" ? row.startedAt : null,
-        completedAt: typeof row.completedAt === "number" ? row.completedAt : null,
-        runtimeSeconds: numOr(row.runtimeSeconds, 0),
-      });
+      const parsed = parseRunRow(row);
+      if (parsed !== null) runs.push(parsed);
     }
     return { runs, nextCursor: typeof body.nextCursor === "string" ? body.nextCursor : null };
+  }
+
+  /** Validate the `{ run }` envelope and read its columns + tokens + curated error. */
+  private runDetail(body: unknown): RunDetail {
+    const run = isRecord(body) ? body.run : undefined;
+    const base = parseRunRow(run);
+    if (!isRecord(run) || base === null) {
+      throw new CliError("The API returned an unexpected run response shape.");
+    }
+    return {
+      ...base,
+      outcomeStatus: typeof run.outcomeStatus === "string" ? run.outcomeStatus : null,
+      tokensIn: numOr(run.tokensIn, 0),
+      tokensOut: numOr(run.tokensOut, 0),
+      error: parseRunError(run.error),
+    };
   }
 
   private mintedInferenceKey(body: unknown): MintedInferenceKey {
@@ -365,6 +386,31 @@ export class BoardwalkClient {
 /** A number field, or a fallback when it's missing/non-numeric. */
 function numOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** Read a serialized run row into a `RunListItem`, or null when it lacks an id/status. Shared by the
+ *  runs-list and single-run parsers (the latter layers tokens + error on top). */
+function parseRunRow(row: unknown): RunListItem | null {
+  if (!isRecord(row) || typeof row.id !== "string" || typeof row.status !== "string") return null;
+  return {
+    id: row.id,
+    workflowId: typeof row.workflowId === "string" ? row.workflowId : "",
+    workflowName: typeof row.workflowName === "string" ? row.workflowName : null,
+    status: row.status,
+    triggerKind: typeof row.triggerKind === "string" ? row.triggerKind : null,
+    createdAt: numOr(row.createdAt, 0),
+    startedAt: typeof row.startedAt === "number" ? row.startedAt : null,
+    completedAt: typeof row.completedAt === "number" ? row.completedAt : null,
+    runtimeSeconds: numOr(row.runtimeSeconds, 0),
+  };
+}
+
+/** Read a run's curated `{ code, message }` error, or null when there's no usable message. */
+function parseRunError(value: unknown): { code: string; message: string } | null {
+  if (!isRecord(value) || typeof value.message !== "string" || value.message.length === 0) {
+    return null;
+  }
+  return { code: typeof value.code === "string" ? value.code : "ERROR", message: value.message };
 }
 
 /** Read a usage breakdown array into `{ label, tokens }` lines, taking the label from `labelKey`.

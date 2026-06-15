@@ -13,7 +13,7 @@
 //   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
 //   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
-//   boardwalk runs --org <s>            List recent runs (id, workflow, status, age, duration).
+//   boardwalk runs [runId] --org <s>    List recent runs, or show one run's detail.
 //
 // Auth precedence for deploy/run/cancel/usage: --token > BOARDWALK_API_KEY env > stored `login`.
 //
@@ -233,23 +233,28 @@ function buildProgram(): Command {
 
   program
     .command("runs")
+    .argument("[runId]", "show this run's detail instead of the list (no --org needed)")
     .option("--org <slug>", "the org to list runs for (optional once the project is linked)")
     .option("--status <status>", "filter by status (e.g. running, completed, failed, cancelled)")
     .option("--limit <n>", "how many runs to show (server-clamped)")
-    .option("--json", "print the raw runs page as JSON", false)
+    .option("--json", "print the raw response as JSON", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .description("List your org's recent runs (id, workflow, status, trigger, age, duration).")
+    .description("List your org's recent runs, or show one run's detail with `runs <runId>`.")
     .action(
-      async (options: {
-        org?: string;
-        status?: string;
-        limit?: string;
-        json?: boolean;
-        token?: string;
-      }) => {
+      async (
+        runId: string | undefined,
+        options: {
+          org?: string;
+          status?: string;
+          limit?: string;
+          json?: boolean;
+          token?: string;
+        },
+      ) => {
         const { runRuns } = await import("./commands/runs.js");
         await runRuns(
           {
+            runId,
             org: options.org,
             status: options.status,
             limit: options.limit,
