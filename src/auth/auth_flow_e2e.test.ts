@@ -147,7 +147,7 @@ async function startMockApi(): Promise<MockApi> {
     if (req.method === "GET" && /^\/v1\/orgs\/[^/]+\/workflows$/.test(req.url ?? "")) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
-        JSON.stringify({ workflows: [{ id: "wf_1", name: "demo", currentVersionId: null }] }),
+        JSON.stringify({ workflows: [{ id: "wf_1", slug: "demo", currentVersionId: null }] }),
       );
       return;
     }
@@ -245,7 +245,7 @@ describe("auth end-to-end (PKCE + API key)", () => {
 
     const client = new BoardwalkClient({ baseUrl: cfg.apiBaseUrl, token });
     const workflows = await client.listWorkflows("acme");
-    expect(workflows).toEqual([{ id: "wf_1", name: "demo", currentVersionId: null }]);
+    expect(workflows).toEqual([{ id: "wf_1", slug: "demo", currentVersionId: null }]);
     expect(api.state.lastAuth).toBe("Bearer pkce-access-1");
   });
 

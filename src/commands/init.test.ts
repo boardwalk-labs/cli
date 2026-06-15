@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runInit, workflowNameFor } from "./init.js";
+import { runInit, workflowSlugFor } from "./init.js";
 import { extractValidatedManifest } from "../manifest.js";
 
 /** A fetch serving an in-memory registry + template files (no network). */
@@ -170,12 +170,12 @@ describe("runInit (registry template)", () => {
   });
 });
 
-describe("workflowNameFor", () => {
-  it("kebab-cases the directory basename into a legal name", () => {
-    expect(workflowNameFor("/tmp/My Cool_Workflow!")).toBe("my-cool-workflow");
+describe("workflowSlugFor", () => {
+  it("kebab-cases the directory basename into a legal slug", () => {
+    expect(workflowSlugFor("/tmp/My Cool_Workflow!")).toBe("my-cool-workflow");
   });
 
   it("falls back when nothing legal survives", () => {
-    expect(workflowNameFor("/tmp/算法")).toBe("my-workflow");
+    expect(workflowSlugFor("/tmp/算法")).toBe("my-workflow");
   });
 });

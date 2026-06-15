@@ -55,7 +55,7 @@ export interface RunSummary {
 export interface RunListItem {
   id: string;
   workflowId: string;
-  workflowName: string | null;
+  workflowSlug: string | null;
   status: string;
   triggerKind: string | null;
   createdAt: number;
@@ -378,7 +378,7 @@ export class BoardwalkClient {
         cachedReadTokens: numOr(cache.totalCachedRead, 0),
       },
       byModel: usageLines(u.byModel, "model"),
-      byWorkflow: usageLines(u.byWorkflowUsage, "workflowName"),
+      byWorkflow: usageLines(u.byWorkflowUsage, "workflowSlug"),
     };
   }
 }
@@ -395,7 +395,7 @@ function parseRunRow(row: unknown): RunListItem | null {
   return {
     id: row.id,
     workflowId: typeof row.workflowId === "string" ? row.workflowId : "",
-    workflowName: typeof row.workflowName === "string" ? row.workflowName : null,
+    workflowSlug: typeof row.workflowSlug === "string" ? row.workflowSlug : null,
     status: row.status,
     triggerKind: typeof row.triggerKind === "string" ? row.triggerKind : null,
     createdAt: numOr(row.createdAt, 0),
@@ -431,7 +431,7 @@ function isWorkflowSummary(value: unknown): value is WorkflowSummary {
   if (!isRecord(value)) return false;
   return (
     typeof value.id === "string" &&
-    typeof value.name === "string" &&
+    typeof value.slug === "string" &&
     (value.currentVersionId === null || typeof value.currentVersionId === "string")
   );
 }

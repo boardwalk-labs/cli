@@ -40,16 +40,16 @@ describe("BoardwalkClient.listWorkflows", () => {
   it("GETs the org workflows and returns well-formed rows", async () => {
     const { fetchImpl, calls } = recordingFetch(200, {
       workflows: [
-        { id: "wf1", name: "a", currentVersionId: "v1" },
-        { id: "wf2", name: "b", currentVersionId: null },
+        { id: "wf1", slug: "a", currentVersionId: "v1" },
+        { id: "wf2", slug: "b", currentVersionId: null },
         { id: "bad" }, // dropped — wrong shape
       ],
     });
     const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
     const rows = await client.listWorkflows("my-org");
     expect(rows).toEqual([
-      { id: "wf1", name: "a", currentVersionId: "v1" },
-      { id: "wf2", name: "b", currentVersionId: null },
+      { id: "wf1", slug: "a", currentVersionId: "v1" },
+      { id: "wf2", slug: "b", currentVersionId: null },
     ]);
     expect(calls[0]?.url).toBe("https://api.x/v1/orgs/my-org/workflows");
     expect(calls[0]?.headers.Authorization).toBe("Bearer t");
@@ -59,7 +59,7 @@ describe("BoardwalkClient.listWorkflows", () => {
 describe("BoardwalkClient.createWorkflow", () => {
   it("POSTs the source with an Idempotency-Key and returns the deploy result", async () => {
     const { fetchImpl, calls } = recordingFetch(201, {
-      workflow: { id: "wf9", name: "demo", currentVersionId: "v1" },
+      workflow: { id: "wf9", slug: "demo", currentVersionId: "v1" },
       version: { id: "v1", number: 1 },
     });
     const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
@@ -82,7 +82,7 @@ describe("BoardwalkClient.createWorkflow", () => {
 describe("BoardwalkClient.updateWorkflow", () => {
   it("PATCHes /v1/workflows/:id", async () => {
     const { fetchImpl, calls } = recordingFetch(200, {
-      workflow: { id: "wf9", name: "demo", currentVersionId: "v2" },
+      workflow: { id: "wf9", slug: "demo", currentVersionId: "v2" },
       version: { id: "v2", number: 2 },
     });
     const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });

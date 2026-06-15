@@ -120,7 +120,7 @@ export function formatRuns(org: string, runs: RunListItem[], now: number): strin
     `  ${col("RUN ID", ID_W)}${col("WORKFLOW", WF_W)}${col("STATUS", STATUS_W)}${col("TRIGGER", TRIGGER_W)}${col("AGE", AGE_W)}DURATION`,
   ];
   for (const r of runs) {
-    const wf = r.workflowName ?? r.workflowId;
+    const wf = r.workflowSlug ?? r.workflowId;
     lines.push(
       `  ${col(r.id, ID_W)}${col(wf, WF_W)}${col(r.status, STATUS_W)}${col(r.triggerKind ?? "—", TRIGGER_W)}${col(age(r.createdAt, now), AGE_W)}${duration(r.runtimeSeconds)}`,
     );
@@ -134,7 +134,7 @@ export function formatRunDetail(run: RunDetail, now: number): string[] {
   const lines = [
     `Run ${run.id}`,
     "",
-    field("Workflow", run.workflowName ?? run.workflowId),
+    field("Workflow", run.workflowSlug ?? run.workflowId),
     field("Status", status),
     field("Trigger", run.triggerKind ?? "—"),
     field("Created", `${isoUtc(run.createdAt)}  (${age(run.createdAt, now)} ago)`),

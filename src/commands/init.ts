@@ -98,7 +98,7 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
   const builtin = BUILTIN_TEMPLATES[opts.template];
   if (builtin !== undefined) {
     const dir = resolve(opts.dir);
-    const slug = workflowNameFor(dir);
+    const slug = workflowSlugFor(dir);
     const title = titleCaseSlug(slug);
     const files = Object.fromEntries(
       Object.entries(builtin).map(([rel, body]) => [
@@ -234,7 +234,7 @@ function isRegistryTemplate(value: unknown): value is RegistryTemplate {
 }
 
 /** Derive a manifest-legal workflow slug from the target directory's basename. */
-export function workflowNameFor(absDir: string): string {
+export function workflowSlugFor(absDir: string): string {
   const base = basename(absDir)
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, "-")

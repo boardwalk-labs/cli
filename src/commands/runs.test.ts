@@ -20,7 +20,7 @@ function run(over: Partial<RunListItem> = {}): RunListItem {
   return {
     id: "run_01HABCDEFGHJKMNPQRSTVWXYZ0",
     workflowId: "wf_1",
-    workflowName: "nightly-summary",
+    workflowSlug: "nightly-summary",
     status: "completed",
     triggerKind: "cron",
     createdAt: NOW - 2 * 3600 * 1000, // 2h ago
@@ -57,7 +57,7 @@ describe("formatRuns", () => {
   it("shows — duration for an in-flight run and falls back to the workflow id when unnamed", () => {
     const out = formatRuns(
       "acme-corp",
-      [run({ status: "running", runtimeSeconds: 0, workflowName: null })],
+      [run({ status: "running", runtimeSeconds: 0, workflowSlug: null })],
       NOW,
     ).join("\n");
     expect(out).toContain("running");
@@ -65,10 +65,10 @@ describe("formatRuns", () => {
     expect(out).toMatch(/running.*—/s);
   });
 
-  it("truncates a long workflow name with an ellipsis", () => {
+  it("truncates a long workflow slug with an ellipsis", () => {
     const out = formatRuns(
       "acme-corp",
-      [run({ workflowName: "an-extremely-long-workflow-name-that-overflows" })],
+      [run({ workflowSlug: "an-extremely-long-workflow-name-that-overflows" })],
       NOW,
     ).join("\n");
     expect(out).toContain("…");

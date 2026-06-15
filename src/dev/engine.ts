@@ -26,10 +26,10 @@ export interface DevRunResult {
 export interface DevEngine {
   /** Subscribe to the run's stamped events (the envelope is already applied). */
   onEvent(listener: (event: RunEvent) => void): () => void;
-  /** Deploy the bundled program; returns the derived workflow name. */
+  /** Deploy the bundled program; returns the derived workflow slug. */
   deploy(program: string): { slug: string };
   /** Queue + dispatch a run; returns its id immediately. */
-  start(workflowName: string, input: JsonValue | undefined): { id: string };
+  start(slug: string, input: JsonValue | undefined): { id: string };
   /** Resolve when the run reaches a terminal status. */
   wait(runId: string): Promise<DevRunResult>;
   /** Cooperatively cancel a run (Ctrl-C). */
@@ -65,8 +65,8 @@ export const createDevEngine: DevEngineFactory = (opts) => {
       const workflow = engine.deployWorkflow({ program });
       return { slug: workflow.slug };
     },
-    start: (workflowName, input) => {
-      const run = engine.startRun(workflowName, input !== undefined ? { input } : {});
+    start: (slug, input) => {
+      const run = engine.startRun(slug, input !== undefined ? { input } : {});
       return { id: run.id };
     },
     wait: async (runId) => {
