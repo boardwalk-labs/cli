@@ -2,6 +2,20 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.8
+
+### Added
+
+- **`boardwalk usage`** — your org's runs, compute, tokens, available credit, autonomy (share of
+  runs that ran unattended), and prompt-cache hit rate over a window, plus the heaviest models and
+  workflows by token volume. `--days <n>` sets the window, `--json` prints the raw summary, and the
+  org resolves from `--org` or the linked project.
+- **`boardwalk runs [runId]`** — list your org's recent runs as a compact table (id, workflow,
+  status, trigger, age, duration), or pass a run id to show that run's detail (status, timings,
+  duration, tokens, and the curated error for a failed run). `--status` / `--limit` filter the list;
+  `--json` prints the raw response. Detail mode resolves the org from the run id, so no `--org` is
+  needed.
+
 ## 0.1.4
 
 ### Added
