@@ -27,7 +27,7 @@ export interface PreparedProgram {
 
 /**
  * Resolve a target path to its deployable artifact: build the program (bundle + assets → tarball,
- * content-addressed) and extract `meta.name` from the bundled entry for the deploy identity.
+ * content-addressed) and extract `meta.slug` from the bundled entry for the deploy identity.
  */
 export async function loadProgram(file: string): Promise<PreparedProgram> {
   const artifact = await buildArtifact(file);

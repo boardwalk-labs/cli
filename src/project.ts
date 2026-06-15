@@ -3,7 +3,7 @@
 // Project link — the Vercel-style tie between a local workflow directory and its deployed workflow.
 //
 // `<projectDir>/.boardwalk/project.json` (gitignored) stores `{ orgSlug, workflowId }`. Once linked,
-// `deploy`/`run` update the workflow BY ID — so renaming `meta.name` (or the entry file) just
+// `deploy`/`run` update the workflow BY ID — so renaming `meta.slug` (or the entry file) just
 // updates the same workflow instead of forking a new one, and `--org` is no longer needed. The id is
 // environment-specific (a dev workflow id ≠ prod), so the link is gitignored, not committed.
 //
