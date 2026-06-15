@@ -44,7 +44,7 @@ boardwalk dev ./index.ts --stream phase,log
 
 ## Deploying
 
-- **`deploy <file|dir> --org <slug>`** — create/update the workflow (idempotent by `meta.name`).
+- **`deploy <file|dir> --org <slug>`** — create/update the workflow (idempotent by `meta.slug`).
   `--dry-run` prints the plan only.
 - **`run <file|dir> --org <slug>`** — deploy the current source, trigger a **real run on the
   platform**, and wait for it to finish. `--no-wait` triggers and exits.
@@ -59,7 +59,7 @@ your `meta` — the CLI never sends a hand-built manifest.
 
 The first `deploy`/`run` in a directory writes a gitignored `.boardwalk/project.json`
 with `{ orgSlug, workflowId }`. After that the workflow is identified by that stored **id**, so
-`--org` is optional and renaming `meta.name` or the entry file updates the same workflow instead of
+`--org` is optional and renaming `meta.slug` or the entry file updates the same workflow instead of
 forking a new one. On a fresh clone, pass `--org` once to re-link (it adopts an existing same-name
 workflow if present, else creates one).
 
