@@ -107,7 +107,7 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
 
   try {
     const workflow = engine.deploy(program);
-    const run = engine.start(workflow.name, input);
+    const run = engine.start(workflow.slug, input);
     runId = run.id;
     const result = await engine.wait(run.id);
 

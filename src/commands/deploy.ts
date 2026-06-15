@@ -62,7 +62,7 @@ export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<
   const dep = await deployWithLink(client, { orgSlug: opts.org, target: opts.file, prog });
   if (dep.gitignoreUpdated)
     log("  linked → .boardwalk/project.json (added .boardwalk/ to .gitignore)");
-  log(`✓ ${dep.outcome} "${prog.name}" version ${String(dep.versionNumber)} (${dep.workflowId})`);
+  log(`✓ ${dep.outcome} "${prog.slug}" version ${String(dep.versionNumber)} (${dep.workflowId})`);
 }
 
 /** Read-only preview of what `deploy` would do (no writes). */
@@ -78,13 +78,13 @@ async function printPlan(
     return;
   }
   if (opts.org === undefined || opts.org.length === 0) {
-    log(`plan: CREATE "${prog.name}" (unlinked — pass --org to check for an existing match)`);
+    log(`plan: CREATE "${prog.slug}" (unlinked — pass --org to check for an existing match)`);
     return;
   }
-  const plan = planDeploy(await client.listWorkflows(opts.org), prog.name);
+  const plan = planDeploy(await client.listWorkflows(opts.org), prog.slug);
   log(
     plan.action === "create"
-      ? `plan: CREATE "${prog.name}" in org ${opts.org}`
-      : `plan: ADOPT existing "${prog.name}" (${plan.workflowId ?? "?"}) → new version`,
+      ? `plan: CREATE "${prog.slug}" in org ${opts.org}`
+      : `plan: ADOPT existing "${prog.slug}" (${plan.workflowId ?? "?"}) → new version`,
   );
 }

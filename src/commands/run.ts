@@ -116,7 +116,7 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   const dep = await deployWithLink(client, { orgSlug: opts.org, target: opts.file, prog });
   if (dep.gitignoreUpdated)
     log("  linked → .boardwalk/project.json (added .boardwalk/ to .gitignore)");
-  log(`✓ ${dep.outcome} "${prog.name}" version ${String(dep.versionNumber)}`);
+  log(`✓ ${dep.outcome} "${prog.slug}" version ${String(dep.versionNumber)}`);
 
   const input = parseInput(opts.input);
   const run = await client.triggerRun(dep.orgSlug, dep.workflowId, input);

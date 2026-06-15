@@ -18,7 +18,7 @@ import { projectDirFor, readLink, writeLink } from "./project.js";
 import type { BoardwalkClient, DeployArtifactRef, WorkflowSummary } from "./client.js";
 
 export interface PreparedProgram {
-  name: string;
+  slug: string;
   /** Entry module inside the artifact (e.g. `index.mjs`). */
   entry: string;
   /** The built, content-addressed program artifact (tarball + digest + metadata). */
@@ -31,23 +31,23 @@ export interface PreparedProgram {
  */
 export async function loadProgram(file: string): Promise<PreparedProgram> {
   const artifact = await buildArtifact(file);
-  const name = extractWorkflowSlug(artifact.entrySource, artifact.entry);
-  return { name, entry: artifact.entry, artifact };
+  const slug = extractWorkflowSlug(artifact.entrySource, artifact.entry);
+  return { slug, entry: artifact.entry, artifact };
 }
 
 export interface DeployPlan {
   action: "create" | "update";
-  name: string;
+  slug: string;
   /** Present only for `update` — the existing workflow id to PUT. */
   workflowId?: string;
 }
 
-/** Decide create vs update by matching the program name against the org's existing workflows. */
-export function planDeploy(existing: readonly WorkflowSummary[], name: string): DeployPlan {
-  const match = existing.find((w) => w.name === name);
+/** Decide create vs update by matching the program slug against the org's existing workflows. */
+export function planDeploy(existing: readonly WorkflowSummary[], slug: string): DeployPlan {
+  const match = existing.find((w) => w.slug === slug);
   return match !== undefined
-    ? { action: "update", name, workflowId: match.id }
-    : { action: "create", name };
+    ? { action: "update", slug, workflowId: match.id }
+    : { action: "create", slug };
 }
 
 export interface DeployResultSummary {
@@ -104,7 +104,7 @@ export async function deployWithLink(
   // Unlinked: adopt an existing workflow with the same name, if any (so a second machine re-links
   // instead of creating a duplicate). Otherwise we'll create below.
   if (workflowId === null) {
-    const match = (await client.listWorkflows(orgSlug)).find((w) => w.name === ctx.prog.name);
+    const match = (await client.listWorkflows(orgSlug)).find((w) => w.slug === ctx.prog.slug);
     if (match !== undefined) {
       workflowId = match.id;
       outcome = "adopted";

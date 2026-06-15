@@ -24,7 +24,7 @@ import type { FetchLike } from "./auth/pkce.js";
 
 export interface WorkflowSummary {
   id: string;
-  name: string;
+  slug: string;
   currentVersionId: string | null;
 }
 

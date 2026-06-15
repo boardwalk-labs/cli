@@ -239,7 +239,7 @@ describe("runDev (end-to-end via the engine)", () => {
     let sigint: (() => void) | null = null;
     const fakeEngine: DevEngine = {
       onEvent: () => () => undefined,
-      deploy: () => ({ name: "c" }),
+      deploy: () => ({ slug: "c" }),
       start: () => ({ id: "run-1" }),
       wait: () =>
         new Promise<DevRunResult>((resolve) => {
@@ -278,7 +278,7 @@ describe("runDev (end-to-end via the engine)", () => {
     let seenOrg: string | null = "unset";
     const fakeEngine: DevEngine = {
       onEvent: () => () => undefined,
-      deploy: () => ({ name: "i" }),
+      deploy: () => ({ slug: "i" }),
       start: () => ({ id: "run-1" }),
       wait: () => Promise.resolve<DevRunResult>({ status: "completed", output: null, error: null }),
       cancel: () => Promise.resolve(),

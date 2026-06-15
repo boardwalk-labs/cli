@@ -27,7 +27,7 @@ export interface DevEngine {
   /** Subscribe to the run's stamped events (the envelope is already applied). */
   onEvent(listener: (event: RunEvent) => void): () => void;
   /** Deploy the bundled program; returns the derived workflow name. */
-  deploy(program: string): { name: string };
+  deploy(program: string): { slug: string };
   /** Queue + dispatch a run; returns its id immediately. */
   start(workflowName: string, input: JsonValue | undefined): { id: string };
   /** Resolve when the run reaches a terminal status. */
@@ -63,7 +63,7 @@ export const createDevEngine: DevEngineFactory = (opts) => {
       }),
     deploy: (program) => {
       const workflow = engine.deployWorkflow({ program });
-      return { name: workflow.name };
+      return { slug: workflow.slug };
     },
     start: (workflowName, input) => {
       const run = engine.startRun(workflowName, input !== undefined ? { input } : {});

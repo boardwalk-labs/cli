@@ -16,21 +16,21 @@ import type {
 } from "./client.js";
 
 function wf(id: string, name: string): WorkflowSummary {
-  return { id, name, currentVersionId: "v1" };
+  return { id, slug: name, currentVersionId: "v1" };
 }
 
 describe("planDeploy", () => {
   it("plans a create when no workflow matches the name", () => {
     expect(planDeploy([wf("wf1", "other")], "new-one")).toEqual({
       action: "create",
-      name: "new-one",
+      slug: "new-one",
     });
   });
 
   it("plans an update (with the id) when a workflow matches by name", () => {
     expect(planDeploy([wf("wf1", "a"), wf("wf2", "target")], "target")).toEqual({
       action: "update",
-      name: "target",
+      slug: "target",
       workflowId: "wf2",
     });
   });
@@ -49,7 +49,7 @@ describe("loadProgram", () => {
     const file = join(dir, "wf.ts");
     writeFileSync(file, `export const meta = { slug: "solo", description: "d" };`);
     const prog = await loadProgram(file);
-    expect(prog.name).toBe("solo");
+    expect(prog.slug).toBe("solo");
     expect(prog.entry).toBe("index.mjs");
     expect(prog.artifact.digest).toMatch(/^[0-9a-f]{64}$/);
     expect(prog.artifact.assetPaths).toEqual([]);
@@ -61,7 +61,7 @@ describe("loadProgram", () => {
     writeFileSync(join(dir, "skills", "s.md"), "# skill");
     writeFileSync(join(dir, "index.ts"), `export const meta = { slug: "pkg" };`);
     const prog = await loadProgram(dir);
-    expect(prog.name).toBe("pkg");
+    expect(prog.slug).toBe("pkg");
     expect(prog.artifact.assetPaths).toEqual(["skills/s.md"]);
   });
 });
@@ -99,7 +99,7 @@ describe("deployWithLink", () => {
     entrySource: `export const meta = { slug: "n" };`,
     assetPaths: [],
   };
-  const prog: PreparedProgram = { name: "n", entry: "index.mjs", artifact };
+  const prog: PreparedProgram = { slug: "n", entry: "index.mjs", artifact };
   const REF: DeployArtifactRef = {
     digest: "a".repeat(64),
     size: 3,
