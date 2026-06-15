@@ -13,6 +13,7 @@
 //   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
 //   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
+//   boardwalk runs --org <s>            List recent runs (id, workflow, status, age, duration).
 //
 // Auth precedence for deploy/run/cancel/usage: --token > BOARDWALK_API_KEY env > stored `login`.
 //
@@ -229,6 +230,36 @@ function buildProgram(): Command {
         { config: loadConfig() },
       );
     });
+
+  program
+    .command("runs")
+    .option("--org <slug>", "the org to list runs for (optional once the project is linked)")
+    .option("--status <status>", "filter by status (e.g. running, completed, failed, cancelled)")
+    .option("--limit <n>", "how many runs to show (server-clamped)")
+    .option("--json", "print the raw runs page as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List your org's recent runs (id, workflow, status, trigger, age, duration).")
+    .action(
+      async (options: {
+        org?: string;
+        status?: string;
+        limit?: string;
+        json?: boolean;
+        token?: string;
+      }) => {
+        const { runRuns } = await import("./commands/runs.js");
+        await runRuns(
+          {
+            org: options.org,
+            status: options.status,
+            limit: options.limit,
+            json: options.json,
+            token: options.token,
+          },
+          { config: loadConfig() },
+        );
+      },
+    );
 
   return program;
 }

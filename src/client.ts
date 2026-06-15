@@ -51,6 +51,26 @@ export interface RunSummary {
   completedAt: number | null;
 }
 
+/** One row of the org runs list (GET /v1/orgs/:slug/runs) — the columns the CLI renders. */
+export interface RunListItem {
+  id: string;
+  workflowId: string;
+  workflowName: string | null;
+  status: string;
+  triggerKind: string | null;
+  createdAt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  /** Billed runtime (set at terminal); 0 while in flight. */
+  runtimeSeconds: number;
+}
+
+/** A page of org runs + an opaque cursor for the next page (null when there are no more). */
+export interface RunList {
+  runs: RunListItem[];
+  nextCursor: string | null;
+}
+
 /** A freshly-minted inference-gateway key: the plaintext token (shown once) + its expiry/id. */
 export interface MintedInferenceKey {
   token: string;
@@ -174,6 +194,22 @@ export class BoardwalkClient {
     );
   }
 
+  /** List the org's recent runs, newest first. Optional `status` filter + `limit` (server-clamped). */
+  async listOrgRuns(
+    orgSlug: string,
+    opts: { status?: string; limit?: number } = {},
+  ): Promise<RunList> {
+    const params = new URLSearchParams();
+    if (opts.status !== undefined) params.set("status", opts.status);
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    const query = params.toString();
+    const body = await this.request<unknown>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/runs${query.length > 0 ? `?${query}` : ""}`,
+    );
+    return this.runList(body);
+  }
+
   /**
    * Cancel a run. Idempotent server-side (a terminal/already-cancelling run is a no-op); the
    * endpoint resolves the org from the run id, so no org slug is needed. Returns 204 No Content.
@@ -255,6 +291,30 @@ export class BoardwalkClient {
   private runSummary(body: unknown): RunSummary {
     if (isRecord(body) && isRunSummary(body.run)) return body.run;
     throw new CliError("The API returned an unexpected run response shape.");
+  }
+
+  /** Validate the `{ runs, nextCursor }` envelope and read each row's columns leniently (rows
+   *  missing an id/status are skipped, so a partial/older response still lists what it can). */
+  private runList(body: unknown): RunList {
+    if (!isRecord(body) || !Array.isArray(body.runs)) {
+      throw new CliError("The API returned an unexpected runs response shape.");
+    }
+    const runs: RunListItem[] = [];
+    for (const row of body.runs) {
+      if (!isRecord(row) || typeof row.id !== "string" || typeof row.status !== "string") continue;
+      runs.push({
+        id: row.id,
+        workflowId: typeof row.workflowId === "string" ? row.workflowId : "",
+        workflowName: typeof row.workflowName === "string" ? row.workflowName : null,
+        status: row.status,
+        triggerKind: typeof row.triggerKind === "string" ? row.triggerKind : null,
+        createdAt: numOr(row.createdAt, 0),
+        startedAt: typeof row.startedAt === "number" ? row.startedAt : null,
+        completedAt: typeof row.completedAt === "number" ? row.completedAt : null,
+        runtimeSeconds: numOr(row.runtimeSeconds, 0),
+      });
+    }
+    return { runs, nextCursor: typeof body.nextCursor === "string" ? body.nextCursor : null };
   }
 
   private mintedInferenceKey(body: unknown): MintedInferenceKey {
