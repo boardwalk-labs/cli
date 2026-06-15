@@ -98,10 +98,14 @@ jobs:
           HOMEBREW_NO_ANALYTICS: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         # Homebrew passes npm `--min-release-age` (a supply-chain guard against freshly-published
-        # versions). Right after a release, this repo's just-published SDK dep (@boardwalk-labs/workflow)
-        # is younger than that threshold and gets filtered out -> `npm` errors ENOVERSIONS and brew
-        # install fails, even though the formula is correct and the package installs fine once it ages
-        # (~a day). Treat *that specific* condition as a skip-with-warning; any OTHER failure is real.
+        # versions). Right after a release, this repo's just-published deps (@boardwalk-labs/engine,
+        # @boardwalk-labs/workflow) are younger than that threshold and get filtered out, so npm can't
+        # resolve them and brew install fails, even though the formula is correct and the package
+        # installs fine once they age (~a day). npm surfaces this filter two ways depending on version:
+        # an `ENOVERSIONS` error, or (more commonly) an `ETARGET` "No matching version found ... with a
+        # date before <date>" error. Treat *either* form as a skip-with-warning; any OTHER failure is
+        # real. The "with a date before" phrase only appears under a before/min-release-age filter, so
+        # matching it won't mask a genuinely-missing version (which says "No matching version" alone).
         run: |
           brew update
           if out=$(brew install --verbose boardwalk-labs/tap/boardwalk 2>&1); then
@@ -109,8 +113,8 @@ jobs:
             brew test boardwalk-labs/tap/boardwalk
           else
             echo "$out"
-            if echo "$out" | grep -q "ENOVERSIONS"; then
-              echo "::warning title=brew smoke skipped::A just-published dependency is newer than Homebrew's npm --min-release-age guard, so brew install reports ENOVERSIONS. This self-heals as the version ages (~a day); the formula is otherwise valid. Skipping."
+            if echo "$out" | grep -qE "ENOVERSIONS|with a date before|min-release-age"; then
+              echo "::warning title=brew smoke skipped::A just-published dependency is newer than Homebrew's npm --min-release-age guard, so npm filters it out and brew install can't resolve it. This self-heals as the version ages (~a day); the formula is otherwise valid. Skipping."
             else
               echo "::error::brew install failed for a non-transient reason"
               exit 1
