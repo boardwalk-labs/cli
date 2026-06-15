@@ -12,8 +12,9 @@
 //   boardwalk deploy <file> --org <s>   Create/update a workflow from a program file.
 //   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
+//   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
 //
-// Auth precedence for deploy/run/cancel: --token > BOARDWALK_API_KEY env > stored `login` session.
+// Auth precedence for deploy/run/cancel/usage: --token > BOARDWALK_API_KEY env > stored `login`.
 //
 // Every command body is lazy-imported inside its action — `boardwalk --help` must stay fast, so
 // nothing heavy (esbuild, the SDK extractor, the API client) loads until its command actually runs.
@@ -212,6 +213,21 @@ function buildProgram(): Command {
     .action(async (runId: string, options: { token?: string }) => {
       const { runCancel } = await import("./commands/cancel.js");
       await runCancel({ runId, token: options.token }, { config: loadConfig() });
+    });
+
+  program
+    .command("usage")
+    .option("--org <slug>", "the org to report on (optional once the project is linked)")
+    .option("--days <n>", "window length in days (server default ~14, capped at 90)")
+    .option("--json", "print the raw usage summary as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Show your org's runs, compute, tokens, credit, autonomy, and cache-hit rate.")
+    .action(async (options: { org?: string; days?: string; json?: boolean; token?: string }) => {
+      const { runUsage } = await import("./commands/usage.js");
+      await runUsage(
+        { org: options.org, days: options.days, json: options.json, token: options.token },
+        { config: loadConfig() },
+      );
     });
 
   return program;

@@ -58,6 +58,29 @@ export interface MintedInferenceKey {
   id: string | null;
 }
 
+/** A {label → token volume} line for the usage breakdowns. */
+export interface UsageLine {
+  label: string;
+  tokens: number;
+}
+
+/** The org usage summary (GET /v1/orgs/:slug/usage) — the subset the CLI renders. Newer fields are
+ *  read leniently (defaulted), so the CLI keeps working against an older / self-hosted backend. */
+export interface UsageSummary {
+  rangeDays: number;
+  totals: { runs: number; tokensIn: number; tokensOut: number; runtimeSeconds: number };
+  /** Effective available credit in cents; null when unavailable. */
+  creditCents: number | null;
+  /** Human-vs-automated run split. */
+  autonomy: { humanRuns: number; automatedRuns: number };
+  /** Prompt-cache efficiency: 0..1 hit rate + the read volume. */
+  cache: { hitRate: number; cachedReadTokens: number };
+  /** Heaviest models by token volume. */
+  byModel: UsageLine[];
+  /** Heaviest workflows by token volume. */
+  byWorkflow: UsageLine[];
+}
+
 export interface BoardwalkClientOptions {
   baseUrl: string;
   token: string;
@@ -172,6 +195,16 @@ export class BoardwalkClient {
     return this.mintedInferenceKey(body);
   }
 
+  /** Fetch the org's usage summary over `days` (server default when omitted, capped at 90). */
+  async getUsage(orgSlug: string, days?: number): Promise<UsageSummary> {
+    const query = days !== undefined ? `?days=${String(days)}` : "";
+    const body = await this.request<unknown>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/usage${query}`,
+    );
+    return this.usageSummary(body);
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.token}`,
@@ -235,6 +268,57 @@ export class BoardwalkClient {
     }
     throw new CliError("The API returned an unexpected inference-key response shape.");
   }
+
+  /** Validate the `{ usage }` envelope and read the fields the CLI renders. Lenient on the newer
+   *  per-cut fields (defaulted), so an older / self-hosted backend still produces a usable summary. */
+  private usageSummary(body: unknown): UsageSummary {
+    if (!isRecord(body) || !isRecord(body.usage)) {
+      throw new CliError("The API returned an unexpected usage response shape.");
+    }
+    const u = body.usage;
+    const totals = isRecord(u.totals) ? u.totals : {};
+    const autonomy = isRecord(u.autonomy) ? u.autonomy : {};
+    const cache = isRecord(u.cache) ? u.cache : {};
+    return {
+      rangeDays: numOr(u.rangeDays, 0),
+      totals: {
+        runs: numOr(totals.runs, 0),
+        tokensIn: numOr(totals.tokensIn, 0),
+        tokensOut: numOr(totals.tokensOut, 0),
+        runtimeSeconds: numOr(totals.runtimeSeconds, 0),
+      },
+      creditCents: typeof u.creditCents === "number" ? u.creditCents : null,
+      autonomy: {
+        humanRuns: numOr(autonomy.humanRuns, 0),
+        automatedRuns: numOr(autonomy.automatedRuns, 0),
+      },
+      cache: {
+        hitRate: numOr(cache.hitRate, 0),
+        cachedReadTokens: numOr(cache.totalCachedRead, 0),
+      },
+      byModel: usageLines(u.byModel, "model"),
+      byWorkflow: usageLines(u.byWorkflowUsage, "workflowName"),
+    };
+  }
+}
+
+/** A number field, or a fallback when it's missing/non-numeric. */
+function numOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** Read a usage breakdown array into `{ label, tokens }` lines, taking the label from `labelKey`.
+ *  Rows missing a string label or numeric `tokens` are skipped. */
+function usageLines(value: unknown, labelKey: string): UsageLine[] {
+  if (!Array.isArray(value)) return [];
+  const lines: UsageLine[] = [];
+  for (const row of value) {
+    if (!isRecord(row)) continue;
+    const label = row[labelKey];
+    if (typeof label !== "string" || typeof row.tokens !== "number") continue;
+    lines.push({ label, tokens: row.tokens });
+  }
+  return lines;
 }
 
 function isWorkflowSummary(value: unknown): value is WorkflowSummary {
