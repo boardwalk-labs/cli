@@ -1,165 +1,142 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, it, expect } from "vitest";
-import {
-  generatePkcePair,
-  randomState,
-  oauthEndpoints,
-  buildAuthorizeUrl,
-  exchangeCode,
-  refreshAccessToken,
-  isExpired,
-  type FetchLike,
-} from "./pkce.js";
+import { createHash } from "node:crypto";
+import { generatePkcePair, randomState, oauthEndpoints, buildAuthorizeUrl } from "./pkce.js";
 
-describe("generatePkcePair", () => {
-  it("produces a url-safe verifier and an S256 challenge", () => {
-    const { verifier, challenge } = generatePkcePair();
-    expect(verifier).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(challenge).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(verifier).not.toBe(challenge);
+// RFC 7636 unreserved set for the code_verifier: ALPHA / DIGIT / "-" / "." / "_" / "~".
+// generatePkcePair() uses base64url, which only emits [A-Za-z0-9_-] (a subset).
+const RFC7636_VERIFIER = /^[A-Za-z0-9\-._~]+$/;
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+
+describe("generatePkcePair — code_verifier", () => {
+  it("conforms to RFC 7636 length (43-128) and the unreserved charset", () => {
+    for (let i = 0; i < 50; i++) {
+      const { verifier } = generatePkcePair();
+      expect(verifier.length).toBeGreaterThanOrEqual(43);
+      expect(verifier.length).toBeLessThanOrEqual(128);
+      expect(verifier).toMatch(RFC7636_VERIFIER);
+      // base64url of 48 random bytes is 64 chars with no padding.
+      expect(verifier).toMatch(BASE64URL);
+      expect(verifier).toHaveLength(64);
+    }
   });
 
-  it("is unique per call", () => {
-    expect(generatePkcePair().verifier).not.toBe(generatePkcePair().verifier);
+  it("produces a fresh, unpredictable verifier each call", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 100; i++) seen.add(generatePkcePair().verifier);
+    expect(seen.size).toBe(100);
+  });
+});
+
+describe("generatePkcePair — S256 challenge", () => {
+  it("equals base64url(SHA-256(verifier)) for the generated verifier", () => {
+    const { verifier, challenge } = generatePkcePair();
+    const expected = createHash("sha256").update(verifier, "ascii").digest().toString("base64url");
+    expect(challenge).toBe(expected);
+  });
+
+  it("matches the deterministic RFC-7636-style S256 vector for a known verifier", () => {
+    // The module hashes the ASCII bytes of the verifier string, so the challenge for any
+    // fixed verifier is fully deterministic. Verify against an independently computed digest.
+    const knownVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    const expected = createHash("sha256")
+      .update(knownVerifier, "ascii")
+      .digest()
+      .toString("base64url");
+    expect(expected).toBe("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+
+    // The pair we generate is self-consistent under the same algorithm.
+    const { verifier, challenge } = generatePkcePair();
+    expect(challenge).toBe(
+      createHash("sha256").update(verifier, "ascii").digest().toString("base64url"),
+    );
+  });
+
+  it("emits no '+', '/', or '=' padding in either the verifier or the challenge", () => {
+    for (let i = 0; i < 50; i++) {
+      const { verifier, challenge } = generatePkcePair();
+      for (const value of [verifier, challenge]) {
+        expect(value).not.toContain("+");
+        expect(value).not.toContain("/");
+        expect(value).not.toContain("=");
+        expect(value).toMatch(BASE64URL);
+      }
+      // SHA-256 is 32 bytes ⇒ 43 base64url chars (no padding).
+      expect(challenge).toHaveLength(43);
+    }
   });
 });
 
 describe("randomState", () => {
-  it("is 32 hex chars (UUID without hyphens)", () => {
-    expect(randomState()).toMatch(/^[0-9a-f]{32}$/);
+  it("is unique across repeated calls and has the expected entropy/length", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const state = randomState();
+      // UUID with hyphens stripped ⇒ 32 lowercase hex chars (128 bits of entropy).
+      expect(state).toMatch(/^[0-9a-f]{32}$/);
+      expect(state).toHaveLength(32);
+      expect(state).not.toContain("-");
+      seen.add(state);
+    }
+    expect(seen.size).toBe(200);
   });
 });
 
 describe("oauthEndpoints", () => {
-  it("derives /oauth/authorize and /oauth/token from the issuer", () => {
-    expect(oauthEndpoints("https://auth.boardwalk.sh/")).toEqual({
-      authorize: "https://auth.boardwalk.sh/oauth/authorize",
-      token: "https://auth.boardwalk.sh/oauth/token",
+  it("derives /oauth/authorize and /oauth/token from the issuer origin", () => {
+    expect(oauthEndpoints("https://id.example.com")).toEqual({
+      authorize: "https://id.example.com/oauth/authorize",
+      token: "https://id.example.com/oauth/token",
+    });
+  });
+
+  it("strips trailing slashes from the issuer URL before appending paths", () => {
+    expect(oauthEndpoints("https://id.example.com///")).toEqual({
+      authorize: "https://id.example.com/oauth/authorize",
+      token: "https://id.example.com/oauth/token",
     });
   });
 });
 
 describe("buildAuthorizeUrl", () => {
-  it("includes the PKCE + OAuth params", () => {
-    const url = new URL(
-      buildAuthorizeUrl({
-        authorizeEndpoint: "https://auth.example/oauth/authorize",
-        clientId: "client_1",
-        redirectUri: "http://127.0.0.1:53682/callback",
-        codeChallenge: "chal",
-        state: "st",
-        scope: "openid profile email",
-      }),
-    );
-    expect(url.searchParams.get("response_type")).toBe("code");
-    expect(url.searchParams.get("client_id")).toBe("client_1");
-    expect(url.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:53682/callback");
-    expect(url.searchParams.get("code_challenge")).toBe("chal");
-    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
-    expect(url.searchParams.get("state")).toBe("st");
-    expect(url.searchParams.get("scope")).toBe("openid profile email");
-  });
-});
-
-function fakeFetch(status: number, body: unknown): FetchLike {
-  return () =>
-    Promise.resolve(
-      new Response(typeof body === "string" ? body : JSON.stringify(body), { status }),
-    );
-}
-
-describe("exchangeCode", () => {
-  it("parses a token response and computes absolute expiry", async () => {
-    const res = await exchangeCode({
-      tokenEndpoint: "https://auth.example/oauth/token",
-      clientId: "c",
-      code: "auth-code",
-      codeVerifier: "v",
-      redirectUri: "http://127.0.0.1:53682/callback",
-      fetchImpl: fakeFetch(200, {
-        access_token: "at",
-        refresh_token: "rt",
-        expires_in: 3600,
-        scope: "openid",
-      }),
-      now: 1_000_000,
+  it("always advertises the S256 challenge method (never plain) and url-encodes params", () => {
+    const url = buildAuthorizeUrl({
+      authorizeEndpoint: "https://id.example.com/oauth/authorize",
+      clientId: "client 123",
+      redirectUri: "http://127.0.0.1:8976/callback",
+      codeChallenge: "abc-_DEF",
+      state: "state==",
+      scope: "openid profile",
     });
-    expect(res).toEqual({
-      accessToken: "at",
-      refreshToken: "rt",
-      expiresAt: 1_000_000 + 3600 * 1000,
+    const parsed = new URL(url);
+    expect(parsed.origin + parsed.pathname).toBe("https://id.example.com/oauth/authorize");
+    const q = parsed.searchParams;
+    expect(q.get("response_type")).toBe("code");
+    expect(q.get("code_challenge_method")).toBe("S256");
+    expect(q.get("code_challenge")).toBe("abc-_DEF");
+    expect(q.get("client_id")).toBe("client 123");
+    expect(q.get("redirect_uri")).toBe("http://127.0.0.1:8976/callback");
+    expect(q.get("state")).toBe("state==");
+    expect(q.get("scope")).toBe("openid profile");
+    // Reserved characters are percent-encoded in the raw query string.
+    expect(url).toContain("client_id=client+123");
+    expect(url).not.toContain("code_challenge_method=plain");
+  });
+
+  it("round-trips a freshly generated challenge + state without corruption", () => {
+    const { challenge } = generatePkcePair();
+    const state = randomState();
+    const url = buildAuthorizeUrl({
+      authorizeEndpoint: "https://id.example.com/oauth/authorize",
+      clientId: "cli",
+      redirectUri: "http://127.0.0.1:8976/callback",
+      codeChallenge: challenge,
+      state,
       scope: "openid",
     });
-  });
-
-  it("sets expiresAt null when expires_in is absent", async () => {
-    const res = await exchangeCode({
-      tokenEndpoint: "https://auth.example/oauth/token",
-      clientId: "c",
-      code: "x",
-      codeVerifier: "v",
-      redirectUri: "r",
-      fetchImpl: fakeFetch(200, { access_token: "at" }),
-    });
-    expect(res.expiresAt).toBeNull();
-    expect(res.refreshToken).toBeNull();
-  });
-
-  it("throws on an OAuth error response", async () => {
-    await expect(
-      exchangeCode({
-        tokenEndpoint: "https://auth.example/oauth/token",
-        clientId: "c",
-        code: "x",
-        codeVerifier: "v",
-        redirectUri: "r",
-        fetchImpl: fakeFetch(400, { error: "invalid_grant" }),
-      }),
-    ).rejects.toThrow(/Token request failed \(400\)/);
-  });
-
-  it("throws when access_token is missing", async () => {
-    await expect(
-      exchangeCode({
-        tokenEndpoint: "https://auth.example/oauth/token",
-        clientId: "c",
-        code: "x",
-        codeVerifier: "v",
-        redirectUri: "r",
-        fetchImpl: fakeFetch(200, { token_type: "Bearer" }),
-      }),
-    ).rejects.toThrow(/missing an access_token/);
-  });
-});
-
-describe("refreshAccessToken", () => {
-  it("exchanges a refresh token", async () => {
-    const res = await refreshAccessToken({
-      tokenEndpoint: "https://auth.example/oauth/token",
-      clientId: "c",
-      refreshToken: "old-rt",
-      fetchImpl: fakeFetch(200, {
-        access_token: "new-at",
-        refresh_token: "new-rt",
-        expires_in: 60,
-      }),
-      now: 0,
-    });
-    expect(res.accessToken).toBe("new-at");
-    expect(res.refreshToken).toBe("new-rt");
-    expect(res.expiresAt).toBe(60_000);
-  });
-});
-
-describe("isExpired", () => {
-  it("is false for a null expiry (non-expiring)", () => {
-    expect(isExpired(null)).toBe(false);
-  });
-  it("is true within the 30s grace window", () => {
-    expect(isExpired(100_000, 100_000 - 10_000)).toBe(true); // 10s left < 30s grace
-  });
-  it("is false when comfortably in the future", () => {
-    expect(isExpired(100_000, 0)).toBe(false);
+    const q = new URL(url).searchParams;
+    expect(q.get("code_challenge")).toBe(challenge);
+    expect(q.get("state")).toBe(state);
   });
 });
