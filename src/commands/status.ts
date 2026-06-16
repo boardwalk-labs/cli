@@ -14,7 +14,7 @@
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
-import { resolveToken } from "../auth/resolve.js";
+import { resolveToken, resolveBaseUrl } from "../auth/resolve.js";
 import { BoardwalkClient } from "../client.js";
 import { readLink, projectDirFor, type ProjectLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -38,8 +38,9 @@ export interface StatusDeps {
   setExitCode?: (code: number) => void;
 }
 
-/** How the API host was chosen — surfaced so "am I on dev or prod?" always has an answer. */
-type HostSource = "BOARDWALK_API_URL" | "BOARDWALK_API_DOMAIN" | "default";
+/** How the API host was chosen — surfaced so "am I on dev or prod?" always has an answer.
+ *  `session` = derived from the stored login's origin (no env override). */
+type HostSource = "BOARDWALK_API_URL" | "BOARDWALK_API_DOMAIN" | "session" | "default";
 
 /** The local credential in effect, by precedence — drives the "Auth" line. */
 type AuthDescriptor =
@@ -85,11 +86,14 @@ export async function runStatus(opts: StatusOptions, deps: StatusDeps): Promise<
     });
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
-  const { auth, account } = await resolveAuthAndProbe(opts, deps, store, env, now);
+  // The host the CLI will ACTUALLY hit (env override > the stored session's origin > default) — so
+  // the displayed host and the live `/v1/me` probe both match what the other commands use.
+  const host = resolveStatusHost(deps.config, store, env, opts.token);
+  const { auth, account } = await resolveAuthAndProbe(opts, deps, store, env, now, host.url);
 
   const report: StatusReport = {
     version: deps.version,
-    host: { url: deps.config.apiBaseUrl, source: hostSource(env) },
+    host,
     auth,
     account,
     project: readLink(projectDirFor(deps.cwd ?? process.cwd())),
@@ -112,15 +116,16 @@ async function resolveAuthAndProbe(
   store: CredentialStore,
   env: NodeJS.ProcessEnv,
   now: number,
+  baseUrl: string,
 ): Promise<{ auth: AuthDescriptor; account: AccountProbe }> {
   // Follow the same precedence as resolveToken, but report each rung instead of collapsing to a token.
   const flag = opts.token?.trim();
   if (flag !== undefined && flag.length > 0) {
-    return { auth: { kind: "flag" }, account: await probe(deps, flag) };
+    return { auth: { kind: "flag" }, account: await probe(deps, baseUrl, flag) };
   }
   const envKey = env.BOARDWALK_API_KEY?.trim();
   if (envKey !== undefined && envKey.length > 0) {
-    return { auth: { kind: "env" }, account: await probe(deps, envKey) };
+    return { auth: { kind: "env" }, account: await probe(deps, baseUrl, envKey) };
   }
   if (store.getSession() === null) {
     return { auth: { kind: "none" }, account: { kind: "none" } };
@@ -141,7 +146,26 @@ async function resolveAuthAndProbe(
     // Expired and unrefreshable (no/dead refresh token) — describe the stored session, flag expired.
     return { auth: describeStoredSession(store), account: { kind: "expired" } };
   }
-  return { auth: describeStoredSession(store), account: await probe(deps, token) };
+  return { auth: describeStoredSession(store), account: await probe(deps, baseUrl, token) };
+}
+
+/** The host the CLI will actually hit, with a label for HOW it was chosen (env override keeps its
+ *  specific var name; otherwise `session` when derived from the stored login, else `default`). */
+function resolveStatusHost(
+  config: CliConfig,
+  store: CredentialStore,
+  env: NodeJS.ProcessEnv,
+  tokenFlag: string | undefined,
+): { url: string; source: HostSource } {
+  const resolved = resolveBaseUrl({
+    config,
+    session: store.getSession(),
+    usingFlag: (tokenFlag ?? "").trim().length > 0,
+    usingEnvKey: (env.BOARDWALK_API_KEY ?? "").trim().length > 0,
+  });
+  // An explicit override keeps its var-specific label (URL vs DOMAIN); session/default pass through.
+  if (resolved.source === "explicit") return { url: resolved.url, source: hostSource(env) };
+  return { url: resolved.url, source: resolved.source };
 }
 
 /** Build the Auth descriptor from the stored session: an API key (no token endpoint) vs an OAuth
@@ -155,9 +179,9 @@ function describeStoredSession(store: CredentialStore): AuthDescriptor {
 
 /** Hit `GET /v1/me` with the resolved token; classify the outcome. 401/403 ⇒ rejected; any other
  *  failure (network, 5xx) ⇒ unreachable, since the credential itself may be fine. */
-async function probe(deps: StatusDeps, token: string): Promise<AccountProbe> {
+async function probe(deps: StatusDeps, baseUrl: string, token: string): Promise<AccountProbe> {
   const client = new BoardwalkClient({
-    baseUrl: deps.config.apiBaseUrl,
+    baseUrl,
     token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
@@ -177,7 +201,7 @@ async function probe(deps: StatusDeps, token: string): Promise<AccountProbe> {
   }
 }
 
-/** Mirror resolveApiBaseUrl's precedence to label HOW the host was chosen. */
+/** Which env var set an EXPLICIT host override (used only when the base came from env). */
 function hostSource(env: NodeJS.ProcessEnv): HostSource {
   if (nonEmpty(env.BOARDWALK_API_URL)) return "BOARDWALK_API_URL";
   if (nonEmpty(env.BOARDWALK_API_DOMAIN)) return "BOARDWALK_API_DOMAIN";

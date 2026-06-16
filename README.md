@@ -9,6 +9,9 @@ boardwalk check ./index.ts                 # validate locally (no auth/network)
 boardwalk login                            # browser OAuth (PKCE) → stores a session
 boardwalk deploy ./index.ts --org my-team  # ship it to the Boardwalk platform
 boardwalk run ./index.ts --org my-team --input '{"who":"world"}'   # deploy + trigger a real run
+boardwalk runs                             # recent runs (or --workflow <id|slug> to scope)
+boardwalk runs <runId> --logs              # what a run did; --follow to live-tail
+boardwalk workflows                        # the org's workflows (show <id|slug>, delete <id|slug>)
 boardwalk cancel <runId>
 boardwalk logout / whoami
 boardwalk status                           # host + login (live-verified) + project link
@@ -64,6 +67,45 @@ with `{ orgSlug, workflowId }`. After that the workflow is identified by that st
 forking a new one. On a fresh clone, pass `--org` once to re-link (it adopts an existing same-name
 workflow if present, else creates one).
 
+## Observing runs + workflows
+
+```
+boardwalk runs                              # recent runs, newest first (--status / --limit)
+boardwalk runs --workflow merge-bot         # scope the list to one workflow (id or slug)
+boardwalk runs <runId>                      # one run's summary (status, duration, tokens, error)
+boardwalk runs <runId> --logs               # its event log — same channels as `dev`
+boardwalk runs <runId> --logs --verbose     # + agent turns + every tool call
+boardwalk runs <runId> --follow             # live-tail over SSE until it finishes (Ctrl-C aborts)
+
+boardwalk workflows                         # the org's workflows (slug, title, triggers, last run)
+boardwalk workflows show <id|slug>          # manifest projection + version history
+boardwalk workflows delete <id|slug> --yes  # delete (irreversible; --yes required)
+```
+
+`--logs`/`--follow` render the same typed event stream as `dev`, so `--stream <channels>` /
+`--verbose` mean the same thing. A run id needs no `--org` (the run resolves its own org); a
+workflow **slug** is resolved against the org (`--org` or the project link), while a workflow **id**
+(a ULID, as in a dashboard URL) is used directly.
+
+## Managing secrets + inference providers
+
+```
+boardwalk secrets                           # the org's secrets (names/scope/kind — never values)
+echo "$TOKEN" | boardwalk secrets set GITHUB_TOKEN   # stage a value (piped → out of shell history)
+boardwalk secrets set DEPLOY_KEY --from-file ./key   # …or from a file; --value is also accepted
+boardwalk secrets delete GITHUB_TOKEN --yes
+
+boardwalk inference                         # BYO inference providers (endpoints only — never keys)
+echo "$KEY" | boardwalk inference add my-openai --source openai
+boardwalk inference add vllm --source openai_compatible --base-url https://vllm.internal --api-key …
+boardwalk inference delete my-openai --yes
+```
+
+Secret VALUES are never displayed by any surface — `list` shows a name + a last-4 hint. Provider API
+keys are staged into Secrets Manager server-side and never returned. **Writes (`set`/`delete`,
+`add`, and `workflows delete`) need an ELEVATED login** — see below; the default login is read-only
+for these.
+
 ## Authentication
 
 Resolved in this precedence:
@@ -76,15 +118,26 @@ Resolved in this precedence:
 `boardwalk login` speaks standard OAuth 2.0 Authorization-Code + PKCE against the deployment's own
 issuer: it fetches `/.well-known/oauth-authorization-server` to discover the endpoints, starts a
 localhost callback server, opens your browser, exchanges the code, and stores the session in
-`<config>/credentials.json` (mode 0600). The CLI session is **scoped, least-privilege** — it can
-deploy and trigger/read runs, but cannot mint API keys, manage billing/members, or read secrets.
+`<config>/credentials.json` (mode 0600). The default CLI session is **scoped, least-privilege** — it
+can deploy, trigger/read runs, and LIST secrets + providers (names/endpoints only, never values), but
+cannot write secrets, wire providers, delete workflows, mint API keys, or manage billing/members.
+
+**Elevated login (`boardwalk login --scopes admin`)** opts into the org-admin write scopes — managing
+secrets, wiring inference providers, and deleting workflows — for that session. You must be an org
+admin for it to take effect. It is deliberately bounded: even elevated, a CLI token can never mint a
+full-power API key or invite members (those stay web-session-only), so a leaked token's blast radius
+is contained. Use the default login for everyday deploy/run; reach for `--scopes admin` only when you
+need to manage the org's credentials from the terminal.
 
 `init`, `dev`, and `check` need no account at all.
 
 ## Configuration (env)
 
 Point the CLI at any deployment — the Boardwalk platform (default), or a **self-hosted** install on your
-own domain — without rebuilding:
+own domain — without rebuilding. **Host precedence:** an explicit `BOARDWALK_API_URL` /
+`BOARDWALK_API_DOMAIN` wins; otherwise, when you're using a stored `login` session, its own API
+origin is used (so logging into a dev / self-host stack just works — no per-call env needed); else
+the prod default. `boardwalk status` shows the resolved host and how it was chosen.
 
 | Variable                    | Default                    | Purpose                                        |
 | --------------------------- | -------------------------- | ---------------------------------------------- |

@@ -217,3 +217,186 @@ describe("runRuns", () => {
     expect(called).toBe(false);
   });
 });
+
+// ── event fixtures for --logs / --follow ──
+function phaseEvent(name: string, seq: number): Record<string, unknown> {
+  return { kind: "phase", name, id: `phase-${String(seq)}`, runId: "r", turnId: "tt", seq, t: seq };
+}
+function outputEvent(text: string, seq: number): Record<string, unknown> {
+  return { kind: "program_output", stream: "stdout", text, runId: "r", turnId: "tt", seq, t: seq };
+}
+function statusEvent(status: string, seq: number): Record<string, unknown> {
+  return { kind: "run_status", status, runId: "r", turnId: "tt", seq, t: seq };
+}
+function sseFrames(rows: { id: number; event: Record<string, unknown> }[]): string {
+  return rows.map((r) => `id: ${String(r.id)}\ndata: ${JSON.stringify(r.event)}\n\n`).join("");
+}
+
+/** Route the fetch by URL: SSE for /stream, JSON for /events and the workflow/runs endpoints. */
+function routeFetch(routes: {
+  stream?: string;
+  events?: unknown;
+  workflows?: unknown[];
+  workflowRuns?: unknown;
+}): { fetchImpl: FetchLike; urls: string[] } {
+  const urls: string[] = [];
+  const fetchImpl = ((input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    urls.push(url);
+    if (url.includes("/stream")) {
+      return Promise.resolve(
+        new Response(routes.stream ?? "", {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        }),
+      );
+    }
+    if (url.includes("/events")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(routes.events ?? { events: [], done: true })),
+      );
+    }
+    if (/\/workflows\/[^/]+\/runs/.test(url)) {
+      return Promise.resolve(
+        new Response(JSON.stringify(routes.workflowRuns ?? { runs: [], nextCursor: null })),
+      );
+    }
+    return Promise.resolve(new Response(JSON.stringify({ workflows: routes.workflows ?? [] })));
+  }) as FetchLike;
+  return { fetchImpl, urls };
+}
+
+describe("runRuns --logs", () => {
+  it("renders the run's events (default channels: phase + lifecycle, not program_output)", async () => {
+    const { fetchImpl, urls } = routeFetch({
+      events: {
+        events: [
+          { cursor: 1, event: phaseEvent("Clone", 1) },
+          { cursor: 2, event: outputEvent("hello stdout", 2) },
+          { cursor: 3, event: statusEvent("completed", 3) },
+        ],
+        done: true,
+      },
+    });
+    const out: string[] = [];
+    await runRuns(
+      { runId: "run_x", logs: true, token: "t" },
+      { config: CONFIG, fetchImpl, write: (t) => out.push(t), now: NOW },
+    );
+    const text = out.join("");
+    expect(urls).toEqual(["https://api.x/v1/runs/run_x/events"]);
+    expect(text).toContain("▸ Clone"); // phase channel (default-on)
+    expect(text).toContain("workflow completed"); // lifecycle channel (default-on)
+    expect(text).not.toContain("hello stdout"); // program_output → log channel (off by default)
+  });
+
+  it("includes program output with --verbose", async () => {
+    const { fetchImpl } = routeFetch({
+      events: { events: [{ cursor: 1, event: outputEvent("hello stdout", 1) }], done: true },
+    });
+    const out: string[] = [];
+    await runRuns(
+      { runId: "run_x", logs: true, verbose: true, token: "t" },
+      { config: CONFIG, fetchImpl, write: (t) => out.push(t), now: NOW },
+    );
+    expect(out.join("")).toContain("hello stdout");
+  });
+
+  it("rejects --logs without a run id (no request made)", async () => {
+    const { fetchImpl, urls } = routeFetch({});
+    await expect(
+      runRuns(
+        { logs: true, org: "acme", token: "t" },
+        { config: CONFIG, fetchImpl, write: () => undefined },
+      ),
+    ).rejects.toThrow(/need a run id/);
+    expect(urls).toEqual([]);
+  });
+
+  it("rejects --logs and --follow together", async () => {
+    const { fetchImpl } = routeFetch({});
+    await expect(
+      runRuns(
+        { runId: "run_x", logs: true, follow: true, token: "t" },
+        { config: CONFIG, fetchImpl, write: () => undefined },
+      ),
+    ).rejects.toThrow(/either --logs or --follow/);
+  });
+});
+
+describe("runRuns --follow", () => {
+  it("streams events and stops on a terminal run_status (no snapshot fetch)", async () => {
+    const { fetchImpl, urls } = routeFetch({
+      stream: sseFrames([
+        { id: 1, event: phaseEvent("Run", 1) },
+        { id: 2, event: statusEvent("completed", 2) },
+      ]),
+    });
+    const out: string[] = [];
+    await runRuns(
+      { runId: "run_x", follow: true, token: "t" },
+      {
+        config: CONFIG,
+        fetchImpl,
+        write: (t) => out.push(t),
+        now: NOW,
+        sleep: () => Promise.resolve(),
+      },
+    );
+    expect(out.join("")).toContain("▸ Run");
+    expect(out.join("")).toContain("workflow completed");
+    expect(urls).toEqual(["https://api.x/v1/runs/run_x/stream"]); // terminal frame ⇒ no /events check
+  });
+
+  it("confirms terminal via the snapshot when the stream closes without a run_status frame", async () => {
+    const { fetchImpl, urls } = routeFetch({
+      stream: sseFrames([{ id: 1, event: phaseEvent("Run", 1) }]), // closes, no terminal frame
+      events: { events: [{ cursor: 2, event: outputEvent("tail line", 2) }], done: true },
+    });
+    const out: string[] = [];
+    await runRuns(
+      { runId: "run_x", follow: true, verbose: true, token: "t" },
+      {
+        config: CONFIG,
+        fetchImpl,
+        write: (t) => out.push(t),
+        now: NOW,
+        sleep: () => Promise.resolve(),
+      },
+    );
+    expect(out.join("")).toContain("▸ Run");
+    expect(out.join("")).toContain("tail line"); // drained from the snapshot
+    expect(urls).toEqual([
+      "https://api.x/v1/runs/run_x/stream",
+      "https://api.x/v1/runs/run_x/events?since=1", // done-check from the last cursor
+    ]);
+  });
+});
+
+describe("runRuns --workflow", () => {
+  it("resolves a slug and lists that workflow's runs", async () => {
+    const { fetchImpl, urls } = routeFetch({
+      workflows: [{ id: "01KV0000000000000000000007", slug: "nightly" }],
+      workflowRuns: { runs: [run()], nextCursor: null },
+    });
+    const lines: string[] = [];
+    await runRuns(
+      { org: "acme", workflow: "nightly", token: "t" },
+      { config: CONFIG, fetchImpl, log: (l) => lines.push(l), now: NOW },
+    );
+    expect(urls).toEqual([
+      "https://api.x/v1/orgs/acme/workflows", // slug → id resolution
+      "https://api.x/v1/orgs/acme/workflows/01KV0000000000000000000007/runs",
+    ]);
+    expect(lines.join("\n")).toContain("acme / nightly");
+  });
+
+  it("uses a workflow id directly without a resolution lookup", async () => {
+    const { fetchImpl, urls } = routeFetch({ workflowRuns: { runs: [], nextCursor: null } });
+    await runRuns(
+      { org: "acme", workflow: "01KV0000000000000000000007", token: "t" },
+      { config: CONFIG, fetchImpl, log: () => undefined, now: NOW },
+    );
+    expect(urls).toEqual(["https://api.x/v1/orgs/acme/workflows/01KV0000000000000000000007/runs"]);
+  });
+});

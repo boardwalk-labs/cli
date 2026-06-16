@@ -15,6 +15,16 @@ export interface SessionDeps {
 export interface LoginOptions {
   /** Persist this API key (`bwk_…`) instead of running the browser PKCE flow. */
   token?: string | undefined;
+  /** Scope tier: `admin` authenticates against the elevated CLI client to obtain the org-admin
+   *  write scopes (secrets, inference providers, workflow delete). Omitted ⇒ the least-privilege
+   *  default login. The only recognized value is `admin`. */
+  scopes?: string | undefined;
+}
+
+/** The elevated CLI client id for `--scopes admin` — the `-admin` sibling of the configured client
+ *  (e.g. `boardwalk-cli` → `boardwalk-cli-admin`), registered in the backend's OAuth client list. */
+function adminClientId(config: CliConfig): string | null {
+  return config.oauthClientId === null ? null : `${config.oauthClientId}-admin`;
 }
 
 export async function runLogin(deps: SessionDeps, opts: LoginOptions = {}): Promise<void> {
@@ -43,10 +53,33 @@ export async function runLogin(deps: SessionDeps, opts: LoginOptions = {}): Prom
     return;
   }
 
-  const session = await performLogin({ config: deps.config, store, log });
+  const tier = opts.scopes?.trim();
+  if (tier !== undefined && tier.length > 0 && tier !== "admin") {
+    throw new CliError(`Unknown --scopes "${tier}".`, "The only elevated tier is `admin`.");
+  }
+  const elevated = tier === "admin";
+  let clientIdOverride: string | undefined;
+  if (elevated) {
+    const adminId = adminClientId(deps.config);
+    if (adminId === null) {
+      throw new CliError(
+        "No OAuth client id configured, so `--scopes admin` can't resolve the elevated client.",
+        "Set BOARDWALK_OAUTH_CLIENT_ID (the elevated client is its `-admin` sibling).",
+      );
+    }
+    clientIdOverride = adminId;
+    log("Requesting an ELEVATED session (secrets + inference providers + workflow delete).");
+  }
+
+  const session = await performLogin({
+    config: deps.config,
+    store,
+    log,
+    ...(clientIdOverride !== undefined ? { clientIdOverride } : {}),
+  });
   const expiry =
     session.expiresAt !== null ? ` (expires ${new Date(session.expiresAt).toISOString()})` : "";
-  log(`✓ Logged in.${expiry}`);
+  log(`✓ Logged in${elevated ? " (elevated)" : ""}.${expiry}`);
 }
 
 export function runLogout(deps: SessionDeps): void {

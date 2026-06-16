@@ -12,6 +12,14 @@ import envPaths from "env-paths";
 export interface CliConfig {
   /** REST API base, e.g. https://api.boardwalk.sh (no trailing slash). */
   apiBaseUrl: string;
+  /**
+   * Whether `apiBaseUrl` came from an EXPLICIT env override (`BOARDWALK_API_URL` /
+   * `BOARDWALK_API_DOMAIN`) rather than the prod default. When false, an authenticated command
+   * prefers the stored session's own API origin over the default — so logging into a dev/self-host
+   * stack just works without re-exporting the env on every call. Optional for back-compat with
+   * callers (and tests) that build a config by hand; absent ⇒ treated as not-explicit.
+   */
+  apiBaseExplicit?: boolean;
   /** OAuth issuer origin `boardwalk login` authenticates against (provider-agnostic). */
   issuerUrl: string;
   /** Public OAuth client id for the CLI's OAuth application. Null until configured. */
@@ -38,8 +46,10 @@ const DEFAULT_LOOPBACK_PORT = 53682;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
   const paths = envPaths("boardwalk", { suffix: "" });
+  const explicit = explicitApiBaseUrl(env);
   return {
-    apiBaseUrl: resolveApiBaseUrl(env),
+    apiBaseUrl: explicit ?? `https://${DEFAULT_API_DOMAIN}`,
+    apiBaseExplicit: explicit !== null,
     issuerUrl: trimTrailingSlash(env.BOARDWALK_ISSUER_URL ?? DEFAULT_ISSUER_URL),
     oauthClientId: nonEmpty(env.BOARDWALK_OAUTH_CLIENT_ID) ?? DEFAULT_OAUTH_CLIENT_ID,
     loopbackPort: parsePort(env.BOARDWALK_OAUTH_PORT) ?? DEFAULT_LOOPBACK_PORT,
@@ -48,16 +58,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): CliConfig {
 }
 
 /**
- * API base URL, in precedence order:
+ * The API base set EXPLICITLY via env, or null when neither knob is set:
  *   1. `BOARDWALK_API_URL`    — a full URL (escape hatch for local http / non-standard ports)
  *   2. `BOARDWALK_API_DOMAIN` — a hostname → `https://<domain>` (the self-host knob)
- *   3. the default prod domain
+ * Distinct from {@link loadConfig}'s `apiBaseUrl` (which falls back to the prod default): a null here
+ * means "no override — a stored session's origin may be preferred."
  */
-function resolveApiBaseUrl(env: NodeJS.ProcessEnv): string {
+export function explicitApiBaseUrl(env: NodeJS.ProcessEnv = process.env): string | null {
   const fullUrl = nonEmpty(env.BOARDWALK_API_URL);
   if (fullUrl !== null) return trimTrailingSlash(fullUrl);
-  const domain = nonEmpty(env.BOARDWALK_API_DOMAIN) ?? DEFAULT_API_DOMAIN;
-  return `https://${normalizeDomain(domain)}`;
+  const domain = nonEmpty(env.BOARDWALK_API_DOMAIN);
+  return domain !== null ? `https://${normalizeDomain(domain)}` : null;
 }
 
 /** Strip any scheme + trailing slashes from a domain so `https://<domain>` is well-formed. */

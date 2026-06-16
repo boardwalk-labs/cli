@@ -10,18 +10,29 @@
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
-import { resolveToken } from "../auth/resolve.js";
-import { BoardwalkClient, type RunListItem, type RunDetail } from "../client.js";
+import { resolveApiTarget } from "../auth/resolve.js";
+import { BoardwalkClient, isTerminalStatus, type RunListItem, type RunDetail } from "../client.js";
 import { readLink } from "../project.js";
+import { resolveWorkflowId } from "../workflow_ref.js";
+import { createRenderer, parseChannels } from "../render/renderer.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 export interface RunsOptions {
-  /** When set, show this single run's detail instead of the org list (no --org needed). */
+  /** When set, act on this single run (detail / --logs / --follow); no --org needed. */
   runId?: string | undefined;
   org?: string | undefined;
+  /** Filter the LIST to one workflow (id or slug). */
+  workflow?: string | undefined;
   status?: string | undefined;
   limit?: string | undefined;
   json?: boolean | undefined;
+  /** Print the run's event log (one-shot snapshot) instead of its summary. */
+  logs?: boolean | undefined;
+  /** Live-tail the run's events over SSE until it finishes. */
+  follow?: boolean | undefined;
+  /** Event channels for --logs/--follow: --verbose = all; --stream = an explicit list. */
+  verbose?: boolean | undefined;
+  stream?: string | undefined;
   token?: string | undefined;
 }
 
@@ -29,11 +40,21 @@ export interface RunsDeps {
   config: CliConfig;
   fetchImpl?: FetchLike;
   log?: (line: string) => void;
+  /** Raw writer for streamed event text (no added newline) — defaults to process.stdout.write. */
+  write?: (text: string) => void;
   /** Directory to look for a `.boardwalk` project link in (defaults to the process cwd). */
   cwd?: string;
   /** Wall-clock used to render ages (defaults to Date.now()). */
   now?: number;
+  /** Abort signal for --follow (e.g. wired to SIGINT by the entrypoint). */
+  signal?: AbortSignal;
+  /** Backoff between --follow reconnects (injectable for tests; defaults to a real timer). */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** Max --follow reconnects after the stream closes while the run is still going (then we bail with a hint). */
+const MAX_FOLLOW_RECONNECTS = 5;
+const FOLLOW_RECONNECT_MS = 1_000;
 
 export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> {
   const log =
@@ -41,25 +62,47 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
     ((line: string): void => {
       console.log(line);
     });
+  const write =
+    deps.write ??
+    ((text: string): void => {
+      process.stdout.write(text);
+    });
 
   const runId = (opts.runId ?? "").trim();
   const now = deps.now ?? Date.now();
 
+  if (opts.logs === true && opts.follow === true) {
+    throw new CliError("Use either --logs or --follow, not both.");
+  }
+  if ((opts.logs === true || opts.follow === true) && runId.length === 0) {
+    throw new CliError("--logs / --follow need a run id.", "Usage: boardwalk runs <runId> --logs");
+  }
+
   const store = CredentialStore.atConfigDir(deps.config.configDir);
-  const token = await resolveToken({
+  const { token, baseUrl } = await resolveApiTarget({
     config: deps.config,
     store,
     tokenFlag: opts.token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
   const client = new BoardwalkClient({
-    baseUrl: deps.config.apiBaseUrl,
+    baseUrl,
     token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
 
-  // Single-run detail — the endpoint resolves the org from the run id, so no --org is needed.
+  // ── single-run modes — the endpoint resolves the org from the run id, so no --org is needed ──
   if (runId.length > 0) {
+    if (opts.follow === true) {
+      await followRunEvents(client, runId, eventRenderer(opts, write), write, deps);
+      return;
+    }
+    if (opts.logs === true) {
+      const renderer = eventRenderer(opts, write);
+      const snapshot = await client.getRunEvents(runId);
+      for (const row of snapshot.events) renderer.render(row.event);
+      return;
+    }
     const run = await client.getRunDetail(runId);
     if (opts.json === true) {
       log(JSON.stringify(run, null, 2));
@@ -69,7 +112,7 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
     return;
   }
 
-  // Org list — needs an org (from --org or the linked project).
+  // ── list mode — needs an org (from --org or the linked project) ──
   const org = (opts.org ?? "").trim() || readLink(deps.cwd ?? process.cwd())?.orgSlug;
   if (org === undefined || org.length === 0) {
     throw new CliError(
@@ -79,20 +122,87 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
   }
   const limit = parseLimit(opts.limit);
   const status = (opts.status ?? "").trim();
-
-  const result = await client.listOrgRuns(org, {
+  const listOpts = {
     ...(status.length > 0 ? { status } : {}),
     ...(limit !== undefined ? { limit } : {}),
-  });
+  };
+
+  // --workflow scopes the list to one workflow (id or slug, resolved against the org).
+  const workflowRef = (opts.workflow ?? "").trim();
+  const result =
+    workflowRef.length > 0
+      ? await client.listWorkflowRuns(
+          org,
+          await resolveWorkflowId(client, org, workflowRef),
+          listOpts,
+        )
+      : await client.listOrgRuns(org, listOpts);
 
   if (opts.json === true) {
     log(JSON.stringify(result, null, 2));
     return;
   }
-  for (const line of formatRuns(org, result.runs, now)) log(line);
+  const heading = workflowRef.length > 0 ? `${org} / ${workflowRef}` : org;
+  for (const line of formatRuns(heading, result.runs, now)) log(line);
   if (result.nextCursor !== null) {
     log("");
     log("  More runs available — raise --limit or filter with --status.");
+  }
+}
+
+/** Build the event renderer for --logs/--follow from the channel flags (default: lifecycle+phase+output). */
+function eventRenderer(
+  opts: RunsOptions,
+  write: (text: string) => void,
+): ReturnType<typeof createRenderer> {
+  const channels = parseChannels({ verbose: opts.verbose ?? false, stream: opts.stream });
+  return createRenderer(channels, write);
+}
+
+/**
+ * Live-tail a run: stream events, rendering each, until the run is terminal. The worker may close
+ * the SSE stream WITHOUT a terminal `run_status` frame, so when the stream ends we confirm via the
+ * events snapshot (`done`) — draining any tail it carries — and only reconnect (from the last
+ * cursor) if the run is genuinely still going.
+ */
+async function followRunEvents(
+  client: BoardwalkClient,
+  runId: string,
+  renderer: ReturnType<typeof createRenderer>,
+  write: (text: string) => void,
+  deps: RunsDeps,
+): Promise<void> {
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  let cursor = 0;
+  let reconnects = 0;
+
+  for (;;) {
+    const streamOpts: { fromCursor?: number; signal?: AbortSignal } = {};
+    if (cursor > 0) streamOpts.fromCursor = cursor;
+    if (deps.signal !== undefined) streamOpts.signal = deps.signal;
+
+    for await (const row of client.streamRunEvents(runId, streamOpts)) {
+      if (row.cursor > cursor) cursor = row.cursor;
+      renderer.render(row.event);
+      if (row.event.kind === "run_status" && isTerminalStatus(row.event.status)) return;
+    }
+    if (deps.signal?.aborted === true) return;
+
+    // Stream closed. Confirm terminal via the snapshot (and render any tail it has beyond `cursor`).
+    const snapshot = await client.getRunEvents(runId, cursor);
+    for (const row of snapshot.events) {
+      if (row.cursor > cursor) cursor = row.cursor;
+      renderer.render(row.event);
+    }
+    if (snapshot.done) return;
+
+    if (++reconnects > MAX_FOLLOW_RECONNECTS) {
+      write(
+        `\n· stream ended while run ${runId} was still active — re-run \`boardwalk runs ${runId} --follow\` to resume.\n`,
+      );
+      return;
+    }
+    await sleep(FOLLOW_RECONNECT_MS);
   }
 }
 

@@ -54,3 +54,26 @@ describe("runLogin --token (first-class API-key auth)", () => {
     }).toThrow(/Not logged in/);
   });
 });
+
+describe("runLogin --scopes (elevated tier)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bw-session-elev-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rejects an unknown tier before touching the browser flow", async () => {
+    await expect(
+      runLogin({ config: config(dir), log: () => undefined }, { scopes: "superuser" }),
+    ).rejects.toThrow(/Unknown --scopes/);
+  });
+
+  it("errors when --scopes admin can't resolve an elevated client id (none configured)", async () => {
+    // config() sets oauthClientId=null, so the `-admin` sibling can't be derived.
+    await expect(
+      runLogin({ config: config(dir), log: () => undefined }, { scopes: "admin" }),
+    ).rejects.toThrow(/elevated client/);
+  });
+});

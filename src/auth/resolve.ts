@@ -11,8 +11,58 @@
 
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
-import type { CredentialStore } from "../credentials.js";
+import type { CredentialStore, StoredSession } from "../credentials.js";
 import { isExpired, refreshAccessToken, type FetchLike } from "./pkce.js";
+
+/** A resolved API target: the Bearer token + the base URL to send it to (kept consistent). */
+export interface ApiTarget {
+  token: string;
+  baseUrl: string;
+}
+
+/** Where the resolved base URL came from. `explicit` = a BOARDWALK_API_URL/DOMAIN override;
+ *  `session` = the stored login's own API origin; `default` = the prod fallback. */
+export type BaseUrlSource = "explicit" | "session" | "default";
+
+/** A resolved base URL + how it was chosen (for diagnostics like `boardwalk status`). */
+export interface ResolvedBaseUrl {
+  url: string;
+  source: BaseUrlSource;
+}
+
+/**
+ * Decide which API base to use, by precedence (pure — no IO, so `status` and `resolveApiTarget`
+ * agree exactly):
+ *   1. an explicit env override (`config.apiBaseExplicit`)
+ *   2. the stored session's own API origin — only when the credential IS that session (a `--token`
+ *      flag or `BOARDWALK_API_KEY` is host-agnostic and follows the env/default)
+ *   3. the config default (prod)
+ */
+export function resolveBaseUrl(opts: {
+  config: CliConfig;
+  session: StoredSession | null;
+  usingFlag: boolean;
+  usingEnvKey: boolean;
+}): ResolvedBaseUrl {
+  if (opts.config.apiBaseExplicit === true)
+    return { url: opts.config.apiBaseUrl, source: "explicit" };
+  if (!opts.usingFlag && !opts.usingEnvKey) {
+    const origin = sessionApiOrigin(opts.session);
+    if (origin !== null) return { url: origin, source: "session" };
+  }
+  return { url: opts.config.apiBaseUrl, source: "default" };
+}
+
+/** The API origin a session authenticates against, derived from its token endpoint
+ *  (`https://<api-host>/oauth/token` → `https://<api-host>`). Null when unknown/unparseable. */
+export function sessionApiOrigin(session: StoredSession | null): string | null {
+  if (session?.tokenEndpoint == null) return null;
+  try {
+    return new URL(session.tokenEndpoint).origin;
+  } catch {
+    return null;
+  }
+}
 
 export interface ResolveTokenDeps {
   config: CliConfig;
@@ -65,4 +115,26 @@ export async function resolveToken(deps: ResolveTokenDeps): Promise<string> {
     scope: refreshed.scope ?? session.scope,
   });
   return refreshed.accessToken;
+}
+
+/**
+ * Resolve BOTH the Bearer token AND the API base to send it to, kept consistent. Base precedence:
+ *   1. an explicit env override (`config.apiBaseExplicit`) — always wins
+ *   2. the stored session's own API origin — ONLY when the token came from that session (not a
+ *      `--token` flag or a `BOARDWALK_API_KEY`, which are host-agnostic and follow the env/default)
+ *   3. the config default (prod)
+ *
+ * The point: after `boardwalk login` against a dev / self-host stack, every authenticated command
+ * talks to THAT stack without the user re-exporting `BOARDWALK_API_URL` on each call.
+ */
+export async function resolveApiTarget(deps: ResolveTokenDeps): Promise<ApiTarget> {
+  const env = deps.env ?? process.env;
+  const token = await resolveToken(deps);
+  const { url } = resolveBaseUrl({
+    config: deps.config,
+    session: deps.store.getSession(),
+    usingFlag: (deps.tokenFlag ?? "").trim().length > 0,
+    usingEnvKey: (env.BOARDWALK_API_KEY ?? "").trim().length > 0,
+  });
+  return { token, baseUrl: url };
 }

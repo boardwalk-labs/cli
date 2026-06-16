@@ -14,9 +14,14 @@
 //   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
 //   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
-//   boardwalk runs [runId] --org <s>    List recent runs, or show one run's detail.
+//   boardwalk runs [runId] [--logs|--follow]  List recent runs, show one, or stream its logs.
+//   boardwalk workflows [list|show|delete]    Inspect the org's workflows.
+//   boardwalk secrets [list|set|delete]       Manage org secrets (writes need login --scopes admin).
+//   boardwalk inference [list|add|delete]     Manage BYO inference providers (writes need elevated).
 //
-// Auth precedence for deploy/run/cancel/usage: --token > BOARDWALK_API_KEY env > stored `login`.
+// Auth precedence for deploy/run/cancel/usage/runs/workflows: --token > BOARDWALK_API_KEY env >
+// stored `login`. The API host follows the same source: an explicit BOARDWALK_API_URL/DOMAIN wins,
+// else the stored session's own origin (so a dev/self-host login just works), else the prod default.
 //
 // Every command body is lazy-imported inside its action — `boardwalk --help` must stay fast, so
 // nothing heavy (esbuild, the SDK extractor, the API client) loads until its command actually runs.
@@ -144,9 +149,13 @@ function buildProgram(): Command {
     .command("login")
     .description("Authenticate via browser (OAuth PKCE), or store an API key with --token.")
     .option("--token <key>", "store this API key (bwk_…) instead of the browser flow")
-    .action(async (options: { token?: string }) => {
+    .option(
+      "--scopes <tier>",
+      "elevated tier `admin` for org-admin writes (secrets, inference providers, workflow delete)",
+    )
+    .action(async (options: { token?: string; scopes?: string }) => {
       const { runLogin } = await import("./commands/session.js");
-      await runLogin({ config: loadConfig() }, { token: options.token });
+      await runLogin({ config: loadConfig() }, { token: options.token, scopes: options.scopes });
     });
 
   program
@@ -243,40 +252,254 @@ function buildProgram(): Command {
 
   program
     .command("runs")
-    .argument("[runId]", "show this run's detail instead of the list (no --org needed)")
+    .argument(
+      "[runId]",
+      "act on this run (detail by default; with --logs/--follow); no --org needed",
+    )
     .option("--org <slug>", "the org to list runs for (optional once the project is linked)")
+    .option("--workflow <ref>", "filter the list to one workflow (id or slug)")
     .option("--status <status>", "filter by status (e.g. running, completed, failed, cancelled)")
     .option("--limit <n>", "how many runs to show (server-clamped)")
+    .option("--logs", "print the run's event log (needs a runId)", false)
+    .option("--follow", "live-tail the run's events until it finishes (needs a runId)", false)
+    .option("--verbose", "with --logs/--follow: render every event channel", false)
+    .option(
+      "--stream <channels>",
+      "with --logs/--follow: comma-separated channels (lifecycle,phase,output,log,agent)",
+    )
     .option("--json", "print the raw response as JSON", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .description("List your org's recent runs, or show one run's detail with `runs <runId>`.")
+    .description(
+      "List your org's recent runs, show one run's detail, or stream its logs (`runs <id> --logs/--follow`).",
+    )
     .action(
       async (
         runId: string | undefined,
         options: {
           org?: string;
+          workflow?: string;
           status?: string;
           limit?: string;
+          logs?: boolean;
+          follow?: boolean;
+          verbose?: boolean;
+          stream?: string;
           json?: boolean;
           token?: string;
         },
       ) => {
         const { runRuns } = await import("./commands/runs.js");
+        // --follow tails until terminal; wire Ctrl-C to a clean abort so the stream closes tidily.
+        const controller = new AbortController();
+        if (options.follow === true) {
+          process.once("SIGINT", () => {
+            controller.abort();
+          });
+        }
         await runRuns(
           {
             runId,
             org: options.org,
+            workflow: options.workflow,
             status: options.status,
             limit: options.limit,
+            logs: options.logs,
+            follow: options.follow,
+            verbose: options.verbose,
+            stream: options.stream,
             json: options.json,
             token: options.token,
           },
-          { config: loadConfig() },
+          { config: loadConfig(), signal: controller.signal },
         );
       },
     );
 
+  registerWorkflowsCommand(program);
+  registerSecretsCommand(program);
+  registerInferenceCommand(program);
+
   return program;
+}
+
+/** Register `workflows` + its `list` / `show` / `delete` subcommands (bare `workflows` ⇒ list). */
+function registerWorkflowsCommand(program: Command): void {
+  const workflows = program
+    .command("workflows")
+    .description("Inspect your org's workflows (list, show, delete).");
+
+  workflows
+    .command("list", { isDefault: true })
+    .option("--org <slug>", "the org to list (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the org's workflows.")
+    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+      const { runWorkflowsList } = await import("./commands/workflows.js");
+      await runWorkflowsList(
+        { org: options.org, json: options.json, token: options.token },
+        { config: loadConfig() },
+      );
+    });
+
+  workflows
+    .command("show")
+    .argument("<ref>", "workflow id (a ULID) or slug")
+    .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Show one workflow's manifest projection + versions.")
+    .action(async (ref: string, options: { org?: string; json?: boolean; token?: string }) => {
+      const { runWorkflowShow } = await import("./commands/workflows.js");
+      await runWorkflowShow(
+        { ref, org: options.org, json: options.json, token: options.token },
+        { config: loadConfig() },
+      );
+    });
+
+  workflows
+    .command("delete")
+    .argument("<ref>", "workflow id (a ULID) or slug")
+    .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
+    .option("--yes", "actually delete — without it, prints the target and exits", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Delete a workflow (irreversible — versions + run history go with it).")
+    .action(async (ref: string, options: { org?: string; yes?: boolean; token?: string }) => {
+      const { runWorkflowDelete } = await import("./commands/workflows.js");
+      await runWorkflowDelete(
+        { ref, org: options.org, yes: options.yes, token: options.token },
+        { config: loadConfig() },
+      );
+    });
+}
+
+/** Register `secrets` + its `list` / `set` / `delete` subcommands (writes need `login --scopes admin`). */
+function registerSecretsCommand(program: Command): void {
+  const secrets = program
+    .command("secrets")
+    .description("Manage the org's secrets (list, set, delete). Values are never displayed.");
+
+  secrets
+    .command("list", { isDefault: true })
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the org's secrets (names/scope/kind only — never values).")
+    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+      const { runSecretsList } = await import("./commands/secrets.js");
+      await runSecretsList(options, { config: loadConfig() });
+    });
+
+  secrets
+    .command("set")
+    .argument("<name>", "secret name (referenced in a manifest's permissions.secrets)")
+    .option("--value <value>", "the value inline (prefer piping via stdin / --from-file)")
+    .option("--from-file <path>", "read the value from this file")
+    .option("--scope <scope>", "org | user (default org)")
+    .option("--kind <kind>", "api_key | oauth_token | aws_role | mcp_credential (default api_key)")
+    .option("--description <text>", "optional human description")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Set a secret value (staged server-side). Needs `boardwalk login --scopes admin`.")
+    .action(
+      async (
+        name: string,
+        options: {
+          value?: string;
+          fromFile?: string;
+          scope?: string;
+          kind?: string;
+          description?: string;
+          org?: string;
+          token?: string;
+        },
+      ) => {
+        const { runSecretSet } = await import("./commands/secrets.js");
+        await runSecretSet({ name, ...options }, { config: loadConfig() });
+      },
+    );
+
+  secrets
+    .command("delete")
+    .argument("<name>", "secret name")
+    .option("--scope <scope>", "disambiguate when a name exists in multiple scopes (org|user)")
+    .option("--yes", "actually delete — without it, prints the target and exits", false)
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Delete a secret (irreversible). Needs `boardwalk login --scopes admin`.")
+    .action(
+      async (
+        name: string,
+        options: { scope?: string; yes?: boolean; org?: string; token?: string },
+      ) => {
+        const { runSecretDelete } = await import("./commands/secrets.js");
+        await runSecretDelete({ name, ...options }, { config: loadConfig() });
+      },
+    );
+}
+
+/** Register `inference` + its `list` / `add` / `delete` subcommands (writes need `login --scopes admin`). */
+function registerInferenceCommand(program: Command): void {
+  const inference = program
+    .command("inference")
+    .description("Manage the org's BYO inference providers (list, add, delete).");
+
+  inference
+    .command("list", { isDefault: true })
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the org's inference providers (endpoints only — never API keys).")
+    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+      const { runInferenceList } = await import("./commands/inference.js");
+      await runInferenceList(options, { config: loadConfig() });
+    });
+
+  inference
+    .command("add")
+    .argument("<name>", "provider name (referenced as agent({ provider }))")
+    .requiredOption(
+      "--source <source>",
+      "bedrock | anthropic | google | openai | openai_compatible | azure_openai",
+    )
+    .option("--base-url <url>", "endpoint base URL (openai_compatible / azure)")
+    .option("--region <region>", "region (bedrock)")
+    .option("--api-version <v>", "API version (azure_openai)")
+    .option("--api-key <key>", "provider API key (prefer piping via stdin)")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Register a BYO inference provider. Needs `boardwalk login --scopes admin`.")
+    .action(
+      async (
+        name: string,
+        options: {
+          source?: string;
+          baseUrl?: string;
+          region?: string;
+          apiVersion?: string;
+          apiKey?: string;
+          org?: string;
+          token?: string;
+        },
+      ) => {
+        const { runInferenceAdd } = await import("./commands/inference.js");
+        await runInferenceAdd({ name, ...options }, { config: loadConfig() });
+      },
+    );
+
+  inference
+    .command("delete")
+    .argument("<name>", "provider name")
+    .option("--yes", "actually delete — without it, prints the target and exits", false)
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description(
+      "Delete an inference provider (irreversible). Needs `boardwalk login --scopes admin`.",
+    )
+    .action(async (name: string, options: { yes?: boolean; org?: string; token?: string }) => {
+      const { runInferenceDelete } = await import("./commands/inference.js");
+      await runInferenceDelete({ name, ...options }, { config: loadConfig() });
+    });
 }
 
 async function main(): Promise<void> {

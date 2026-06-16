@@ -8,7 +8,7 @@
 
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
-import { resolveToken } from "../auth/resolve.js";
+import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient } from "../client.js";
 import { deployWithLink, loadProgram, planDeploy, type PreparedProgram } from "../deployment.js";
 import { projectDirFor, readLink } from "../project.js";
@@ -42,14 +42,14 @@ export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<
   );
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
-  const token = await resolveToken({
+  const { token, baseUrl } = await resolveApiTarget({
     config: deps.config,
     store,
     tokenFlag: opts.token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
   const client = new BoardwalkClient({
-    baseUrl: deps.config.apiBaseUrl,
+    baseUrl,
     token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });

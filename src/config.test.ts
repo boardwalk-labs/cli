@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, it, expect } from "vitest";
-import { loadConfig, trimTrailingSlash } from "./config.js";
+import { loadConfig, trimTrailingSlash, explicitApiBaseUrl } from "./config.js";
 
 describe("loadConfig", () => {
   it("applies defaults when no env is set", () => {
@@ -56,6 +56,34 @@ describe("loadConfig", () => {
 
   it("honors BOARDWALK_CONFIG_DIR", () => {
     expect(loadConfig({ BOARDWALK_CONFIG_DIR: "/tmp/bw" }).configDir).toBe("/tmp/bw");
+  });
+
+  it("marks apiBaseExplicit only when an env override is set", () => {
+    expect(loadConfig({}).apiBaseExplicit).toBe(false);
+    expect(loadConfig({ BOARDWALK_API_DOMAIN: "api.acme.com" }).apiBaseExplicit).toBe(true);
+    expect(loadConfig({ BOARDWALK_API_URL: "http://localhost:8080" }).apiBaseExplicit).toBe(true);
+  });
+});
+
+describe("explicitApiBaseUrl", () => {
+  it("returns null when neither override is set (session/default may apply)", () => {
+    expect(explicitApiBaseUrl({})).toBeNull();
+  });
+
+  it("returns the full URL override, trimmed", () => {
+    expect(explicitApiBaseUrl({ BOARDWALK_API_URL: "http://localhost:8080/" })).toBe(
+      "http://localhost:8080",
+    );
+  });
+
+  it("derives https://<domain> from BOARDWALK_API_DOMAIN", () => {
+    expect(explicitApiBaseUrl({ BOARDWALK_API_DOMAIN: "api.acme.com" })).toBe(
+      "https://api.acme.com",
+    );
+  });
+
+  it("treats a blank value as unset", () => {
+    expect(explicitApiBaseUrl({ BOARDWALK_API_URL: "   " })).toBeNull();
   });
 });
 

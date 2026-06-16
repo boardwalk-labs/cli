@@ -249,6 +249,28 @@ describe("auth end-to-end (PKCE + API key)", () => {
     expect(api.state.lastAuth).toBe("Bearer pkce-access-1");
   });
 
+  it("PKCE elevated: clientIdOverride authenticates as the admin client and persists it", async () => {
+    const cfg = await config();
+    let authorizeUrl = "";
+    const session = await performLogin({
+      config: cfg,
+      store,
+      // What `boardwalk login --scopes admin` passes: the `-admin` sibling client id.
+      clientIdOverride: "client_e2e-admin",
+      openBrowser: browserThatApproves((url) => {
+        authorizeUrl = url;
+      }),
+      log: silent,
+    });
+
+    // The override flows into BOTH the authorize URL and the token exchange…
+    expect(new URL(authorizeUrl).searchParams.get("client_id")).toBe("client_e2e-admin");
+    expect(issuer.state.lastForm?.get("client_id")).toBe("client_e2e-admin");
+    // …and is persisted, so a later silent refresh also uses the elevated client.
+    expect(session.clientId).toBe("client_e2e-admin");
+    expect(store.getSession()?.clientId).toBe("client_e2e-admin");
+  });
+
   it("PKCE: an expired session is silently refreshed against the issuer, then used", async () => {
     const cfg = await config();
     store.putSession({

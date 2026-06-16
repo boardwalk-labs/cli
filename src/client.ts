@@ -18,9 +18,23 @@
 // The API accepts both on the same header.
 
 import { randomUUID } from "node:crypto";
+import { type RunEvent, type RunStatus, runEventSchema } from "@boardwalk-labs/workflow";
 import { CliError } from "./errors.js";
 import { isRecord } from "./guards.js";
+import { readSseFrames } from "./sse.js";
 import type { FetchLike } from "./auth/pkce.js";
+
+/** Terminal run statuses — a run here will emit no further events (used to stop `--follow`). */
+const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+/** Whether a run status is terminal (no more events will arrive). */
+export function isTerminalStatus(status: string): boolean {
+  return (TERMINAL_RUN_STATUSES as ReadonlySet<string>).has(status);
+}
 
 export interface WorkflowSummary {
   id: string;
@@ -78,6 +92,97 @@ export interface RunDetail extends RunListItem {
   tokensOut: number;
   /** Curated failure cause for a failed run; null otherwise. */
   error: { code: string; message: string } | null;
+}
+
+/** One enveloped run-telemetry frame: its run-global `cursor` + the validated v1 `RunEvent`. The
+ *  cursor orders the log and is the `--follow` resume point (sent as `Last-Event-ID`). */
+export interface RunEventRow {
+  cursor: number;
+  event: RunEvent;
+}
+
+/** A run's stored event log + whether the run is already terminal (so a caller can skip the stream). */
+export interface RunEventSnapshot {
+  events: RunEventRow[];
+  done: boolean;
+}
+
+/** One row of the org's workflow list (GET /v1/orgs/:slug/workflows) — the at-a-glance projection. */
+export interface WorkflowListItem {
+  id: string;
+  slug: string;
+  title: string | null;
+  triggerKinds: string[];
+  updatedAt: number | null;
+  /** The most recent run's status + time, or null when the workflow has never run. */
+  lastRun: { status: string; at: number } | null;
+}
+
+/** A workflow version reference (GET /v1/workflows/:id → versions[]). */
+export interface WorkflowVersionRef {
+  id: string;
+  number: number;
+  createdAt: number;
+}
+
+/** A workflow's full detail (GET /v1/workflows/:id): identity + the current manifest + versions. */
+export interface WorkflowDetail {
+  id: string;
+  slug: string;
+  title: string | null;
+  description: string | null;
+  currentVersionId: string | null;
+  triggers: string[];
+  secrets: string[];
+  /** The program entry file (e.g. `index.mjs`) when the API reports it. */
+  entry: string | null;
+  versions: WorkflowVersionRef[];
+}
+
+/** One secret in the org's catalog (GET /v1/orgs/:slug/secrets) — metadata only; VALUES are never
+ *  returned by any surface. `last4` is a display hint computed server-side from the value. */
+export interface SecretListItem {
+  id: string;
+  name: string;
+  scope: string;
+  kind: string;
+  last4: string | null;
+  description: string | null;
+  createdAt: number | null;
+}
+
+/** Input for creating a secret. The raw `value` is staged into Secrets Manager server-side; only the
+ *  ARN + a last-4 hint persist. */
+export interface CreateSecretInput {
+  name: string;
+  value: string;
+  scope: string;
+  kind: string;
+  description?: string;
+}
+
+/** One inference provider (GET /v1/orgs/:slug/inference-providers) — endpoint metadata only; the API
+ *  key lives in Secrets Manager and is never returned (`hasApiKey` is the flag). */
+export interface ProviderListItem {
+  name: string;
+  source: string;
+  baseUrl: string | null;
+  region: string | null;
+  hasApiKey: boolean;
+  billedByBoardwalk: boolean;
+  createdAt: number | null;
+}
+
+/** Input for creating a BYO inference provider. `apiKey` (when given) is staged into Secrets Manager
+ *  server-side; the value never persists in the row or returns in any read. */
+export interface CreateProviderInput {
+  name: string;
+  source: string;
+  baseUrl?: string;
+  region?: string;
+  apiVersion?: string;
+  apiKey?: string;
+  extraHeaders?: Record<string, string>;
 }
 
 /** The authenticated caller (GET /v1/me) — identity + every org they belong to. The subset the CLI
@@ -143,6 +248,121 @@ export class BoardwalkClient {
     );
     const rows = Array.isArray(body.workflows) ? body.workflows : [];
     return rows.filter(isWorkflowSummary);
+  }
+
+  /** List the org's workflows with the at-a-glance projection (title, triggers, last run) the
+   *  `boardwalk workflows` table renders. Rows missing an id/slug are skipped (lenient). */
+  async listWorkflowSummaries(orgSlug: string): Promise<WorkflowListItem[]> {
+    const body = await this.request<{ workflows?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows`,
+    );
+    const rows = Array.isArray(body.workflows) ? body.workflows : [];
+    const items: WorkflowListItem[] = [];
+    for (const row of rows) {
+      const parsed = parseWorkflowListItem(row);
+      if (parsed !== null) items.push(parsed);
+    }
+    return items;
+  }
+
+  /** Fetch one workflow's detail by id (GET /v1/workflows/:id): identity + current manifest +
+   *  versions. The endpoint is keyed by id (the org is resolved from it), so no slug is needed. */
+  async getWorkflowDetail(id: string): Promise<WorkflowDetail> {
+    const body = await this.request<unknown>("GET", `/v1/workflows/${encodeURIComponent(id)}`);
+    return parseWorkflowDetail(body);
+  }
+
+  /** Delete a workflow by id (DELETE /v1/workflows/:id). Returns 204; idempotent server-side. */
+  async deleteWorkflow(id: string): Promise<void> {
+    await this.request<undefined>("DELETE", `/v1/workflows/${encodeURIComponent(id)}`);
+  }
+
+  /** List one workflow's recent runs (GET /v1/orgs/:slug/workflows/:workflowId/runs). */
+  async listWorkflowRuns(
+    orgSlug: string,
+    workflowId: string,
+    opts: { status?: string; limit?: number } = {},
+  ): Promise<RunList> {
+    const params = new URLSearchParams();
+    if (opts.status !== undefined) params.set("status", opts.status);
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    const query = params.toString();
+    const body = await this.request<unknown>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows/${encodeURIComponent(workflowId)}/runs${query.length > 0 ? `?${query}` : ""}`,
+    );
+    return this.runList(body);
+  }
+
+  /** List the org's secrets — metadata only (names/scope/kind/last4), never values. */
+  async listSecrets(orgSlug: string): Promise<SecretListItem[]> {
+    const body = await this.request<{ secrets?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/secrets`,
+    );
+    const rows = Array.isArray(body.secrets) ? body.secrets : [];
+    const out: SecretListItem[] = [];
+    for (const row of rows) {
+      const parsed = parseSecretRow(row);
+      if (parsed !== null) out.push(parsed);
+    }
+    return out;
+  }
+
+  /** Create (or set) a secret — the raw value is staged server-side; only metadata returns. */
+  async createSecret(orgSlug: string, input: CreateSecretInput): Promise<SecretListItem> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/secrets`,
+      input,
+    );
+    const secret = isRecord(body) ? parseSecretRow(body.secret) : null;
+    if (secret === null)
+      throw new CliError("The API returned an unexpected secret response shape.");
+    return secret;
+  }
+
+  /** Delete a secret by id (DELETE /v1/secrets/:id). The id-keyed endpoint resolves the org. */
+  async deleteSecret(id: string): Promise<void> {
+    await this.request<undefined>("DELETE", `/v1/secrets/${encodeURIComponent(id)}`);
+  }
+
+  /** List the org's inference providers — endpoint metadata only; API keys are never returned. */
+  async listProviders(orgSlug: string): Promise<ProviderListItem[]> {
+    const body = await this.request<{ providers?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/inference-providers`,
+    );
+    const rows = Array.isArray(body.providers) ? body.providers : [];
+    const out: ProviderListItem[] = [];
+    for (const row of rows) {
+      const parsed = parseProviderRow(row);
+      if (parsed !== null) out.push(parsed);
+    }
+    return out;
+  }
+
+  /** Create a BYO inference provider — any `apiKey` is staged server-side; only metadata returns. */
+  async createProvider(orgSlug: string, input: CreateProviderInput): Promise<ProviderListItem> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/inference-providers`,
+      input,
+    );
+    const provider = isRecord(body) ? parseProviderRow(body.provider) : null;
+    if (provider === null) {
+      throw new CliError("The API returned an unexpected provider response shape.");
+    }
+    return provider;
+  }
+
+  /** Delete an inference provider by name (DELETE /v1/orgs/:slug/inference-providers/:name). */
+  async deleteProvider(orgSlug: string, name: string): Promise<void> {
+    await this.request<undefined>(
+      "DELETE",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/inference-providers/${encodeURIComponent(name)}`,
+    );
   }
 
   async createWorkflow(orgSlug: string, artifact: DeployArtifactRef): Promise<DeployResult> {
@@ -230,6 +450,83 @@ export class BoardwalkClient {
   async getRunDetail(runId: string): Promise<RunDetail> {
     const body = await this.request<unknown>("GET", `/v1/runs/${encodeURIComponent(runId)}`);
     return this.runDetail(body);
+  }
+
+  /**
+   * The run's stored event log as a one-shot JSON snapshot (GET /v1/runs/:id/events). `sinceCursor`
+   * returns only events after that cursor (for incremental fetches); omitted ⇒ the whole log. The
+   * endpoint resolves the org from the run id, so no slug is needed.
+   */
+  async getRunEvents(runId: string, sinceCursor?: number): Promise<RunEventSnapshot> {
+    const query = sinceCursor !== undefined ? `?since=${String(sinceCursor)}` : "";
+    const body = await this.request<unknown>(
+      "GET",
+      `/v1/runs/${encodeURIComponent(runId)}/events${query}`,
+    );
+    if (!isRecord(body) || !Array.isArray(body.events)) {
+      throw new CliError("The API returned an unexpected run-events response shape.");
+    }
+    const events: RunEventRow[] = [];
+    for (const row of body.events) {
+      const parsed = parseEnvelopedEvent(row);
+      if (parsed !== null) events.push(parsed);
+    }
+    return { events, done: body.done === true };
+  }
+
+  /**
+   * Live-tail the run's events over SSE (GET /v1/runs/:id/stream), yielding each enveloped event as
+   * it arrives. `fromCursor` resumes after a known cursor (sent as `Last-Event-ID`). The server
+   * self-closes the stream when the run goes terminal, ending the iteration; `signal` aborts it
+   * early (e.g. Ctrl-C). Yields nothing and returns on a body-less response.
+   */
+  async *streamRunEvents(
+    runId: string,
+    opts: { fromCursor?: number; signal?: AbortSignal } = {},
+  ): AsyncGenerator<RunEventRow> {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${this.token}`,
+      Accept: "text/event-stream",
+    };
+    if (opts.fromCursor !== undefined && opts.fromCursor > 0) {
+      headers["Last-Event-ID"] = String(opts.fromCursor);
+    }
+    const init: RequestInit = { method: "GET", headers };
+    if (opts.signal !== undefined) init.signal = opts.signal;
+
+    const path = `/v1/runs/${encodeURIComponent(runId)}/stream`;
+    let res: Response;
+    try {
+      res = await this.fetchImpl(`${this.baseUrl}${path}`, init);
+    } catch (err) {
+      throw new CliError(
+        `Could not reach the Boardwalk API at ${this.baseUrl}.`,
+        err instanceof Error ? err.message : undefined,
+      );
+    }
+    if (!res.ok) {
+      throw new CliError(
+        `GET ${path} failed (${String(res.status)}).`,
+        apiErrorMessage(await safeText(res).then((t) => t ?? ""), res.status),
+        res.status,
+      );
+    }
+    if (res.body === null) return;
+
+    for await (const frame of readSseFrames(res.body)) {
+      // `stream_error` is the one transport-level frame outside the RunEvent contract (see the
+      // backend SSE codec) — surface it as a failure rather than trying to parse it as an event.
+      if (frame.event === "stream_error") {
+        throw new CliError(
+          "The run event stream ended with an error.",
+          streamErrorMessage(frame.data),
+        );
+      }
+      const event = parseRunEvent(safeJsonParse(frame.data));
+      if (event === null) continue;
+      const cursor = Number.parseInt(frame.id ?? "", 10);
+      yield { cursor: Number.isFinite(cursor) ? cursor : 0, event };
+    }
   }
 
   /**
@@ -468,6 +765,145 @@ function usageLines(value: unknown, labelKey: string): UsageLine[] {
     lines.push({ label, tokens: row.tokens });
   }
   return lines;
+}
+
+/** Validate a parsed JSON value into a typed v1 `RunEvent` via the SDK's schema (no cast — the
+ *  schema IS the contract). Returns null for anything that isn't a well-formed event. */
+function parseRunEvent(value: unknown): RunEvent | null {
+  const parsed = runEventSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Read a `{ cursor, event }` snapshot row into a `RunEventRow`, or null when malformed. */
+function parseEnvelopedEvent(row: unknown): RunEventRow | null {
+  if (!isRecord(row) || typeof row.cursor !== "number") return null;
+  const event = parseRunEvent(row.event);
+  return event === null ? null : { cursor: row.cursor, event };
+}
+
+/** Best-effort `JSON.parse` for an SSE `data:` payload (never throws; undefined on bad JSON). */
+function safeJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Pull a human message out of a `stream_error` frame's `{ message }` payload. */
+function streamErrorMessage(data: string): string | undefined {
+  const parsed = safeJsonParse(data);
+  if (isRecord(parsed) && typeof parsed.message === "string" && parsed.message.length > 0) {
+    return parsed.message;
+  }
+  return data.length > 0 ? data.slice(0, 300) : undefined;
+}
+
+/** Read a workflow list row into a `WorkflowListItem`, or null when it lacks an id/slug. Lenient on
+ *  the projection fields so an older / self-hosted backend still lists what it can. */
+function parseWorkflowListItem(row: unknown): WorkflowListItem | null {
+  if (!isRecord(row) || typeof row.id !== "string" || typeof row.slug !== "string") return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: typeof row.title === "string" ? row.title : null,
+    triggerKinds: stringArray(row.triggerKinds),
+    updatedAt: typeof row.updatedAt === "number" ? row.updatedAt : null,
+    lastRun: parseLastRun(row.lastRun),
+  };
+}
+
+/** Read the `{ status, at }` last-run projection, or null when absent/malformed. */
+function parseLastRun(value: unknown): { status: string; at: number } | null {
+  if (!isRecord(value) || typeof value.status !== "string" || typeof value.at !== "number") {
+    return null;
+  }
+  return { status: value.status, at: value.at };
+}
+
+/** Validate the `{ workflow, manifest, program, versions }` detail envelope into a `WorkflowDetail`,
+ *  reading the manifest projection leniently. The workflow id/slug is the one hard requirement. */
+function parseWorkflowDetail(body: unknown): WorkflowDetail {
+  const workflow = isRecord(body) ? body.workflow : undefined;
+  if (!isRecord(workflow) || typeof workflow.id !== "string" || typeof workflow.slug !== "string") {
+    throw new CliError("The API returned an unexpected workflow response shape.");
+  }
+  const manifest = isRecord(body) && isRecord(body.manifest) ? body.manifest : {};
+  const program = isRecord(body) && isRecord(body.program) ? body.program : {};
+  const permissions = isRecord(manifest.permissions) ? manifest.permissions : {};
+  const versions: WorkflowVersionRef[] = [];
+  if (isRecord(body) && Array.isArray(body.versions)) {
+    for (const v of body.versions) {
+      if (isRecord(v) && typeof v.id === "string" && typeof v.number === "number") {
+        versions.push({ id: v.id, number: v.number, createdAt: numOr(v.createdAt, 0) });
+      }
+    }
+  }
+  return {
+    id: workflow.id,
+    slug: workflow.slug,
+    title: typeof manifest.title === "string" ? manifest.title : null,
+    description: typeof manifest.description === "string" ? manifest.description : null,
+    currentVersionId:
+      typeof workflow.currentVersionId === "string" ? workflow.currentVersionId : null,
+    triggers: triggerKinds(manifest.triggers),
+    secrets: secretNames(permissions.secrets),
+    entry: typeof program.entry === "string" ? program.entry : null,
+    versions,
+  };
+}
+
+/** Map a manifest `triggers: [{ kind }]` array to its kind strings (lenient). */
+function triggerKinds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const kinds: string[] = [];
+  for (const t of value) {
+    if (isRecord(t) && typeof t.kind === "string") kinds.push(t.kind);
+  }
+  return kinds;
+}
+
+/** Map a manifest `permissions.secrets: [{ name }]` array to its name strings (lenient). */
+function secretNames(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const names: string[] = [];
+  for (const s of value) {
+    if (isRecord(s) && typeof s.name === "string") names.push(s.name);
+  }
+  return names;
+}
+
+/** Read an array of strings, dropping non-string entries; [] when not an array. */
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+/** Read a secret catalog row into a `SecretListItem`, or null when it lacks an id/name. */
+function parseSecretRow(row: unknown): SecretListItem | null {
+  if (!isRecord(row) || typeof row.id !== "string" || typeof row.name !== "string") return null;
+  return {
+    id: row.id,
+    name: row.name,
+    scope: typeof row.scope === "string" ? row.scope : "",
+    kind: typeof row.kind === "string" ? row.kind : "",
+    last4: typeof row.last4 === "string" ? row.last4 : null,
+    description: typeof row.description === "string" ? row.description : null,
+    createdAt: typeof row.createdAt === "number" ? row.createdAt : null,
+  };
+}
+
+/** Read an inference-provider row into a `ProviderListItem`, or null when it lacks a name/source. */
+function parseProviderRow(row: unknown): ProviderListItem | null {
+  if (!isRecord(row) || typeof row.name !== "string" || typeof row.source !== "string") return null;
+  return {
+    name: row.name,
+    source: row.source,
+    baseUrl: typeof row.baseUrl === "string" ? row.baseUrl : null,
+    region: typeof row.region === "string" ? row.region : null,
+    hasApiKey: row.hasApiKey === true,
+    billedByBoardwalk: row.billedByBoardwalk === true,
+    createdAt: typeof row.createdAt === "number" ? row.createdAt : null,
+  };
 }
 
 function isWorkflowSummary(value: unknown): value is WorkflowSummary {

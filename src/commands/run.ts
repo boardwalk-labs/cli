@@ -10,7 +10,7 @@
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
-import { resolveToken } from "../auth/resolve.js";
+import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient, type RunSummary } from "../client.js";
 import { deployWithLink, loadProgram } from "../deployment.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -101,14 +101,14 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   );
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
-  const token = await resolveToken({
+  const { token, baseUrl } = await resolveApiTarget({
     config: deps.config,
     store,
     tokenFlag: opts.token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
   const client = new BoardwalkClient({
-    baseUrl: deps.config.apiBaseUrl,
+    baseUrl,
     token,
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });

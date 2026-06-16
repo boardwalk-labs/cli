@@ -2,6 +2,40 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## Unreleased
+
+### Added
+
+- **`boardwalk runs <id> --logs`** — print a run's event log (the same lifecycle / phase / output
+  frames the dashboard shows), so you can see what a run actually did from the terminal. Channel
+  selection matches `dev`: `--stream <channels>` or `--verbose` (which surfaces agent turns + every
+  tool call).
+- **`boardwalk runs <id> --follow`** — live-tail a run over SSE until it finishes, then exit. Resumes
+  by cursor and confirms terminal via the events snapshot, so it ends cleanly even when the stream
+  closes without a final status frame. Ctrl-C aborts.
+- **`boardwalk runs --workflow <id|slug>`** — scope the runs list to a single workflow.
+- **`boardwalk workflows`** — inspect the org's workflows: `list` (default), `show <id|slug>` (the
+  manifest projection + version history), and `delete <id|slug>` (guarded behind `--yes`). Accepts a
+  workflow id (a ULID, as in a dashboard URL) or a slug.
+- **`boardwalk secrets`** — manage the org's secrets: `list` (names/scope/kind/last4 — VALUES are
+  never displayed, they can't be read), `set <name>` (value from stdin, `--from-file`, or `--value`),
+  and `delete <name>`. Writes need an elevated login (below).
+- **`boardwalk inference`** — manage BYO inference providers (the `agent({ provider })` endpoints):
+  `list`, `add <name> --source <…>` (with `--base-url` / `--region` / `--api-key`), and
+  `delete <name>`. Writes need an elevated login.
+- **`boardwalk login --scopes admin`** — an opt-in ELEVATED session carrying the org-admin write
+  scopes (secrets, inference providers, workflow delete). The default `boardwalk login` stays
+  least-privilege (read + deploy + run); you must be an org admin for the elevated session to take
+  effect, and credential-minting / member admin are still off-limits to any CLI token.
+
+### Changed
+
+- **The API host now follows your stored login.** After `boardwalk login` against a dev / self-host
+  stack, every authenticated command targets THAT stack automatically — no need to re-export
+  `BOARDWALK_API_URL` on each call. An explicit `BOARDWALK_API_URL` / `BOARDWALK_API_DOMAIN` still
+  wins; otherwise the session's own API origin is used, falling back to the prod default. `boardwalk
+status` labels the host source (`session` vs the env var vs `default`).
+
 ## 0.1.13
 
 ### Changed

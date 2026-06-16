@@ -36,10 +36,13 @@ export interface PerformLoginDeps {
   fetchImpl?: FetchLike;
   log?: (line: string) => void;
   scope?: string;
+  /** OAuth client id to authenticate as, overriding `config.oauthClientId` — used by the elevated
+   *  login (`--scopes admin`) to authenticate against the admin client and obtain its write scopes. */
+  clientIdOverride?: string;
 }
 
 export async function performLogin(deps: PerformLoginDeps): Promise<StoredSession> {
-  const clientId = deps.config.oauthClientId;
+  const clientId = deps.clientIdOverride ?? deps.config.oauthClientId;
   if (clientId === null) {
     throw new CliError(
       "No OAuth client id configured for `boardwalk login`.",
