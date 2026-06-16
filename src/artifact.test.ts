@@ -8,6 +8,7 @@ import { extract as tarExtract } from "tar";
 import {
   buildArtifact,
   collectAssets,
+  collectPackageContext,
   lockfileDigest,
   resolveSdkVersion,
   ENTRY_OUTPUT,
@@ -246,5 +247,66 @@ describe("lockfileDigest", () => {
     expect(lockfileDigest(pkg)).toBeNull();
     writeFileSync(join(pkg, "pnpm-lock.yaml"), "lockfileVersion: '9.0'");
     expect(lockfileDigest(pkg)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("collectPackageContext", () => {
+  let dir: string;
+  let pkg: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bw-pkgctx-"));
+    pkg = join(dir, "wf");
+    mkdirSync(pkg);
+    writeFileSync(join(pkg, "index.ts"), `export const meta = { slug: "wf", description: "d" };`);
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("pulls the package-root AGENTS.md + top-level skills, keyed by name", () => {
+    writeFileSync(join(pkg, "AGENTS.md"), "STANDING: run the linter.");
+    mkdirSync(join(pkg, "skills"));
+    writeFileSync(join(pkg, "skills", "review.md"), "# Review\nbe thorough");
+    writeFileSync(join(pkg, "skills", "triage.md"), "# Triage\nbe terse");
+
+    const ctx = collectPackageContext(pkg);
+    expect(ctx.agentsMd).toBe("STANDING: run the linter.");
+    expect(ctx.skills).toEqual({
+      review: "# Review\nbe thorough",
+      triage: "# Triage\nbe terse",
+    });
+  });
+
+  it("ignores a nested AGENTS.md under the package (bundled tier is the root file only)", () => {
+    writeFileSync(join(pkg, "AGENTS.md"), "ROOT");
+    mkdirSync(join(pkg, "lib"));
+    writeFileSync(join(pkg, "lib", "AGENTS.md"), "NESTED-IGNORED");
+    const ctx = collectPackageContext(pkg);
+    expect(ctx.agentsMd).toBe("ROOT");
+  });
+
+  it("ignores skill markdown nested below skills/ (the engine reads a flat skills dir)", () => {
+    mkdirSync(join(pkg, "skills", "deep"), { recursive: true });
+    writeFileSync(join(pkg, "skills", "top.md"), "top");
+    writeFileSync(join(pkg, "skills", "deep", "nested.md"), "nested");
+    const ctx = collectPackageContext(pkg);
+    expect(ctx.skills).toEqual({ top: "top" });
+  });
+
+  it("returns an empty context for a package with no AGENTS.md and no skills", () => {
+    expect(collectPackageContext(pkg)).toEqual({});
+  });
+
+  it("returns an empty context for a single program FILE (not a package dir)", () => {
+    // Matches buildArtifact: a lone file ships no assets even if one sits beside it.
+    writeFileSync(join(pkg, "AGENTS.md"), "beside-the-file");
+    expect(collectPackageContext(join(pkg, "index.ts"))).toEqual({});
+  });
+
+  it("omits the skills key entirely when there are none (only AGENTS.md present)", () => {
+    writeFileSync(join(pkg, "AGENTS.md"), "just-standing-instructions");
+    const ctx = collectPackageContext(pkg);
+    expect(ctx).toEqual({ agentsMd: "just-standing-instructions" });
+    expect("skills" in ctx).toBe(false);
   });
 });

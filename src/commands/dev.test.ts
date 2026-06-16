@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDev, type DevDeps } from "./dev.js";
-import type { DevEngine, DevEngineFactory, DevRunResult } from "../dev/engine.js";
+import type { DevDeployInput, DevEngine, DevEngineFactory, DevRunResult } from "../dev/engine.js";
 import { CliError } from "../errors.js";
 
 const noSigint = (_handler: () => void): (() => void) => {
@@ -267,6 +267,46 @@ describe("runDev (end-to-end via the engine)", () => {
     if (err instanceof CliError) {
       expect(err.exitCode).toBe(130);
     }
+  });
+
+  it("passes the package's bundled AGENTS.md + skills to the engine deploy", async () => {
+    // A package DIR (not a lone file) carries deploy assets — the same the platform ships in the
+    // artifact — so a bundled AGENTS.md/skills reach the local engine exactly as they do on hosted.
+    const pkg = join(dir, "wf");
+    mkdirSync(pkg);
+    writeFileSync(
+      join(pkg, "index.ts"),
+      `export const meta = { slug: "pkgwf", triggers: [{ kind: "manual" }] };`,
+    );
+    writeFileSync(join(pkg, "AGENTS.md"), "STANDING: be terse.");
+    mkdirSync(join(pkg, "skills"));
+    writeFileSync(join(pkg, "skills", "review.md"), "# Review");
+
+    let deployed: DevDeployInput | null = null;
+    const fakeEngine: DevEngine = {
+      onEvent: () => () => undefined,
+      deploy: (input) => {
+        deployed = input;
+        return { slug: "pkgwf" };
+      },
+      start: () => ({ id: "run-1" }),
+      wait: () => Promise.resolve<DevRunResult>({ status: "completed", output: null, error: null }),
+      cancel: () => Promise.resolve(),
+      close: () => undefined,
+    };
+    const createEngine: DevEngineFactory = () => fakeEngine;
+
+    await runDev(
+      { file: pkg, input: undefined, verbose: false, stream: undefined, envFile: undefined },
+      { write, onSigint: noSigint, createEngine, resolveInference: () => Promise.resolve({}) },
+    );
+
+    const captured = deployed as DevDeployInput | null;
+    expect(captured).not.toBeNull();
+    expect(captured?.agentsMd).toBe("STANDING: be terse.");
+    expect(captured?.skills).toEqual({ review: "# Review" });
+    // The bundled program is deployed alongside the context (its meta slug is in the bundle).
+    expect(captured?.program).toContain("pkgwf");
   });
 
   it("merges the managed-inference overlay into the engine env and threads --org through", async () => {

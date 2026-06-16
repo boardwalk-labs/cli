@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { parseEnv } from "node:util";
 import type { JsonValue } from "@boardwalk-labs/workflow";
 import { CliError } from "../errors.js";
+import { collectPackageContext } from "../artifact.js";
 import { bundleWorkflow, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
 import { projectDirFor, readLink } from "../project.js";
@@ -86,7 +87,10 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
 
   // 4. Bundle the program — `@boardwalk-labs/workflow` left EXTERNAL; the engine resolves it from
   //    its own copy (one shared SDK instance, so the host seam works) when it runs the program.
+  //    Collect the package context (root AGENTS.md + skills/) from the SAME source `boardwalk deploy`
+  //    ships in the artifact, so a bundled AGENTS.md/skills behave locally exactly as on the platform.
   const program = await bundleWorkflow(entry);
+  const pkg = collectPackageContext(opts.file);
 
   // 5. Run it on the embedded engine in a throwaway data dir; stream its events.
   const dataDir = mkdtempSync(join(tmpdir(), "bw-dev-"));
@@ -106,7 +110,7 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
   });
 
   try {
-    const workflow = engine.deploy(program);
+    const workflow = engine.deploy({ program, ...pkg });
     const run = engine.start(workflow.slug, input);
     runId = run.id;
     const result = await engine.wait(run.id);

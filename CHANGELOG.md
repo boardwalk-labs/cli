@@ -2,6 +2,19 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.13
+
+### Changed
+
+- **`boardwalk dev` now feeds the package's bundled `AGENTS.md` + skills to the engine.** When you
+  `dev` a workflow **package directory**, the CLI collects the package-root `AGENTS.md` (the author's
+  standing instructions) and `skills/<name>.md` from the SAME source `boardwalk deploy` ships in the
+  artifact, and hands them to the embedded engine — so a bundled `AGENTS.md`/skills behave locally
+  exactly as they do on the hosted platform. (A single program file ships none, matching `deploy`.)
+- Requires `@boardwalk-labs/engine@^0.1.10` — `dev` now also picks up the engine's default-on
+  built-in coding tools, LSP diagnostics, context compaction, and two-tier `AGENTS.md` loading, so
+  `boardwalk dev` matches the server and hosted engines far more closely.
+
 ## 0.1.12
 
 ### Added

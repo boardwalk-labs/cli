@@ -22,12 +22,27 @@ export interface DevRunResult {
   error: RunErrorShape | null;
 }
 
+/**
+ * What `dev` deploys: the bundled program PLUS the package context the engine reads alongside it
+ * (the author's standing `AGENTS.md` + skills). Passing these makes a bundled `AGENTS.md`/skills
+ * behave under `boardwalk dev` exactly as on the hosted platform, where the same assets ride in the
+ * deploy artifact and land in the extracted program dir.
+ */
+export interface DevDeployInput {
+  /** The bundled workflow program (ESM, `@boardwalk-labs/workflow` external). */
+  program: string;
+  /** The package-root `AGENTS.md` (the author's standing instructions), if the package ships one. */
+  agentsMd?: string | undefined;
+  /** Skill markdown keyed by skill name (from `skills/<name>.md`), if any. */
+  skills?: Record<string, string> | undefined;
+}
+
 /** The slice of the engine facade `boardwalk dev` drives. The real {@link Engine} satisfies it. */
 export interface DevEngine {
   /** Subscribe to the run's stamped events (the envelope is already applied). */
   onEvent(listener: (event: RunEvent) => void): () => void;
-  /** Deploy the bundled program; returns the derived workflow slug. */
-  deploy(program: string): { slug: string };
+  /** Deploy the bundled program + its package context; returns the derived workflow slug. */
+  deploy(input: DevDeployInput): { slug: string };
   /** Queue + dispatch a run; returns its id immediately. */
   start(slug: string, input: JsonValue | undefined): { id: string };
   /** Resolve when the run reaches a terminal status. */
@@ -61,8 +76,13 @@ export const createDevEngine: DevEngineFactory = (opts) => {
       engine.onEvent((row) => {
         listener(row.event);
       }),
-    deploy: (program) => {
-      const workflow = engine.deployWorkflow({ program });
+    deploy: (input) => {
+      const workflow = engine.deployWorkflow({
+        program: input.program,
+        // exactOptionalPropertyTypes: spread only when present — never pass an explicit `undefined`.
+        ...(input.agentsMd !== undefined ? { agentsMd: input.agentsMd } : {}),
+        ...(input.skills !== undefined ? { skills: input.skills } : {}),
+      });
       return { slug: workflow.slug };
     },
     start: (slug, input) => {

@@ -176,6 +176,47 @@ export function collectAssets(pkgDir: string): ArtifactAsset[] {
   return out;
 }
 
+/** The skill markdown directory inside a package + the file suffix (skills/<name>.md). */
+const SKILLS_PREFIX = "skills/";
+const MD_SUFFIX = ".md";
+
+/** The deploy-time package context the engine reads alongside the program (SPEC §2.3): the author's
+ *  standing `AGENTS.md` (the package-root file) + skills (`skills/<name>.md`). */
+export interface PackageContext {
+  /** The package-root `AGENTS.md` content (the author's standing instructions), if present. */
+  agentsMd?: string;
+  /** Skill markdown keyed by skill name (from `skills/<name>.md`), if any. */
+  skills?: Record<string, string>;
+}
+
+/**
+ * Extract the deploy-time package context (root `AGENTS.md` + `skills/<name>.md`) for a target.
+ * `boardwalk dev` passes this to the embedded engine's `deployWorkflow` so a bundled `AGENTS.md` +
+ * skills are present locally EXACTLY as they are on the hosted platform — where the same assets ride
+ * in the artifact tarball and land in the extracted program dir. Derived from the SAME
+ * {@link collectAssets} the artifact uses, so `dev` and `deploy` agree by construction; a single
+ * program file (not a package directory) ships no assets, matching {@link buildArtifact}.
+ */
+export function collectPackageContext(target: string): PackageContext {
+  if (!isPackageDir(target)) return {};
+  const ctx: PackageContext = {};
+  const skills: Record<string, string> = {};
+  for (const asset of collectAssets(resolve(target))) {
+    if (asset.relPath === "AGENTS.md") {
+      ctx.agentsMd = readFileSync(asset.absPath, "utf8");
+      continue;
+    }
+    // Only TOP-LEVEL skills/<name>.md — the engine reads a flat <skillsDir>/<name>.md (no subdirs).
+    if (asset.relPath.startsWith(SKILLS_PREFIX) && asset.relPath.endsWith(MD_SUFFIX)) {
+      const name = asset.relPath.slice(SKILLS_PREFIX.length, -MD_SUFFIX.length);
+      if (name.length > 0 && !name.includes("/"))
+        skills[name] = readFileSync(asset.absPath, "utf8");
+    }
+  }
+  if (Object.keys(skills).length > 0) ctx.skills = skills;
+  return ctx;
+}
+
 /** Default include rule: keep non-source, non-config, non-dot files; prune excluded dirs. */
 function defaultAssetFilter(isDir: boolean, name: string): boolean {
   if (name.startsWith(".")) return false; // dotfiles + dotdirs
