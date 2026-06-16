@@ -80,6 +80,13 @@ export interface RunDetail extends RunListItem {
   error: { code: string; message: string } | null;
 }
 
+/** The authenticated caller (GET /v1/me) — identity + every org they belong to. The subset the CLI
+ *  renders for `boardwalk status`; memberships drive the "Orgs" line. */
+export interface MeResult {
+  user: { id: string; email: string; name: string | null };
+  memberships: { slug: string | null; role: string; name: string | null }[];
+}
+
 /** A freshly-minted inference-gateway key: the plaintext token (shown once) + its expiry/id. */
 export interface MintedInferenceKey {
   token: string;
@@ -246,6 +253,13 @@ export class BoardwalkClient {
     return this.mintedInferenceKey(body);
   }
 
+  /** Fetch the authenticated caller (GET /v1/me) — proves the token is valid and yields the
+   *  identity + org memberships `boardwalk status` renders. Accepts both a session token and a
+   *  `bwk_…` API key (the GET is not session-only). */
+  async getMe(): Promise<MeResult> {
+    return this.me(await this.request<unknown>("GET", "/v1/me"));
+  }
+
   /** Fetch the org's usage summary over `days` (server default when omitted, capped at 90). */
   async getUsage(orgSlug: string, days?: number): Promise<UsageSummary> {
     const query = days !== undefined ? `?days=${String(days)}` : "";
@@ -335,6 +349,35 @@ export class BoardwalkClient {
       tokensIn: numOr(run.tokensIn, 0),
       tokensOut: numOr(run.tokensOut, 0),
       error: parseRunError(run.error),
+    };
+  }
+
+  /** Validate the `{ user, memberships }` envelope, reading the fields the status command shows.
+   *  The user's email is the one required field (no identity without it); memberships are read
+   *  leniently — a row missing a role is skipped, so a partial/older response still lists what it can. */
+  private me(body: unknown): MeResult {
+    if (!isRecord(body) || !isRecord(body.user) || typeof body.user.email !== "string") {
+      throw new CliError("The API returned an unexpected /v1/me response shape.");
+    }
+    const user = body.user;
+    const memberships: MeResult["memberships"] = [];
+    if (Array.isArray(body.memberships)) {
+      for (const m of body.memberships) {
+        if (!isRecord(m) || typeof m.role !== "string") continue;
+        memberships.push({
+          slug: typeof m.slug === "string" ? m.slug : null,
+          role: m.role,
+          name: typeof m.name === "string" ? m.name : null,
+        });
+      }
+    }
+    return {
+      user: {
+        id: typeof user.id === "string" ? user.id : "",
+        email: typeof user.email === "string" ? user.email : "",
+        name: typeof user.name === "string" ? user.name : null,
+      },
+      memberships,
     };
   }
 

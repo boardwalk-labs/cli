@@ -11,6 +11,7 @@ boardwalk deploy ./index.ts --org my-team  # ship it to the Boardwalk platform
 boardwalk run ./index.ts --org my-team --input '{"who":"world"}'   # deploy + trigger a real run
 boardwalk cancel <runId>
 boardwalk logout / whoami
+boardwalk status                           # host + login (live-verified) + project link
 ```
 
 ## The author loop

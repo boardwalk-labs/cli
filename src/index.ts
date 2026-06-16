@@ -8,7 +8,8 @@
 //   boardwalk check <file>              Validate a workflow locally (no auth/network).
 //   boardwalk login                     Authenticate via browser (OAuth PKCE).
 //   boardwalk logout                    Remove local credentials.
-//   boardwalk whoami                    Show the current session.
+//   boardwalk whoami                    Show the current session (quick, local).
+//   boardwalk status                    Show host, login (live-verified), and project link.
 //   boardwalk deploy <file> --org <s>   Create/update a workflow from a program file.
 //   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
@@ -162,6 +163,15 @@ function buildProgram(): Command {
     .action(async () => {
       const { runWhoami } = await import("./commands/session.js");
       runWhoami({ config: loadConfig() });
+    });
+
+  program
+    .command("status")
+    .option("--token <token>", "verify this Bearer token instead of stored/env credentials")
+    .description("Show the API host, login status (live-verified), and the project link.")
+    .action(async (options: { token?: string }) => {
+      const { runStatus } = await import("./commands/status.js");
+      await runStatus({ token: options.token }, { config: loadConfig(), version: VERSION });
     });
 
   program

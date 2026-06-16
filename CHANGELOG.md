@@ -2,6 +2,17 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.12
+
+### Added
+
+- **`boardwalk status`** — a one-stop diagnostic: the resolved API host (and which env var set it,
+  so "am I on dev, prod, or my self-host?" always has an answer), your login state **live-verified**
+  against `GET /v1/me` (proves the credential actually works and names the account + orgs), and the
+  project link for the current directory. Degrades gracefully — host + local auth still print when
+  offline or logged out. Exits non-zero when there's no usable credential or the server rejected it,
+  so it's scriptable. (`whoami` stays the quick local check.)
+
 ## 0.1.8
 
 ### Added
