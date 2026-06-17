@@ -98,8 +98,8 @@ describe("resolveToken", () => {
 describe("sessionApiOrigin", () => {
   it("derives the API origin from the session token endpoint", () => {
     expect(
-      sessionApiOrigin(session({ tokenEndpoint: "https://main-api.dev.boardwalk.sh/oauth/token" })),
-    ).toBe("https://main-api.dev.boardwalk.sh");
+      sessionApiOrigin(session({ tokenEndpoint: "https://api.example.com/oauth/token" })),
+    ).toBe("https://api.example.com");
   });
 
   it("returns null for a missing or unparseable token endpoint", () => {

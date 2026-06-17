@@ -2,7 +2,7 @@
 
 // Managed-inference wiring for `boardwalk dev`.
 //
-// The north star (THE_OPEN_SOURCE_MISSION §4.5): install → login → `agent()` works locally, no
+// The north star: install → login → `agent()` works locally, no
 // keys to paste. The embedded engine's default `boardwalk` provider reaches the hosted inference
 // gateway using a short-lived, inference-ONLY key minted from the login session. This module turns
 // "the logged-in user + an org" into the two env vars the engine reads (BOARDWALK_API_KEY +

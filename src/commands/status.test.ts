@@ -71,10 +71,10 @@ describe("formatStatus", () => {
 
   it("labels a self-host / dev host by the env var that set it", () => {
     const out = formatStatus(
-      base({ host: { url: "https://main-api.dev.boardwalk.sh", source: "BOARDWALK_API_URL" } }),
+      base({ host: { url: "https://boardwalk.example.com", source: "BOARDWALK_API_URL" } }),
       NOW,
     ).join("\n");
-    expect(out).toMatch(/Host\s+https:\/\/main-api\.dev\.boardwalk\.sh\s+\(BOARDWALK_API_URL\)/);
+    expect(out).toMatch(/Host\s+https:\/\/boardwalk\.example\.com\s+\(BOARDWALK_API_URL\)/);
   });
 
   it("shows the not-linked hint when there is no project link", () => {
