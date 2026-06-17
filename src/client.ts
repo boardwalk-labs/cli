@@ -139,6 +139,14 @@ export interface WorkflowDetail {
   versions: WorkflowVersionRef[];
 }
 
+/** A workflow's inbound webhook endpoint (GET /v1/orgs/:slug/workflows/:id/webhook). For `token`
+ *  auth the secret rides in the URL path; for `signature` auth it is the HMAC key (sent in a header)
+ *  and the URL stays tokenless. The secret VALUE is never returned by the read surface. */
+export interface WorkflowWebhookInfo {
+  url: string;
+  auth: "token" | "signature";
+}
+
 /** One secret in the org's catalog (GET /v1/orgs/:slug/secrets) — metadata only; VALUES are never
  *  returned by any surface. `last4` is a display hint computed server-side from the value. */
 export interface SecretListItem {
@@ -293,6 +301,39 @@ export class BoardwalkClient {
       `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows/${encodeURIComponent(workflowId)}/runs${query.length > 0 ? `?${query}` : ""}`,
     );
     return this.runList(body);
+  }
+
+  /** Fetch a workflow's webhook URL + auth mode (GET /v1/orgs/:slug/workflows/:id/webhook). Returns
+   *  null when the workflow has no enabled webhook trigger. The secret value is never returned here. */
+  async getWorkflowWebhook(
+    orgSlug: string,
+    workflowId: string,
+  ): Promise<WorkflowWebhookInfo | null> {
+    const body = await this.request<unknown>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows/${encodeURIComponent(workflowId)}/webhook`,
+    );
+    return parseWebhookInfo(isRecord(body) ? body.webhook : null);
+  }
+
+  /** Rotate a workflow's webhook secret (POST .../webhook/rotate; admin-gated server-side) and return
+   *  it ONCE. For `token` auth the returned `url` embeds the fresh secret (the full working URL); for
+   *  `signature` auth `secret` is the new HMAC key and `url` stays tokenless. Null when no webhook trigger. */
+  async rotateWorkflowWebhook(
+    orgSlug: string,
+    workflowId: string,
+  ): Promise<(WorkflowWebhookInfo & { secret: string }) | null> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows/${encodeURIComponent(workflowId)}/webhook/rotate`,
+    );
+    const webhook = isRecord(body) ? body.webhook : null;
+    const info = parseWebhookInfo(webhook);
+    if (info === null) return null;
+    if (!isRecord(webhook) || typeof webhook.secret !== "string") {
+      throw new CliError("The API returned an unexpected webhook response shape.");
+    }
+    return { ...info, secret: webhook.secret };
   }
 
   /** List the org's secrets — metadata only (names/scope/kind/last4), never values. */
@@ -879,6 +920,15 @@ function stringArray(value: unknown): string[] {
 }
 
 /** Read a secret catalog row into a `SecretListItem`, or null when it lacks an id/name. */
+/** Validate the API's `webhook` field. Returns null for an absent or malformed value (the workflow
+ *  has no webhook trigger, or an older/odd response) — callers map null to an actionable message. */
+function parseWebhookInfo(raw: unknown): WorkflowWebhookInfo | null {
+  if (!isRecord(raw)) return null;
+  if (typeof raw.url !== "string" || raw.url.length === 0) return null;
+  if (raw.auth !== "token" && raw.auth !== "signature") return null;
+  return { url: raw.url, auth: raw.auth };
+}
+
 function parseSecretRow(row: unknown): SecretListItem | null {
   if (!isRecord(row) || typeof row.id !== "string" || typeof row.name !== "string") return null;
   return {

@@ -15,6 +15,7 @@
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
 //   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
 //   boardwalk runs [runId] [--logs|--follow]  List recent runs, show one, or stream its logs.
+//   boardwalk webhook <ref> [--rotate]        Show a workflow's inbound webhook URL (--rotate mints).
 //   boardwalk workflows [list|show|delete]    Inspect the org's workflows.
 //   boardwalk secrets [list|set|delete]       Manage org secrets (writes need login --scopes admin).
 //   boardwalk inference [list|add|delete]     Manage BYO inference providers (writes need elevated).
@@ -311,6 +312,33 @@ function buildProgram(): Command {
             token: options.token,
           },
           { config: loadConfig(), signal: controller.signal },
+        );
+      },
+    );
+
+  program
+    .command("webhook")
+    .argument("<ref>", "workflow id (a ULID) or slug")
+    .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
+    .option("--rotate", "regenerate the secret and reveal the full working URL once (admin)", false)
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Show a workflow's inbound webhook URL, or rotate its secret with --rotate.")
+    .action(
+      async (
+        ref: string,
+        options: { org?: string; rotate?: boolean; json?: boolean; token?: string },
+      ) => {
+        const { runWebhook } = await import("./commands/webhook.js");
+        await runWebhook(
+          {
+            ref,
+            org: options.org,
+            rotate: options.rotate,
+            json: options.json,
+            token: options.token,
+          },
+          { config: loadConfig() },
         );
       },
     );
