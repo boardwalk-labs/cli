@@ -194,6 +194,25 @@ describe("BoardwalkClient.cancelRun", () => {
   });
 });
 
+describe("BoardwalkClient.disableWorkflow / enableWorkflow", () => {
+  it("POSTs /v1/workflows/:id/disable with an Idempotency-Key", async () => {
+    const { fetchImpl, calls } = recordingFetch(200, { workflow: { id: "wf9", disabledAt: 1 } });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    await expect(client.disableWorkflow("wf9")).resolves.toBeUndefined();
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.x/v1/workflows/wf9/disable");
+    expect(calls[0]?.headers["Idempotency-Key"]).toBeDefined();
+  });
+
+  it("POSTs /v1/workflows/:id/enable and encodes the id", async () => {
+    const { fetchImpl, calls } = recordingFetch(200, { workflow: { id: "wf9", disabledAt: null } });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    await client.enableWorkflow("wf/9");
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.x/v1/workflows/wf%2F9/enable");
+  });
+});
+
 describe("BoardwalkClient.mintInferenceKey", () => {
   it("POSTs /v1/orgs/:slug/inference-keys (no body) and returns token + expiry + id", async () => {
     const { fetchImpl, calls } = recordingFetch(201, {
@@ -331,9 +350,19 @@ describe("BoardwalkClient.listWorkflowSummaries", () => {
         triggerKinds: ["cron"],
         updatedAt: 5,
         lastRun: { status: "completed", at: 3 },
+        disabled: false,
       },
     ]);
     expect(calls[0]?.url).toBe("https://api.x/v1/orgs/my-org/workflows");
+  });
+
+  it("reports disabled=true when the row carries a disabledAt timestamp", async () => {
+    const { fetchImpl } = recordingFetch(200, {
+      workflows: [{ id: "wf1", slug: "paused", disabledAt: 1700 }],
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const rows = await client.listWorkflowSummaries("my-org");
+    expect(rows[0]?.disabled).toBe(true);
   });
 });
 
@@ -368,8 +397,19 @@ describe("BoardwalkClient.getWorkflowDetail", () => {
         { id: "v2", number: 2, createdAt: 20 },
         { id: "v1", number: 1, createdAt: 10 },
       ],
+      disabled: false,
     });
     expect(calls[0]?.url).toBe("https://api.x/v1/workflows/wf1");
+  });
+
+  it("reports disabled=true when the workflow carries a disabledAt timestamp", async () => {
+    const { fetchImpl } = recordingFetch(200, {
+      workflow: { id: "wf1", slug: "paused", currentVersionId: "v1", disabledAt: 1700 },
+      manifest: {},
+      versions: [],
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    expect((await client.getWorkflowDetail("wf1")).disabled).toBe(true);
   });
 
   it("throws on a response missing the workflow envelope", async () => {

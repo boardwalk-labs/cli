@@ -354,7 +354,7 @@ function buildProgram(): Command {
 function registerWorkflowsCommand(program: Command): void {
   const workflows = program
     .command("workflows")
-    .description("Inspect your org's workflows (list, show, delete).");
+    .description("Inspect + control your org's workflows (list, show, disable, enable, delete).");
 
   workflows
     .command("list", { isDefault: true })
@@ -381,6 +381,34 @@ function registerWorkflowsCommand(program: Command): void {
       const { runWorkflowShow } = await import("./commands/workflows.js");
       await runWorkflowShow(
         { ref, org: options.org, json: options.json, token: options.token },
+        { config: loadConfig() },
+      );
+    });
+
+  workflows
+    .command("disable")
+    .argument("<ref>", "workflow id (a ULID) or slug")
+    .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Disable a workflow — pauses every trigger (reversible with enable).")
+    .action(async (ref: string, options: { org?: string; token?: string }) => {
+      const { runWorkflowDisable } = await import("./commands/workflows.js");
+      await runWorkflowDisable(
+        { ref, org: options.org, token: options.token },
+        { config: loadConfig() },
+      );
+    });
+
+  workflows
+    .command("enable")
+    .argument("<ref>", "workflow id (a ULID) or slug")
+    .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Enable a disabled workflow — resumes its triggers.")
+    .action(async (ref: string, options: { org?: string; token?: string }) => {
+      const { runWorkflowEnable } = await import("./commands/workflows.js");
+      await runWorkflowEnable(
+        { ref, org: options.org, token: options.token },
         { config: loadConfig() },
       );
     });

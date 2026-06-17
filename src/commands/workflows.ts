@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-// `boardwalk workflows` — inspect the org's workflows from the terminal:
-//   • workflows [list]      → the org's workflows as a compact table (needs an org).
-//   • workflows show <ref>  → one workflow's manifest projection + versions (<ref> = id or slug).
-//   • workflows delete <ref> → delete a workflow (requires --yes; destructive + irreversible).
+// `boardwalk workflows` — inspect + control the org's workflows from the terminal:
+//   • workflows [list]       → the org's workflows as a compact table (needs an org).
+//   • workflows show <ref>   → one workflow's manifest projection + versions (<ref> = id or slug).
+//   • workflows disable <ref> → pause a workflow (it rejects every trigger; reversible).
+//   • workflows enable <ref>  → re-enable a disabled workflow.
+//   • workflows delete <ref>  → delete a workflow (requires --yes; destructive + irreversible).
 //
 // Org precedence (list + slug resolution): --org > the linked project's org. Auth precedence matches
 // the other network commands: --token > BOARDWALK_API_KEY env > stored login. A workflow id (a ULID,
@@ -34,6 +36,13 @@ export interface WorkflowDeleteOptions {
   org?: string | undefined;
   /** Required to actually delete — without it we print the target and bail (destructive guard). */
   yes?: boolean | undefined;
+  token?: string | undefined;
+}
+
+/** Options for `workflows disable` / `workflows enable` — identical shape (just the target + auth). */
+export interface WorkflowToggleOptions {
+  ref: string;
+  org?: string | undefined;
   token?: string | undefined;
 }
 
@@ -114,6 +123,47 @@ export async function runWorkflowDelete(
   log(`✓ deleted workflow ${label}.`);
 }
 
+export async function runWorkflowDisable(
+  opts: WorkflowToggleOptions,
+  deps: WorkflowsDeps,
+): Promise<void> {
+  return setWorkflowDisabled(opts, deps, true);
+}
+
+export async function runWorkflowEnable(
+  opts: WorkflowToggleOptions,
+  deps: WorkflowsDeps,
+): Promise<void> {
+  return setWorkflowDisabled(opts, deps, false);
+}
+
+/** Shared body for disable/enable: resolve the workflow, flip its state, confirm. No --yes guard —
+ *  it's reversible (the opposite command undoes it). Disabling leaves in-flight + queued runs alone. */
+async function setWorkflowDisabled(
+  opts: WorkflowToggleOptions,
+  deps: WorkflowsDeps,
+  disabled: boolean,
+): Promise<void> {
+  const log =
+    deps.log ??
+    ((line: string): void => {
+      console.log(line);
+    });
+  const { client, org } = await resolveOrgClient(deps, opts);
+  const id = await resolveWorkflowId(client, org, opts.ref);
+  const detail = await client.getWorkflowDetail(id);
+  const label = `${detail.slug} (${detail.id})`;
+
+  if (disabled) {
+    await client.disableWorkflow(id);
+    log(`✓ disabled workflow ${label}.`);
+    log("Triggers (manual, scheduled, webhook) won't start new runs until you re-enable it.");
+  } else {
+    await client.enableWorkflow(id);
+    log(`✓ enabled workflow ${label}.`);
+  }
+}
+
 // ── formatters (pure — exported for tests) ──────────────────────────────────────────────────────
 
 /** Render the workflow list as an aligned table. `now` renders the last-run age. */
@@ -132,8 +182,10 @@ export function formatWorkflowList(
   ];
   for (const w of workflows) {
     const triggers = w.triggerKinds.length > 0 ? w.triggerKinds.join(",") : "—";
+    // A disabled workflow gets a trailing marker (only disabled rows, so column alignment is intact).
+    const mark = w.disabled ? "  · disabled" : "";
     lines.push(
-      `  ${col(w.slug, SLUG_W)}${col(w.title ?? "—", TITLE_W)}${col(triggers, TRIGGERS_W)}${lastRun(w.lastRun, now)}`,
+      `  ${col(w.slug, SLUG_W)}${col(w.title ?? "—", TITLE_W)}${col(triggers, TRIGGERS_W)}${lastRun(w.lastRun, now)}${mark}`,
     );
   }
   return lines;
@@ -142,6 +194,8 @@ export function formatWorkflowList(
 /** Render one workflow's detail as a label/value block. */
 export function formatWorkflowDetail(w: WorkflowDetail): string[] {
   const lines = [`Workflow ${w.slug}`, "", field("Id", w.id)];
+  // Only surface status when paused — an enabled workflow needs no line (keeps the block tight).
+  if (w.disabled) lines.push(field("Status", "disabled"));
   if (w.title !== null) lines.push(field("Title", w.title));
   if (w.description !== null) lines.push(field("Description", w.description));
   lines.push(field("Triggers", w.triggers.length > 0 ? w.triggers.join(", ") : "—"));

@@ -116,6 +116,9 @@ export interface WorkflowListItem {
   updatedAt: number | null;
   /** The most recent run's status + time, or null when the workflow has never run. */
   lastRun: { status: string; at: number } | null;
+  /** True when the workflow is disabled (paused): it rejects every trigger until re-enabled.
+   *  Defaults false against an older backend that doesn't report `disabledAt`. */
+  disabled: boolean;
 }
 
 /** A workflow version reference (GET /v1/workflows/:id → versions[]). */
@@ -137,6 +140,8 @@ export interface WorkflowDetail {
   /** The program entry file (e.g. `index.mjs`) when the API reports it. */
   entry: string | null;
   versions: WorkflowVersionRef[];
+  /** True when the workflow is disabled (paused): it rejects every trigger until re-enabled. */
+  disabled: boolean;
 }
 
 /** A workflow's inbound webhook endpoint (GET /v1/orgs/:slug/workflows/:id/webhook). For `token`
@@ -284,6 +289,17 @@ export class BoardwalkClient {
   /** Delete a workflow by id (DELETE /v1/workflows/:id). Returns 204; idempotent server-side. */
   async deleteWorkflow(id: string): Promise<void> {
     await this.request<undefined>("DELETE", `/v1/workflows/${encodeURIComponent(id)}`);
+  }
+
+  /** Disable a workflow by id (POST /v1/workflows/:id/disable). The reversible pause: it rejects
+   *  every trigger until re-enabled; in-flight + queued runs are left alone. Idempotent server-side. */
+  async disableWorkflow(id: string): Promise<void> {
+    await this.request<undefined>("POST", `/v1/workflows/${encodeURIComponent(id)}/disable`);
+  }
+
+  /** Re-enable a disabled workflow by id (POST /v1/workflows/:id/enable). Idempotent server-side. */
+  async enableWorkflow(id: string): Promise<void> {
+    await this.request<undefined>("POST", `/v1/workflows/${encodeURIComponent(id)}/enable`);
   }
 
   /** List one workflow's recent runs (GET /v1/orgs/:slug/workflows/:workflowId/runs). */
@@ -851,6 +867,7 @@ function parseWorkflowListItem(row: unknown): WorkflowListItem | null {
     triggerKinds: stringArray(row.triggerKinds),
     updatedAt: typeof row.updatedAt === "number" ? row.updatedAt : null,
     lastRun: parseLastRun(row.lastRun),
+    disabled: typeof row.disabledAt === "number",
   };
 }
 
@@ -891,6 +908,7 @@ function parseWorkflowDetail(body: unknown): WorkflowDetail {
     secrets: secretNames(permissions.secrets),
     entry: typeof program.entry === "string" ? program.entry : null,
     versions,
+    disabled: typeof workflow.disabledAt === "number",
   };
 }
 

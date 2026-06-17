@@ -7,6 +7,8 @@ import {
   runWorkflowsList,
   runWorkflowShow,
   runWorkflowDelete,
+  runWorkflowDisable,
+  runWorkflowEnable,
 } from "./workflows.js";
 import type { WorkflowDetail, WorkflowListItem } from "../client.js";
 import type { CliConfig } from "../config.js";
@@ -31,6 +33,7 @@ function item(over: Partial<WorkflowListItem> = {}): WorkflowListItem {
     triggerKinds: ["cron", "manual"],
     updatedAt: NOW,
     lastRun: { status: "completed", at: NOW - 2 * 3600 * 1000 },
+    disabled: false,
     ...over,
   };
 }
@@ -49,6 +52,7 @@ function detail(over: Partial<WorkflowDetail> = {}): WorkflowDetail {
       { id: "v2", number: 2, createdAt: 20 },
       { id: "v1", number: 1, createdAt: 10 },
     ],
+    disabled: false,
     ...over,
   };
 }
@@ -99,6 +103,18 @@ describe("formatWorkflowList", () => {
       "No workflows in acme yet — create one with `boardwalk deploy`.",
     ]);
   });
+
+  it("marks a disabled row and leaves enabled rows unmarked", () => {
+    const out = formatWorkflowList(
+      "acme",
+      [item({ slug: "paused-wf", disabled: true }), item({ slug: "live-wf" })],
+      NOW,
+    );
+    const paused = out.find((l) => l.includes("paused-wf"));
+    const live = out.find((l) => l.includes("live-wf"));
+    expect(paused).toContain("· disabled");
+    expect(live).not.toContain("disabled");
+  });
 });
 
 describe("formatWorkflowDetail", () => {
@@ -119,6 +135,13 @@ describe("formatWorkflowDetail", () => {
     expect(out).not.toContain("Title");
     expect(out).not.toContain("Description");
     expect(out).toMatch(/Secrets\s+—/);
+  });
+
+  it("shows a Status line only when the workflow is disabled", () => {
+    expect(formatWorkflowDetail(detail()).join("\n")).not.toContain("Status");
+    expect(formatWorkflowDetail(detail({ disabled: true })).join("\n")).toMatch(
+      /Status\s+disabled/,
+    );
   });
 });
 
@@ -199,5 +222,50 @@ describe("runWorkflowDelete", () => {
     );
     expect(calls).toContainEqual({ url: `https://api.x/v1/workflows/${WF_ID}`, method: "DELETE" });
     expect(lines.join("\n")).toContain("✓ deleted workflow nightly-summary");
+  });
+});
+
+describe("runWorkflowDisable", () => {
+  it("resolves the workflow then POSTs /disable", async () => {
+    const { fetchImpl, calls } = routeFetch({
+      detail: {
+        workflow: { id: WF_ID, slug: "nightly-summary", currentVersionId: "v2" },
+        manifest: {},
+        versions: [],
+      },
+    });
+    const lines: string[] = [];
+    await runWorkflowDisable(
+      { ref: WF_ID, token: "t" },
+      { config: CONFIG, fetchImpl, log: (l) => lines.push(l) },
+    );
+    expect(calls).toContainEqual({ url: `https://api.x/v1/workflows/${WF_ID}`, method: "GET" });
+    expect(calls).toContainEqual({
+      url: `https://api.x/v1/workflows/${WF_ID}/disable`,
+      method: "POST",
+    });
+    expect(lines.join("\n")).toContain("✓ disabled workflow nightly-summary");
+  });
+});
+
+describe("runWorkflowEnable", () => {
+  it("resolves the workflow then POSTs /enable", async () => {
+    const { fetchImpl, calls } = routeFetch({
+      detail: {
+        workflow: { id: WF_ID, slug: "nightly-summary", currentVersionId: "v2" },
+        manifest: {},
+        versions: [],
+      },
+    });
+    const lines: string[] = [];
+    await runWorkflowEnable(
+      { ref: WF_ID, token: "t" },
+      { config: CONFIG, fetchImpl, log: (l) => lines.push(l) },
+    );
+    expect(calls).toContainEqual({
+      url: `https://api.x/v1/workflows/${WF_ID}/enable`,
+      method: "POST",
+    });
+    expect(lines.join("\n")).toContain("✓ enabled workflow nightly-summary");
   });
 });
