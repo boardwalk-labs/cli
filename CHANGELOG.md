@@ -17,6 +17,10 @@ Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch release
 - **`boardwalk workflows`** — inspect the org's workflows: `list` (default), `show <id|slug>` (the
   manifest projection + version history), and `delete <id|slug>` (guarded behind `--yes`). Accepts a
   workflow id (a ULID, as in a dashboard URL) or a slug.
+- **`boardwalk webhook <id|slug>`**: show a workflow's inbound webhook URL and auth mode, or
+  `--rotate` to regenerate the secret and reveal the full working URL once. For `token` auth the URL
+  embeds the secret (paste it straight into Linear, GitHub, or Stripe); for `signature` auth it
+  reveals the HMAC signing key. `--rotate` needs an elevated login.
 - **`boardwalk secrets`** — manage the org's secrets: `list` (names/scope/kind/last4 — VALUES are
   never displayed, they can't be read), `set <name>` (value from stdin, `--from-file`, or `--value`),
   and `delete <name>`. Writes need an elevated login (below).
