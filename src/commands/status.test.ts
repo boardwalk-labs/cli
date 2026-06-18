@@ -32,9 +32,9 @@ function meFetch(body: unknown, status = 200): { fetchImpl: FetchLike; urls: str
 }
 
 const ME_OK = {
-  user: { id: "user_1", email: "nick@x.dev", name: "Nick Crews" },
+  user: { id: "user_1", email: "ada@example.com", name: "Ada Lovelace" },
   memberships: [
-    { orgId: "o1", role: "owner", slug: "nicks-org", name: "Nick's Org" },
+    { orgId: "o1", role: "owner", slug: "demo-org", name: "Demo Org" },
     { orgId: "o2", role: "member", slug: "acme", name: "Acme" },
   ],
 };
@@ -47,14 +47,14 @@ describe("formatStatus", () => {
       auth: { kind: "oauth", scope: "workflows", expiresAt: NOW + 13 * 3_600_000 },
       account: {
         kind: "ok",
-        email: "nick@x.dev",
-        name: "Nick Crews",
+        email: "ada@example.com",
+        name: "Ada Lovelace",
         orgs: [
-          { slug: "nicks-org", role: "owner" },
+          { slug: "demo-org", role: "owner" },
           { slug: "acme", role: "member" },
         ],
       },
-      project: { orgSlug: "nicks-org", workflowId: "wf_abc123" },
+      project: { orgSlug: "demo-org", workflowId: "wf_abc123" },
       ...over,
     };
   }
@@ -63,10 +63,10 @@ describe("formatStatus", () => {
     const out = formatStatus(base(), NOW).join("\n");
     expect(out).toContain("Boardwalk CLI 0.1.5");
     expect(out).toMatch(/Host\s+https:\/\/api\.x\s+\(default\)/);
-    expect(out).toMatch(/Account\s+✓ nick@x\.dev \(Nick Crews\)/);
+    expect(out).toMatch(/Account\s+✓ ada@example\.com \(Ada Lovelace\)/);
     expect(out).toMatch(/Auth\s+OAuth session · scope=workflows · expires in 13h/);
-    expect(out).toMatch(/Orgs\s+nicks-org \(owner\) · acme \(member\)/);
-    expect(out).toMatch(/Project\s+nicks-org \/ wf_abc123/);
+    expect(out).toMatch(/Orgs\s+demo-org \(owner\) · acme \(member\)/);
+    expect(out).toMatch(/Project\s+demo-org \/ wf_abc123/);
   });
 
   it("labels a self-host / dev host by the env var that set it", () => {
@@ -84,10 +84,10 @@ describe("formatStatus", () => {
 
   it("omits the name parens when the account has no display name", () => {
     const out = formatStatus(
-      base({ account: { kind: "ok", email: "nick@x.dev", name: null, orgs: [] } }),
+      base({ account: { kind: "ok", email: "ada@example.com", name: null, orgs: [] } }),
       NOW,
     ).join("\n");
-    expect(out).toMatch(/Account\s+✓ nick@x\.dev$/m);
+    expect(out).toMatch(/Account\s+✓ ada@example\.com$/m);
     expect(out).not.toContain("Orgs"); // no memberships → no Orgs line
   });
 
@@ -155,8 +155,8 @@ describe("runStatus", () => {
     );
     expect(urls).toEqual(["https://api.x/v1/me"]);
     const out = lines.join("\n");
-    expect(out).toMatch(/Account\s+✓ nick@x\.dev \(Nick Crews\)/);
-    expect(out).toMatch(/Orgs\s+nicks-org \(owner\) · acme \(member\)/);
+    expect(out).toMatch(/Account\s+✓ ada@example\.com \(Ada Lovelace\)/);
+    expect(out).toMatch(/Orgs\s+demo-org \(owner\) · acme \(member\)/);
     expect(out).toContain("--token (one-off)");
     expect(exits).toEqual([]); // valid → exit 0 (untouched)
   });
@@ -197,7 +197,7 @@ describe("runStatus", () => {
       },
     );
     expect(lines.join("\n")).toContain("BOARDWALK_API_KEY (env)");
-    expect(lines.join("\n")).toMatch(/Account\s+✓ nick@x\.dev/);
+    expect(lines.join("\n")).toMatch(/Account\s+✓ ada@example\.com/);
   });
 
   it("reports not-logged-in (exit 1) and makes no request when there is no credential", async () => {
@@ -250,7 +250,7 @@ describe("runStatus", () => {
     );
     expect(urls).toEqual(["https://api.x/v1/me"]);
     expect(lines.join("\n")).toMatch(/Auth\s+OAuth session · scope=workflows · expires in 9h/);
-    expect(lines.join("\n")).toMatch(/Account\s+✓ nick@x\.dev/);
+    expect(lines.join("\n")).toMatch(/Account\s+✓ ada@example\.com/);
   });
 
   it("degrades to 'unreachable' (exit 0) when the host can't be reached", async () => {
@@ -275,7 +275,7 @@ describe("runStatus", () => {
 
   it("shows the project link for a linked directory", async () => {
     const { writeLink } = await import("../project.js");
-    writeLink(dir, { orgSlug: "nicks-org", workflowId: "wf_xyz" });
+    writeLink(dir, { orgSlug: "demo-org", workflowId: "wf_xyz" });
     const { fetchImpl } = meFetch(ME_OK);
     const lines: string[] = [];
     await runStatus(
@@ -290,6 +290,6 @@ describe("runStatus", () => {
         setExitCode: () => undefined,
       },
     );
-    expect(lines.join("\n")).toMatch(/Project\s+nicks-org \/ wf_xyz/);
+    expect(lines.join("\n")).toMatch(/Project\s+demo-org \/ wf_xyz/);
   });
 });

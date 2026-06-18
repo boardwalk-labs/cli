@@ -10,6 +10,7 @@ import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient } from "../client.js";
+import { resolveLog } from "../log.js";
 import { deployWithLink, loadProgram, planDeploy, type PreparedProgram } from "../deployment.js";
 import { projectDirFor, readLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -29,11 +30,7 @@ export interface DeployDeps {
 }
 
 export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
 
   const prog = await loadProgram(opts.file);
   const assets = prog.artifact.assetPaths.length;
@@ -62,7 +59,13 @@ export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<
   const dep = await deployWithLink(client, { orgSlug: opts.org, target: opts.file, prog });
   if (dep.gitignoreUpdated)
     log("  linked → .boardwalk/project.json (added .boardwalk/ to .gitignore)");
-  log(`✓ ${dep.outcome} "${prog.slug}" version ${String(dep.versionNumber)} (${dep.workflowId})`);
+  if (dep.ignoredFileSlug !== undefined)
+    log(
+      `⚠ this directory is linked to workflow "${dep.deployedSlug}" — the file's slug "${dep.ignoredFileSlug}" was ignored (deployed as a new version of "${dep.deployedSlug}"). Deploy a different workflow from its own directory, or delete .boardwalk/ to re-link.`,
+    );
+  log(
+    `✓ ${dep.outcome} "${dep.deployedSlug}" version ${String(dep.versionNumber)} (${dep.workflowId})`,
+  );
 }
 
 /** Read-only preview of what `deploy` would do (no writes). */

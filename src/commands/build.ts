@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { bundleWorkflow, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
+import { resolveLog } from "../log.js";
 
 export interface BuildOptions {
   file: string;
@@ -24,11 +25,7 @@ export interface BuildDeps {
 
 /** Build the workflow and return the absolute path it was written to. */
 export async function runBuild(opts: BuildOptions, deps: BuildDeps = {}): Promise<string> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      process.stdout.write(`${line}\n`);
-    });
+  const log = resolveLog(deps);
 
   const entry = resolveEntry(opts.file);
   // Validate before bundling: precise manifest errors here, and the name seeds the default output.

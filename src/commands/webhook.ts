@@ -13,7 +13,8 @@
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import type { WorkflowWebhookInfo } from "../client.js";
-import { resolveOrgClient } from "../org_client.js";
+import { resolveOrgClient, requireOrg, elevationHint } from "../org_client.js";
+import { resolveLog } from "../log.js";
 import { resolveWorkflowId } from "../workflow_ref.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -35,11 +36,7 @@ export interface WebhookDeps {
 }
 
 export async function runWebhook(opts: WebhookOptions, deps: WebhookDeps): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const ref = opts.ref.trim();
   const { client, org } = await resolveOrgClient(deps, opts);
   const orgSlug = requireOrg(org);
@@ -47,7 +44,7 @@ export async function runWebhook(opts: WebhookOptions, deps: WebhookDeps): Promi
 
   if (opts.rotate === true) {
     const rotated = await client.rotateWorkflowWebhook(orgSlug, id).catch((err: unknown): never => {
-      throw elevationHint(err);
+      throw elevationHint(err, "Rotating a webhook secret");
     });
     if (rotated === null) throw noWebhookError(ref);
     if (opts.json === true) {
@@ -67,32 +64,11 @@ export async function runWebhook(opts: WebhookOptions, deps: WebhookDeps): Promi
   for (const line of formatInfo(ref, info)) log(line);
 }
 
-function requireOrg(org: string | undefined): string {
-  if (org === undefined || org.length === 0) {
-    throw new CliError(
-      "No org specified.",
-      "Pass --org <slug>, or run from a linked project (deploy/run links one).",
-    );
-  }
-  return org;
-}
-
 function noWebhookError(ref: string): CliError {
   return new CliError(
     `Workflow "${ref}" has no webhook trigger.`,
     'Add { kind: "webhook", auth: "token" } to meta.triggers and redeploy.',
   );
-}
-
-/** Map a 403 (non-admin) to the elevation hint, matching the other admin-gated commands. */
-function elevationHint(err: unknown): unknown {
-  if (err instanceof CliError && err.status === 403) {
-    return new CliError(
-      "Rotating a webhook secret needs an elevated session.",
-      "Run `boardwalk login --scopes admin` (you must be an org admin), then retry.",
-    );
-  }
-  return err;
 }
 
 // ── formatters (pure — exported for tests) ──────────────────────────────────────────────────────

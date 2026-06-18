@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { CliError } from "../errors.js";
 import { isRecord } from "../guards.js";
+import { resolveLog } from "../log.js";
 
 export interface InitOptions {
   dir: string;
@@ -89,11 +90,7 @@ interface RegistryTemplate {
 }
 
 export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
 
   const builtin = BUILTIN_TEMPLATES[opts.template];
   if (builtin !== undefined) {

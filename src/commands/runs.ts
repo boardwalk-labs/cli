@@ -11,6 +11,7 @@ import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
+import { resolveLog } from "../log.js";
 import { BoardwalkClient, isTerminalStatus, type RunListItem, type RunDetail } from "../client.js";
 import { readLink } from "../project.js";
 import { resolveWorkflowId } from "../workflow_ref.js";
@@ -57,11 +58,7 @@ const MAX_FOLLOW_RECONNECTS = 5;
 const FOLLOW_RECONNECT_MS = 1_000;
 
 export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const write =
     deps.write ??
     ((text: string): void => {

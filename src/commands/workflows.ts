@@ -15,6 +15,7 @@ import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import type { WorkflowListItem, WorkflowDetail } from "../client.js";
 import { resolveOrgClient } from "../org_client.js";
+import { resolveLog } from "../log.js";
 import { resolveWorkflowId } from "../workflow_ref.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -58,11 +59,7 @@ export async function runWorkflowsList(
   opts: WorkflowsListOptions,
   deps: WorkflowsDeps,
 ): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const now = deps.now ?? Date.now();
   const { client, org } = await resolveOrgClient(deps, opts);
   if (org === undefined || org.length === 0) {
@@ -83,11 +80,7 @@ export async function runWorkflowShow(
   opts: WorkflowShowOptions,
   deps: WorkflowsDeps,
 ): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const { client, org } = await resolveOrgClient(deps, opts);
   const id = await resolveWorkflowId(client, org, opts.ref);
   const detail = await client.getWorkflowDetail(id);
@@ -102,11 +95,7 @@ export async function runWorkflowDelete(
   opts: WorkflowDeleteOptions,
   deps: WorkflowsDeps,
 ): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const { client, org } = await resolveOrgClient(deps, opts);
   const id = await resolveWorkflowId(client, org, opts.ref);
   const detail = await client.getWorkflowDetail(id);
@@ -144,11 +133,7 @@ async function setWorkflowDisabled(
   deps: WorkflowsDeps,
   disabled: boolean,
 ): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const { client, org } = await resolveOrgClient(deps, opts);
   const id = await resolveWorkflowId(client, org, opts.ref);
   const detail = await client.getWorkflowDetail(id);

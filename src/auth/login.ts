@@ -19,6 +19,7 @@ import {
   type FetchLike,
 } from "./pkce.js";
 import { discoverOAuth } from "./discovery.js";
+import { resolveLog } from "../log.js";
 
 /**
  * openid+profile+email so the issued JWT carries the claims the backend JIT-provisions users from;
@@ -54,11 +55,7 @@ export async function performLogin(deps: PerformLoginDeps): Promise<StoredSessio
   const endpoints = await discoverOAuth(deps.config.issuerUrl, deps.fetchImpl);
   const { verifier, challenge } = generatePkcePair();
   const state = randomState();
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
 
   const loopback = await startLoopback(deps.config.loopbackPort);
   try {

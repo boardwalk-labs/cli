@@ -12,7 +12,9 @@
 
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
-import { resolveOrgClient } from "../org_client.js";
+import { resolveOrgClient, requireOrg, elevationHint } from "../org_client.js";
+import { resolveLog } from "../log.js";
+import { readAllStdin } from "../stdin.js";
 import type { ProviderListItem, CreateProviderInput } from "../client.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -61,33 +63,6 @@ export interface InferenceDeps {
   readStdin?: () => Promise<string>;
 }
 
-function logger(deps: InferenceDeps): (line: string) => void {
-  return (
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    })
-  );
-}
-
-async function readAllStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk as Uint8Array));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-function requireOrg(org: string | undefined): string {
-  if (org === undefined || org.length === 0) {
-    throw new CliError(
-      "No org specified.",
-      "Pass --org <slug>, or run from a linked project (deploy/run links one).",
-    );
-  }
-  return org;
-}
-
 function parseSource(value: string | undefined): Source {
   if (value === undefined || value.trim().length === 0) {
     throw new CliError("--source is required.", `One of: ${SOURCES.join(", ")}.`);
@@ -103,7 +78,7 @@ export async function runInferenceList(
   opts: InferenceListOptions,
   deps: InferenceDeps,
 ): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const { client, org } = await resolveOrgClient(deps, opts);
   const providers = await client.listProviders(requireOrg(org));
   if (opts.json === true) {
@@ -117,7 +92,7 @@ export async function runInferenceAdd(
   opts: InferenceAddOptions,
   deps: InferenceDeps,
 ): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const name = opts.name.trim();
   if (name.length === 0) throw new CliError("A provider name is required.");
   const source = parseSource(opts.source);
@@ -155,7 +130,7 @@ export async function runInferenceDelete(
   opts: InferenceDeleteOptions,
   deps: InferenceDeps,
 ): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const name = opts.name.trim();
   if (name.length === 0) throw new CliError("A provider name is required.");
   const { client, org } = await resolveOrgClient(deps, opts);
@@ -174,17 +149,6 @@ export async function runInferenceDelete(
   } catch (err) {
     throw elevationHint(err);
   }
-}
-
-/** On a 403 from a write, point at the elevated login (the common cause: a default CLI session). */
-function elevationHint(err: unknown): unknown {
-  if (err instanceof CliError && err.status === 403) {
-    return new CliError(
-      "This action needs an elevated session.",
-      "Run `boardwalk login --scopes admin` (you must be an org admin), then retry.",
-    );
-  }
-  return err;
 }
 
 // ── formatter (pure — exported for tests) ───────────────────────────────────────────────────────

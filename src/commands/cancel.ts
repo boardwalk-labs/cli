@@ -14,6 +14,7 @@ import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient } from "../client.js";
+import { resolveLog } from "../log.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 export interface CancelOptions {
@@ -28,11 +29,7 @@ export interface CancelDeps {
 }
 
 export async function runCancel(opts: CancelOptions, deps: CancelDeps): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
 
   const runId = opts.runId.trim();
   if (runId.length === 0) {

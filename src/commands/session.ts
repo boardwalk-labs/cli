@@ -6,6 +6,7 @@ import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { performLogin } from "../auth/login.js";
+import { resolveLog } from "../log.js";
 
 export interface SessionDeps {
   config: CliConfig;
@@ -28,11 +29,7 @@ function adminClientId(config: CliConfig): string | null {
 }
 
 export async function runLogin(deps: SessionDeps, opts: LoginOptions = {}): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const store = CredentialStore.atConfigDir(deps.config.configDir);
 
   // First-class API-key auth: `boardwalk login --token <key>` stores the key like a
@@ -83,11 +80,7 @@ export async function runLogin(deps: SessionDeps, opts: LoginOptions = {}): Prom
 }
 
 export function runLogout(deps: SessionDeps): void {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   store.clear();
   log("✓ Logged out — local credentials removed.");
@@ -95,11 +88,7 @@ export function runLogout(deps: SessionDeps): void {
 
 /** Report whether a stored session exists. (Identity claims live in the JWT; v0 keeps this minimal.) */
 export function runWhoami(deps: SessionDeps): void {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const session = store.getSession();
   if (session === null) {

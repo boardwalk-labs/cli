@@ -2,10 +2,13 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
-## Unreleased
+## 0.1.20
 
 ### Added
 
+- **`deploy` / `run` report the deployed slug.** Both now log the slug the server actually deployed
+  to and warn when a linked directory points at a different-named workflow than the file's
+  `meta.slug`, so a run is never silently attributed to the wrong name.
 - **`boardwalk runs <id> --logs`** — print a run's event log (the same lifecycle / phase / output
   frames the dashboard shows), so you can see what a run actually did from the terminal. Channel
   selection matches `dev`: `--stream <channels>` or `--verbose` (which surfaces agent turns + every
@@ -34,6 +37,10 @@ Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch release
 
 ### Changed
 
+- **Stored session is fully validated on read.** The on-disk credentials file is now checked field
+  by field, so a tampered/corrupt session is treated as logged-out rather than partially trusted.
+  Internal: per-command logging, org resolution, and elevated-login hints were consolidated into
+  shared helpers (no behavior change).
 - **The API host now follows your stored login.** After `boardwalk login` against a dev / self-host
   stack, every authenticated command targets THAT stack automatically — no need to re-export
   `BOARDWALK_API_URL` on each call. An explicit `BOARDWALK_API_URL` / `BOARDWALK_API_DOMAIN` still

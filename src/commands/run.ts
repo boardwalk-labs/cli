@@ -12,6 +12,7 @@ import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient, type RunSummary } from "../client.js";
+import { resolveLog } from "../log.js";
 import { deployWithLink, loadProgram } from "../deployment.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -88,11 +89,7 @@ export interface RunDeps {
 }
 
 export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
 
   const prog = await loadProgram(opts.file);
   const assets = prog.artifact.assetPaths.length;
@@ -116,7 +113,12 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   const dep = await deployWithLink(client, { orgSlug: opts.org, target: opts.file, prog });
   if (dep.gitignoreUpdated)
     log("  linked → .boardwalk/project.json (added .boardwalk/ to .gitignore)");
-  log(`✓ ${dep.outcome} "${prog.slug}" version ${String(dep.versionNumber)}`);
+  // Log the slug we ACTUALLY deployed to (not the file's), so the run is never mislabeled.
+  if (dep.ignoredFileSlug !== undefined)
+    log(
+      `⚠ this directory is linked to workflow "${dep.deployedSlug}" — the file's slug "${dep.ignoredFileSlug}" was ignored (deployed as a new version of "${dep.deployedSlug}"). Run a different workflow from its own directory, or delete .boardwalk/ to re-link.`,
+    );
+  log(`✓ ${dep.outcome} "${dep.deployedSlug}" version ${String(dep.versionNumber)}`);
 
   const input = parseInput(opts.input);
   const run = await client.triggerRun(dep.orgSlug, dep.workflowId, input);

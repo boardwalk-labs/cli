@@ -12,7 +12,9 @@
 import { readFile } from "node:fs/promises";
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
-import { resolveOrgClient } from "../org_client.js";
+import { resolveOrgClient, requireOrg, elevationHint } from "../org_client.js";
+import { resolveLog } from "../log.js";
+import { readAllStdin } from "../stdin.js";
 import type { SecretListItem } from "../client.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -58,34 +60,6 @@ export interface SecretsDeps {
   readStdin?: () => Promise<string>;
 }
 
-function logger(deps: SecretsDeps): (line: string) => void {
-  return (
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    })
-  );
-}
-
-/** Read the whole of stdin as UTF-8 (for a piped secret value). */
-async function readAllStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk as Uint8Array));
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
-function requireOrg(org: string | undefined): string {
-  if (org === undefined || org.length === 0) {
-    throw new CliError(
-      "No org specified.",
-      "Pass --org <slug>, or run from a linked project (deploy/run links one).",
-    );
-  }
-  return org;
-}
-
 function parseScope(value: string | undefined): Scope {
   const v = (value ?? "org").trim();
   if (!(SCOPES as readonly string[]).includes(v)) {
@@ -103,7 +77,7 @@ function parseKind(value: string | undefined): Kind {
 }
 
 export async function runSecretsList(opts: SecretsListOptions, deps: SecretsDeps): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const now = deps.now ?? Date.now();
   const { client, org } = await resolveOrgClient(deps, opts);
   const secrets = await client.listSecrets(requireOrg(org));
@@ -115,7 +89,7 @@ export async function runSecretsList(opts: SecretsListOptions, deps: SecretsDeps
 }
 
 export async function runSecretSet(opts: SecretSetOptions, deps: SecretsDeps): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const name = opts.name.trim();
   if (name.length === 0) throw new CliError("A secret name is required.");
   const scope = parseScope(opts.scope);
@@ -158,7 +132,7 @@ export async function runSecretSet(opts: SecretSetOptions, deps: SecretsDeps): P
 }
 
 export async function runSecretDelete(opts: SecretDeleteOptions, deps: SecretsDeps): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const name = opts.name.trim();
   if (name.length === 0) throw new CliError("A secret name is required.");
   const { client, org } = await resolveOrgClient(deps, opts);
@@ -197,17 +171,6 @@ export async function runSecretDelete(opts: SecretDeleteOptions, deps: SecretsDe
   } catch (err) {
     throw elevationHint(err);
   }
-}
-
-/** On a 403 from a write, point at the elevated login (the common cause: a default CLI session). */
-function elevationHint(err: unknown): unknown {
-  if (err instanceof CliError && err.status === 403) {
-    return new CliError(
-      "This action needs an elevated session.",
-      "Run `boardwalk login --scopes admin` (you must be an org admin), then retry.",
-    );
-  }
-  return err;
 }
 
 // ── formatter (pure — exported for tests) ───────────────────────────────────────────────────────

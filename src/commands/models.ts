@@ -12,6 +12,7 @@
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { resolveOrgClient } from "../org_client.js";
+import { resolveLog } from "../log.js";
 import type { ModelListItem } from "../client.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -38,17 +39,8 @@ export interface ModelsDeps {
   log?: (line: string) => void;
 }
 
-function logger(deps: ModelsDeps): (line: string) => void {
-  return (
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    })
-  );
-}
-
 export async function runModelsList(opts: ModelsListOptions, deps: ModelsDeps): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const { client } = await resolveOrgClient(deps, { token: opts.token });
   const catalog = await client.listModels();
   const matched = filterModels(catalog.models, opts.search);
@@ -73,7 +65,7 @@ export async function runModelsList(opts: ModelsListOptions, deps: ModelsDeps): 
 }
 
 export async function runModelsShow(opts: ModelsShowOptions, deps: ModelsDeps): Promise<void> {
-  const log = logger(deps);
+  const log = resolveLog(deps);
   const id = opts.id.trim();
   if (id.length === 0) {
     throw new CliError(

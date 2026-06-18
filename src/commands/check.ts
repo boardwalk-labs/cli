@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { buildArtifact } from "../artifact.js";
 import { resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
+import { resolveLog } from "../log.js";
 
 export interface CheckOptions {
   file: string;
@@ -23,11 +24,7 @@ export interface CheckDeps {
 }
 
 export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
 
   // Validate the manifest from the author's ORIGINAL entry source (errors point at real lines).
   const entry = resolveEntry(opts.file);

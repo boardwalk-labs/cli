@@ -113,7 +113,18 @@ export class CredentialStore {
 
 function isValidSession(value: unknown): value is StoredSession {
   if (!isRecord(value)) return false;
-  return typeof value.accessToken === "string" && value.accessToken.length > 0;
+  // Validate EVERY field the predicate asserts — not just `accessToken`. A tampered file with, say,
+  // a string `expiresAt` must fail here (→ treated as no session) rather than flow a wrong-typed
+  // value into `isExpired`'s arithmetic. The nullable fields accept `string | null` per StoredSession.
+  return (
+    typeof value.accessToken === "string" &&
+    value.accessToken.length > 0 &&
+    (value.refreshToken === null || typeof value.refreshToken === "string") &&
+    (value.expiresAt === null || typeof value.expiresAt === "number") &&
+    (value.clientId === null || typeof value.clientId === "string") &&
+    (value.tokenEndpoint === null || typeof value.tokenEndpoint === "string") &&
+    (value.scope === null || typeof value.scope === "string")
+  );
 }
 
 function isValidInferenceKey(value: unknown): value is StoredInferenceKey {

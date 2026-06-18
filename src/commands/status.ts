@@ -15,6 +15,7 @@ import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveToken, resolveBaseUrl } from "../auth/resolve.js";
+import { resolveLog } from "../log.js";
 import { BoardwalkClient } from "../client.js";
 import { readLink, projectDirFor, type ProjectLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -72,11 +73,7 @@ export interface StatusReport {
 }
 
 export async function runStatus(opts: StatusOptions, deps: StatusDeps): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
   const env = deps.env ?? process.env;
   const now = deps.now ?? Date.now();
   const setExitCode =

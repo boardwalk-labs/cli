@@ -58,6 +58,15 @@ export interface DeployResultSummary {
   outcome: "created" | "updated" | "adopted";
   /** True when this deploy wrote a `.gitignore` entry for `.boardwalk/`. */
   gitignoreUpdated: boolean;
+  /** The slug of the workflow this actually deployed to (server-side; immutable after create). On the
+   *  LINKED path this is the linked workflow's slug, which may differ from the file's `meta.slug` —
+   *  the directory link is keyed by workflow id, not slug (so a rename keeps the same workflow). The
+   *  caller logs THIS (not the file's slug) so a run is never silently attributed to the wrong name. */
+  deployedSlug: string;
+  /** The file's `meta.slug`, when it differs from {@link deployedSlug} (else undefined). A mismatch
+   *  means the linked directory points at a different-named workflow — the caller warns so the user
+   *  isn't surprised that the run shows up under `deployedSlug`. */
+  ignoredFileSlug?: string;
 }
 
 export interface DeployContext {
@@ -121,16 +130,22 @@ export async function deployWithLink(
   const ref = refOf(artifact);
 
   let versionNumber: number;
+  // The server-side slug of the workflow we actually deployed to (immutable after create). On the
+  // linked path it may differ from the file's `meta.slug`; we report THIS so a run is never silently
+  // attributed to the wrong name.
+  let deployedSlug: string;
   if (workflowId !== null) {
     try {
       const result = await client.updateWorkflow(workflowId, ref);
       versionNumber = result.version.number;
+      deployedSlug = result.workflow.slug;
     } catch (err) {
       if (err instanceof CliError && err.status === 404) {
         // The linked workflow was deleted out from under us — recreate + relink.
         const result = await client.createWorkflow(orgSlug, ref);
         workflowId = result.workflow.id;
         versionNumber = result.version.number;
+        deployedSlug = result.workflow.slug;
         outcome = "created";
       } else {
         throw err;
@@ -140,9 +155,19 @@ export async function deployWithLink(
     const result = await client.createWorkflow(orgSlug, ref);
     workflowId = result.workflow.id;
     versionNumber = result.version.number;
+    deployedSlug = result.workflow.slug;
     outcome = "created";
   }
 
   const { gitignoreUpdated } = writeLink(projectDir, { orgSlug, workflowId });
-  return { workflowId, orgSlug, versionNumber, outcome, gitignoreUpdated };
+  return {
+    workflowId,
+    orgSlug,
+    versionNumber,
+    outcome,
+    gitignoreUpdated,
+    deployedSlug,
+    // Surface a file-slug ≠ deployed-slug mismatch (linked dir points at a different-named workflow).
+    ...(deployedSlug !== ctx.prog.slug ? { ignoredFileSlug: ctx.prog.slug } : {}),
+  };
 }

@@ -16,6 +16,7 @@ import { BoardwalkClient } from "../client.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveToken } from "../auth/resolve.js";
+import { resolveErrLog } from "../log.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 /** Re-mint when a cached key is within this of expiry, so a run can't start with a key that dies
@@ -51,11 +52,7 @@ export interface ResolveInferenceEnvDeps {
 export async function resolveInferenceEnv(
   deps: ResolveInferenceEnvDeps,
 ): Promise<Record<string, string>> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.error(line);
-    });
+  const log = resolveErrLog(deps);
   const now = deps.now ?? Date.now();
 
   // 1. The user already provided a key (shell env or .env) — respect it, mint nothing.

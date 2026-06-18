@@ -122,6 +122,9 @@ describe("deployWithLink", () => {
     const res = await deployWithLink(client, { orgSlug: "org", target: dir, prog });
     expect(res.outcome).toBe("created");
     expect(res.workflowId).toBe("new");
+    // The file's slug matches the deployed workflow → reports it, no mismatch warning.
+    expect(res.deployedSlug).toBe("n");
+    expect(res.ignoredFileSlug).toBeUndefined();
     expect(upload).toHaveBeenCalledWith(
       "https://storage/put?sig",
       "application/gzip",
@@ -146,7 +149,7 @@ describe("deployWithLink", () => {
     expect(readLink(dir)?.workflowId).toBe("ex");
   });
 
-  it("updates the linked workflow by id (ignoring name) when linked", async () => {
+  it("updates the linked workflow by id (ignoring name) when linked, and SURFACES the slug mismatch", async () => {
     writeLink(dir, { orgSlug: "org", workflowId: "linked-id" });
     const update = vi.fn(
       (): Promise<DeployResult> =>
@@ -159,6 +162,10 @@ describe("deployWithLink", () => {
     expect(res.versionNumber).toBe(3);
     expect(update).toHaveBeenCalledWith("linked-id", REF);
     expect(list).not.toHaveBeenCalled(); // linked → no name lookup
+    // The deployed workflow's real slug is "renamed", but the file's `meta.slug` is "n": report the
+    // ACTUAL slug + flag the ignored file slug so the caller warns instead of silently mislabeling.
+    expect(res.deployedSlug).toBe("renamed");
+    expect(res.ignoredFileSlug).toBe("n");
   });
 
   it("recreates when the linked workflow was deleted (404)", async () => {

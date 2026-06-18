@@ -10,6 +10,7 @@ import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
+import { resolveLog } from "../log.js";
 import { BoardwalkClient, type UsageSummary, type UsageLine } from "../client.js";
 import { readLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -30,11 +31,7 @@ export interface UsageDeps {
 }
 
 export async function runUsage(opts: UsageOptions, deps: UsageDeps): Promise<void> {
-  const log =
-    deps.log ??
-    ((line: string): void => {
-      console.log(line);
-    });
+  const log = resolveLog(deps);
 
   const org = (opts.org ?? "").trim() || readLink(deps.cwd ?? process.cwd())?.orgSlug;
   if (org === undefined || org.length === 0) {
