@@ -346,6 +346,7 @@ function buildProgram(): Command {
   registerWorkflowsCommand(program);
   registerSecretsCommand(program);
   registerInferenceCommand(program);
+  registerModelsCommand(program);
 
   return program;
 }
@@ -555,6 +556,38 @@ function registerInferenceCommand(program: Command): void {
     .action(async (name: string, options: { yes?: boolean; org?: string; token?: string }) => {
       const { runInferenceDelete } = await import("./commands/inference.js");
       await runInferenceDelete({ name, ...options }, { config: loadConfig() });
+    });
+}
+
+/** Register `models` + its `list` / `show` subcommands — read-only browse of the managed-lane catalog. */
+function registerModelsCommand(program: Command): void {
+  const models = program
+    .command("models")
+    .description("Browse the managed-lane model catalog for agent() calls (list, show).");
+
+  models
+    .command("list", { isDefault: true })
+    .option("--all", "show every model (default: the most-capable head)", false)
+    .option("--search <query>", "filter by id or display name (case-insensitive)")
+    .option("--json", "print the raw catalog as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the models an agent() call can run on the managed lane, with prices.")
+    .action(async (options: { all?: boolean; search?: string; json?: boolean; token?: string }) => {
+      const { runModelsList } = await import("./commands/models.js");
+      await runModelsList(options, { config: loadConfig() });
+    });
+
+  models
+    .command("show")
+    .argument("<id>", "model id, e.g. anthropic/claude-opus-4.8")
+    .option("--json", "print the raw model record as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description(
+      "Show one model's price, context window, and whether the managed lane supports it.",
+    )
+    .action(async (id: string, options: { json?: boolean; token?: string }) => {
+      const { runModelsShow } = await import("./commands/models.js");
+      await runModelsShow({ id, ...options }, { config: loadConfig() });
     });
 }
 

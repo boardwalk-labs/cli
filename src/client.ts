@@ -198,6 +198,24 @@ export interface CreateProviderInput {
   extraHeaders?: Record<string, string>;
 }
 
+/** One model in the managed-lane catalog (GET /v1/inference/rates) — display name + the all-in
+ *  per-million-token prices (margin already applied) + context window when the lane reports it. */
+export interface ModelListItem {
+  id: string;
+  name: string;
+  inputPerMtok: number;
+  outputPerMtok: number;
+  contextTokens: number | null;
+}
+
+/** The managed-lane model catalog: the margin applied + every model an agent() call can run, priced.
+ *  Models are featured-first (most capable lead), then the long tail alphabetically. */
+export interface ModelList {
+  marginPct: number;
+  updatedAt: string | null;
+  models: ModelListItem[];
+}
+
 /** The authenticated caller (GET /v1/me) — identity + every org they belong to. The subset the CLI
  *  renders for `boardwalk status`; memberships drive the "Orgs" line. */
 export interface MeResult {
@@ -614,6 +632,13 @@ export class BoardwalkClient {
     return this.me(await this.request<unknown>("GET", "/v1/me"));
   }
 
+  /** Fetch the managed-lane model catalog (GET /v1/inference/rates): every model an agent() call can
+   *  run on the managed lane, with all-in per-million-token prices + context window. The endpoint is
+   *  public + org-independent (no slug); the bearer header rides along but is ignored. */
+  async listModels(): Promise<ModelList> {
+    return this.modelList(await this.request<unknown>("GET", "/v1/inference/rates"));
+  }
+
   /** Fetch the org's usage summary over `days` (server default when omitted, capped at 90). */
   async getUsage(orgSlug: string, days?: number): Promise<UsageSummary> {
     const query = days !== undefined ? `?days=${String(days)}` : "";
@@ -732,6 +757,24 @@ export class BoardwalkClient {
         name: typeof user.name === "string" ? user.name : null,
       },
       memberships,
+    };
+  }
+
+  /** Validate the `{ marginPct, updatedAt, models }` rates payload, reading each model row leniently
+   *  (rows missing an id/name are skipped) so an older / self-hosted backend still lists what it can. */
+  private modelList(body: unknown): ModelList {
+    if (!isRecord(body) || !Array.isArray(body.models)) {
+      throw new CliError("The API returned an unexpected models response shape.");
+    }
+    const models: ModelListItem[] = [];
+    for (const row of body.models) {
+      const parsed = parseModelRow(row);
+      if (parsed !== null) models.push(parsed);
+    }
+    return {
+      marginPct: numOr(body.marginPct, 0),
+      updatedAt: typeof body.updatedAt === "string" ? body.updatedAt : null,
+      models,
     };
   }
 
@@ -957,6 +1000,19 @@ function parseSecretRow(row: unknown): SecretListItem | null {
     last4: typeof row.last4 === "string" ? row.last4 : null,
     description: typeof row.description === "string" ? row.description : null,
     createdAt: typeof row.createdAt === "number" ? row.createdAt : null,
+  };
+}
+
+/** Read a model catalog row into a `ModelListItem`, or null when it lacks an id/name. The context
+ *  window is optional upstream; absent ⇒ null. */
+function parseModelRow(row: unknown): ModelListItem | null {
+  if (!isRecord(row) || typeof row.id !== "string" || typeof row.name !== "string") return null;
+  return {
+    id: row.id,
+    name: row.name,
+    inputPerMtok: numOr(row.inputPerMtok, 0),
+    outputPerMtok: numOr(row.outputPerMtok, 0),
+    contextTokens: typeof row.contextTokens === "number" ? row.contextTokens : null,
   };
 }
 
