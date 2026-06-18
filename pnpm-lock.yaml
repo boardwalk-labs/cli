@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@boardwalk-labs/engine':
-        specifier: ^0.1.11
-        version: 0.1.11
+        specifier: ^0.1.14
+        version: 0.1.14
       '@boardwalk-labs/workflow':
-        specifier: ^0.1.5
-        version: 0.1.5
+        specifier: ^0.1.9
+        version: 0.1.9
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -85,17 +85,13 @@ packages:
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
 
-  '@boardwalk-labs/engine@0.1.11':
-    resolution: {integrity: sha512-nRMWm188a3cMBkwlyYwSAj8KaKUsTjatFo6vvCEek7ns2vYWImHuKkTMm4GDqI27eJ/3zLp4QbPB5asIclAyxA==}
+  '@boardwalk-labs/engine@0.1.14':
+    resolution: {integrity: sha512-lPtd46gdvp0Cn+/FoQJoFbQ++LyGGaU5Pq/clVntmu9fAPMQ44OjSh1xKBnJHD71NFILRHUCSSPNa/DH7buoIg==}
     engines: {node: '>=24.0.0'}
     hasBin: true
 
-  '@boardwalk-labs/workflow@0.1.5':
-    resolution: {integrity: sha512-h5Im1GGjgpHEJiYT4E4Cj+aApuyUFgCoVxOIYeOt25KsqmTwG+bHTpHHTSOnzf/J2lBf0OXLW0q4bl0e8dlxIw==}
-    engines: {node: '>=24'}
-
-  '@boardwalk-labs/workflow@0.1.6':
-    resolution: {integrity: sha512-mXyv42pd+3dauYEansrJEu16n/1+9v0OAPPvRBnIANU5uf/ytsMayrSgza+LYEtY60RICmvftt39tPGwL87czw==}
+  '@boardwalk-labs/workflow@0.1.9':
+    resolution: {integrity: sha512-sOunsuekm/fyCDRYeoO6IGU0ez1neK5gsnBVoqr2K9sWG1mZaCIckffyPhqMPDwQN4+Z50l3V+hYmhx0YiZyzA==}
     engines: {node: '>=24'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1650,17 +1646,12 @@ snapshots:
 
   '@bcoe/v8-coverage@1.0.2': {}
 
-  '@boardwalk-labs/engine@0.1.11':
+  '@boardwalk-labs/engine@0.1.14':
     dependencies:
-      '@boardwalk-labs/workflow': 0.1.6
+      '@boardwalk-labs/workflow': 0.1.9
       zod: 4.4.3
 
-  '@boardwalk-labs/workflow@0.1.5':
-    dependencies:
-      typescript: 5.9.3
-      zod: 4.4.3
-
-  '@boardwalk-labs/workflow@0.1.6':
+  '@boardwalk-labs/workflow@0.1.9':
     dependencies:
       typescript: 5.9.3
       zod: 4.4.3

@@ -122,6 +122,8 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
     }
     case "tool_call_error":
       return `· tool error: ${event.error.message}\n`;
+    case "tool_output_delta":
+      return event.text; // stream a tool's incremental stdout/stderr verbatim (e.g. a long bash run)
     // Structural agent frames with nothing human-readable to print:
     case "text_start":
     case "tool_call_input_delta":
