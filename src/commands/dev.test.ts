@@ -279,8 +279,8 @@ describe("runDev (end-to-end via the engine)", () => {
       `export const meta = { slug: "pkgwf", triggers: [{ kind: "manual" }] };`,
     );
     writeFileSync(join(pkg, "AGENTS.md"), "STANDING: be terse.");
-    mkdirSync(join(pkg, "skills"));
-    writeFileSync(join(pkg, "skills", "review.md"), "# Review");
+    mkdirSync(join(pkg, "skills", "review"), { recursive: true });
+    writeFileSync(join(pkg, "skills", "review", "SKILL.md"), "# Review");
 
     let deployed: DevDeployInput | null = null;
     const fakeEngine: DevEngine = {
@@ -304,7 +304,7 @@ describe("runDev (end-to-end via the engine)", () => {
     const captured = deployed as DevDeployInput | null;
     expect(captured).not.toBeNull();
     expect(captured?.agentsMd).toBe("STANDING: be terse.");
-    expect(captured?.skills).toEqual({ review: "# Review" });
+    expect(captured?.skillsDir).toBe(join(pkg, "skills"));
     // The bundled program is deployed alongside the context (its meta slug is in the bundle).
     expect(captured?.program).toContain("pkgwf");
   });

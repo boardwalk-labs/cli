@@ -120,18 +120,27 @@ describe("buildArtifact — package with assets", () => {
        export const meta = { slug: "pkg-wf", description: "d" };
        await agent(GREETING, { model: "anthropic/claude-sonnet-4.5" });`,
     );
-    mkdirSync(join(pkg, "skills"));
-    writeFileSync(join(pkg, "skills", "review.md"), "# Review skill\nbe thorough");
+    mkdirSync(join(pkg, "skills", "review"), { recursive: true });
+    writeFileSync(join(pkg, "skills", "review", "SKILL.md"), "# Review skill\nbe thorough");
+    writeFileSync(join(pkg, "skills", "review", "checklist.txt"), "1) check inputs");
     writeFileSync(join(pkg, "config.json"), `{"k":"v"}`);
 
     const art = await buildArtifact(pkg);
 
-    expect(art.assetPaths).toEqual(["config.json", "skills/review.md"]);
+    // The whole folder-per-skill subtree rides the artifact — SKILL.md AND its bundled resource.
+    expect([...art.assetPaths].sort()).toEqual(
+      ["config.json", "skills/review/SKILL.md", "skills/review/checklist.txt"].sort(),
+    );
     expect(art.sdkVersion).toBe("^1.2.0"); // from the declared dependency range
     expect(art.entrySource).toContain("from-helper"); // local dep inlined into the bundle
 
     const out = extractTo(art.tarball, dir);
-    expect(readFileSync(join(out, "skills", "review.md"), "utf8")).toContain("be thorough");
+    expect(readFileSync(join(out, "skills", "review", "SKILL.md"), "utf8")).toContain(
+      "be thorough",
+    );
+    expect(readFileSync(join(out, "skills", "review", "checklist.txt"), "utf8")).toBe(
+      "1) check inputs",
+    );
     expect(readFileSync(join(out, "config.json"), "utf8")).toBe(`{"k":"v"}`);
     expect(existsSync(join(out, "index.mjs"))).toBe(true);
     // Source + config are NOT shipped raw — only the bundle + declared assets.
@@ -141,10 +150,10 @@ describe("buildArtifact — package with assets", () => {
 
   it("changes the digest when an asset changes (content addressing)", async () => {
     writeFileSync(join(pkg, "index.ts"), `export const meta = { slug: "cad", description: "d" };`);
-    mkdirSync(join(pkg, "skills"));
-    writeFileSync(join(pkg, "skills", "s.md"), "v1");
+    mkdirSync(join(pkg, "skills", "s"), { recursive: true });
+    writeFileSync(join(pkg, "skills", "s", "SKILL.md"), "v1");
     const a = await buildArtifact(pkg);
-    writeFileSync(join(pkg, "skills", "s.md"), "v2");
+    writeFileSync(join(pkg, "skills", "s", "SKILL.md"), "v2");
     const b = await buildArtifact(pkg);
     expect(a.digest).not.toBe(b.digest);
   });
@@ -165,12 +174,15 @@ describe("collectAssets", () => {
     writeFileSync(join(pkg, "pnpm-lock.yaml"), "lock"); // lockfile — excluded
     writeFileSync(join(pkg, ".env"), "SECRET=1"); // dotfile — excluded
     writeFileSync(join(pkg, "prompt.md"), "p"); // asset — kept
-    mkdirSync(join(pkg, "skills"));
-    writeFileSync(join(pkg, "skills", "a.md"), "a"); // nested asset — kept
+    mkdirSync(join(pkg, "skills", "review"), { recursive: true });
+    writeFileSync(join(pkg, "skills", "review", "SKILL.md"), "s"); // nested skill — kept
+    writeFileSync(join(pkg, "skills", "review", "ref.txt"), "r"); // nested resource — kept
     mkdirSync(join(pkg, "node_modules"));
     writeFileSync(join(pkg, "node_modules", "junk.md"), "j"); // pruned dir
 
-    expect(collectAssets(pkg).map((a) => a.relPath)).toEqual(["prompt.md", "skills/a.md"]);
+    expect([...collectAssets(pkg).map((a) => a.relPath)].sort()).toEqual(
+      ["prompt.md", "skills/review/SKILL.md", "skills/review/ref.txt"].sort(),
+    );
   });
 
   it("honors an explicit boardwalk.assets list (files + dirs) and ignores everything else", () => {
@@ -263,18 +275,15 @@ describe("collectPackageContext", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("pulls the package-root AGENTS.md + top-level skills, keyed by name", () => {
+  it("pulls the package-root AGENTS.md + the skills/ directory path", () => {
     writeFileSync(join(pkg, "AGENTS.md"), "STANDING: run the linter.");
-    mkdirSync(join(pkg, "skills"));
-    writeFileSync(join(pkg, "skills", "review.md"), "# Review\nbe thorough");
-    writeFileSync(join(pkg, "skills", "triage.md"), "# Triage\nbe terse");
+    mkdirSync(join(pkg, "skills", "review"), { recursive: true });
+    writeFileSync(join(pkg, "skills", "review", "SKILL.md"), "# Review\nbe thorough");
 
     const ctx = collectPackageContext(pkg);
     expect(ctx.agentsMd).toBe("STANDING: run the linter.");
-    expect(ctx.skills).toEqual({
-      review: "# Review\nbe thorough",
-      triage: "# Triage\nbe terse",
-    });
+    // The skills/ subtree is passed by directory (folder-per-skill + resources), not a flat map.
+    expect(ctx.skillsDir).toBe(join(pkg, "skills"));
   });
 
   it("ignores a nested AGENTS.md under the package (bundled tier is the root file only)", () => {
@@ -283,14 +292,6 @@ describe("collectPackageContext", () => {
     writeFileSync(join(pkg, "lib", "AGENTS.md"), "NESTED-IGNORED");
     const ctx = collectPackageContext(pkg);
     expect(ctx.agentsMd).toBe("ROOT");
-  });
-
-  it("ignores skill markdown nested below skills/ (the engine reads a flat skills dir)", () => {
-    mkdirSync(join(pkg, "skills", "deep"), { recursive: true });
-    writeFileSync(join(pkg, "skills", "top.md"), "top");
-    writeFileSync(join(pkg, "skills", "deep", "nested.md"), "nested");
-    const ctx = collectPackageContext(pkg);
-    expect(ctx.skills).toEqual({ top: "top" });
   });
 
   it("returns an empty context for a package with no AGENTS.md and no skills", () => {
@@ -303,10 +304,10 @@ describe("collectPackageContext", () => {
     expect(collectPackageContext(join(pkg, "index.ts"))).toEqual({});
   });
 
-  it("omits the skills key entirely when there are none (only AGENTS.md present)", () => {
+  it("omits the skillsDir key entirely when there is no skills/ dir (only AGENTS.md present)", () => {
     writeFileSync(join(pkg, "AGENTS.md"), "just-standing-instructions");
     const ctx = collectPackageContext(pkg);
     expect(ctx).toEqual({ agentsMd: "just-standing-instructions" });
-    expect("skills" in ctx).toBe(false);
+    expect("skillsDir" in ctx).toBe(false);
   });
 });

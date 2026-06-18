@@ -33,8 +33,9 @@ export interface DevDeployInput {
   program: string;
   /** The package-root `AGENTS.md` (the author's standing instructions), if the package ships one. */
   agentsMd?: string | undefined;
-  /** Skill markdown keyed by skill name (from `skills/<name>.md`), if any. */
-  skills?: Record<string, string> | undefined;
+  /** Absolute path to the package's `skills/` directory (folder-per-skill: skills/<name>/SKILL.md +
+   *  bundled resources), if the package ships one. The engine copies it wholesale into the package. */
+  skillsDir?: string | undefined;
 }
 
 /** The slice of the engine facade `boardwalk dev` drives. The real {@link Engine} satisfies it. */
@@ -81,7 +82,7 @@ export const createDevEngine: DevEngineFactory = (opts) => {
         program: input.program,
         // exactOptionalPropertyTypes: spread only when present — never pass an explicit `undefined`.
         ...(input.agentsMd !== undefined ? { agentsMd: input.agentsMd } : {}),
-        ...(input.skills !== undefined ? { skills: input.skills } : {}),
+        ...(input.skillsDir !== undefined ? { skillsSourceDir: input.skillsDir } : {}),
       });
       return { slug: workflow.slug };
     },

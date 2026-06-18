@@ -176,44 +176,40 @@ export function collectAssets(pkgDir: string): ArtifactAsset[] {
   return out;
 }
 
-/** The skill markdown directory inside a package + the file suffix (skills/<name>.md). */
-const SKILLS_PREFIX = "skills/";
-const MD_SUFFIX = ".md";
-
 /** The deploy-time package context the engine reads alongside the program (SPEC §2.3): the author's
- *  standing `AGENTS.md` (the package-root file) + skills (`skills/<name>.md`). */
+ *  standing `AGENTS.md` (the package-root file) + the `skills/` directory (folder-per-skill). */
 export interface PackageContext {
   /** The package-root `AGENTS.md` content (the author's standing instructions), if present. */
   agentsMd?: string;
-  /** Skill markdown keyed by skill name (from `skills/<name>.md`), if any. */
-  skills?: Record<string, string>;
+  /** Absolute path to the package's `skills/` directory (folder-per-skill: skills/<name>/SKILL.md +
+   *  bundled resources), if the package ships one. The engine copies it wholesale. */
+  skillsDir?: string;
 }
 
 /**
- * Extract the deploy-time package context (root `AGENTS.md` + `skills/<name>.md`) for a target.
+ * Extract the deploy-time package context (root `AGENTS.md` + the `skills/` directory) for a target.
  * `boardwalk dev` passes this to the embedded engine's `deployWorkflow` so a bundled `AGENTS.md` +
  * skills are present locally EXACTLY as they are on the hosted platform — where the same assets ride
- * in the artifact tarball and land in the extracted program dir. Derived from the SAME
- * {@link collectAssets} the artifact uses, so `dev` and `deploy` agree by construction; a single
- * program file (not a package directory) ships no assets, matching {@link buildArtifact}.
+ * in the artifact tarball and land in the extracted program dir. `AGENTS.md` is derived from the SAME
+ * {@link collectAssets} the artifact uses; the `skills/` subtree is passed by directory so the engine
+ * carries folder-per-skill resources verbatim (matching the hosted tarball extract). A single program
+ * file (not a package directory) ships no assets, matching {@link buildArtifact}.
  */
 export function collectPackageContext(target: string): PackageContext {
   if (!isPackageDir(target)) return {};
+  const pkgRoot = resolve(target);
   const ctx: PackageContext = {};
-  const skills: Record<string, string> = {};
-  for (const asset of collectAssets(resolve(target))) {
+  for (const asset of collectAssets(pkgRoot)) {
     if (asset.relPath === "AGENTS.md") {
       ctx.agentsMd = readFileSync(asset.absPath, "utf8");
-      continue;
-    }
-    // Only TOP-LEVEL skills/<name>.md — the engine reads a flat <skillsDir>/<name>.md (no subdirs).
-    if (asset.relPath.startsWith(SKILLS_PREFIX) && asset.relPath.endsWith(MD_SUFFIX)) {
-      const name = asset.relPath.slice(SKILLS_PREFIX.length, -MD_SUFFIX.length);
-      if (name.length > 0 && !name.includes("/"))
-        skills[name] = readFileSync(asset.absPath, "utf8");
+      break;
     }
   }
-  if (Object.keys(skills).length > 0) ctx.skills = skills;
+  // Skills ride as a folder-per-skill subtree; the engine copies the whole skills/ dir to mirror the
+  // hosted "extract the tarball" layout. (A skill folder holds reference docs + resources, so the
+  // wholesale copy and the artifact's filtered tarball agree in practice.)
+  const skillsDir = join(pkgRoot, "skills");
+  if (existsSync(skillsDir) && statSync(skillsDir).isDirectory()) ctx.skillsDir = skillsDir;
   return ctx;
 }
 
