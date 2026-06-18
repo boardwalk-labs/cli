@@ -429,8 +429,20 @@ describe("BoardwalkClient.deleteWorkflow", () => {
     expect(calls[0]?.headers["Idempotency-Key"]).toBeDefined();
   });
 
-  it("surfaces a 403 (missing scope) as an actionable CliError", async () => {
-    const { fetchImpl } = recordingFetch(403, { error: { message: "forbidden" } });
+  it("surfaces the backend's SPECIFIC 403 reason verbatim, not a generic 'lacks permission' string", async () => {
+    // The backend distinguishes a missing-scope denial from a role shortfall; the CLI must show that
+    // reason (it tells the user what to fix) rather than collapsing every 403 to "lacks permission".
+    const { fetchImpl } = recordingFetch(403, {
+      error: { code: "FORBIDDEN", message: "missing the 'workflow:delete' scope" },
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    await expect(client.deleteWorkflow("wf1")).rejects.toMatchObject({
+      hint: "missing the 'workflow:delete' scope",
+    });
+  });
+
+  it("falls back to the generic 403 hint only when the body carries no message", async () => {
+    const { fetchImpl } = recordingFetch(403, "");
     const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
     await expect(client.deleteWorkflow("wf1")).rejects.toMatchObject({
       hint: expect.stringContaining("permission"),

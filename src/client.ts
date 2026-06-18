@@ -1066,10 +1066,19 @@ async function safeText(res: Response): Promise<string | undefined> {
   }
 }
 
-/** Pull a human message out of the API's `{ error: { code, message } }` (or plain text) body. */
+/**
+ * Pull a human message out of the API's `{ error: { code, message } }` (or plain text) body.
+ *
+ * A 401 is authentication — the remedy is invariant (re-authenticate), and that guidance beats a raw
+ * backend reason like "invalid signature", so 401 keeps its hint. For everything else — notably 403,
+ * where the remedy VARIES (missing token scope vs. role shortfall vs. session-only vs. not-a-member) —
+ * surface the backend's SPECIFIC message verbatim; the backend computes it on purpose. A hardcoded
+ * "your account lacks permission for this org" discarded that and actively misled: an org OWNER whose
+ * CLI token merely lacked a scope was told they lacked org access. The generic 403 line survives only
+ * as the no-body fallback (e.g. an upstream/proxy 403 with an empty or non-JSON body).
+ */
 function apiErrorMessage(text: string, status: number): string {
   if (status === 401) return "Unauthorized — run `boardwalk login`, or set BOARDWALK_API_KEY.";
-  if (status === 403) return "Forbidden — your account lacks permission for this org.";
   try {
     const body: unknown = JSON.parse(text);
     if (isRecord(body)) {
@@ -1083,7 +1092,8 @@ function apiErrorMessage(text: string, status: number): string {
       if (typeof body.message === "string" && body.message.length > 0) return body.message;
     }
   } catch {
-    // not JSON
+    // not JSON — fall through to a status hint or the raw text
   }
+  if (status === 403) return "Forbidden — your account lacks permission for this org.";
   return text.length > 0 ? text.slice(0, 300) : "(no response body)";
 }
