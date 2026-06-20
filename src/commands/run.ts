@@ -13,6 +13,7 @@ import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient, type RunSummary } from "../client.js";
 import { resolveLog } from "../log.js";
+import { reportDeterminism } from "../lint.js";
 import { deployWithLink, loadProgram } from "../deployment.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -96,6 +97,7 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   log(
     `  built ${prog.entry} (${String(prog.artifact.size)} bytes${assets > 0 ? `, ${String(assets)} asset${assets === 1 ? "" : "s"}` : ""})`,
   );
+  reportDeterminism(prog.artifact.entrySource, prog.entry, log);
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({

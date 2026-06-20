@@ -11,6 +11,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { bundleWorkflow, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
+import { reportDeterminism } from "../lint.js";
 import { resolveLog } from "../log.js";
 
 export interface BuildOptions {
@@ -29,7 +30,8 @@ export async function runBuild(opts: BuildOptions, deps: BuildDeps = {}): Promis
 
   const entry = resolveEntry(opts.file);
   // Validate before bundling: precise manifest errors here, and the name seeds the default output.
-  const manifest = extractValidatedManifest(readFileSync(entry, "utf8"), entry);
+  const source = readFileSync(entry, "utf8");
+  const manifest = extractValidatedManifest(source, entry);
   const program = await bundleWorkflow(entry);
 
   const outPath = resolve(opts.out ?? `${manifest.slug}.mjs`);
@@ -37,5 +39,6 @@ export async function runBuild(opts: BuildOptions, deps: BuildDeps = {}): Promis
   writeFileSync(outPath, program, "utf8");
 
   log(`built "${manifest.slug}" → ${outPath}`);
+  reportDeterminism(source, entry, log);
   return outPath;
 }

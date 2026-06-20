@@ -124,6 +124,21 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
       return `· tool error: ${event.error.message}\n`;
     case "tool_output_delta":
       return event.text; // stream a tool's incremental stdout/stderr verbatim (e.g. a long bash run)
+    case "suspended": {
+      const when =
+        event.wakeAt !== undefined
+          ? ` until ${new Date(event.wakeAt).toISOString()}`
+          : event.reason === "human_input"
+            ? " awaiting human input"
+            : "";
+      return `⏸ suspended (${event.reason})${when}\n`;
+    }
+    case "resumed":
+      return "▶ resumed\n";
+    case "human_input_requested":
+      return `⏸ input needed [${event.key}]: ${event.prompt}\n`;
+    case "human_input_resolved":
+      return `▶ input received [${event.key}]\n`;
     // Structural agent frames with nothing human-readable to print:
     case "text_start":
     case "tool_call_input_delta":

@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { buildArtifact } from "../artifact.js";
 import { resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
+import { reportDeterminism } from "../lint.js";
 import { resolveLog } from "../log.js";
 
 export interface CheckOptions {
@@ -28,7 +29,8 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
 
   // Validate the manifest from the author's ORIGINAL entry source (errors point at real lines).
   const entry = resolveEntry(opts.file);
-  const manifest = extractValidatedManifest(readFileSync(entry, "utf8"), entry);
+  const source = readFileSync(entry, "utf8");
+  const manifest = extractValidatedManifest(source, entry);
 
   // Build the artifact (esbuild bundle + assets) — proves the program compiles end-to-end.
   const artifact = await buildArtifact(opts.file);
@@ -43,4 +45,7 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   }
   log(`  artifact: ${String(artifact.size)} bytes (sha256 ${artifact.digest.slice(0, 12)}…)`);
   if (assets > 0) log(`  assets:   ${artifact.assetPaths.join(", ")}`);
+
+  // Advisory determinism check (does not fail `check`).
+  reportDeterminism(source, entry, log);
 }

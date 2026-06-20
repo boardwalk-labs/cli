@@ -2,6 +2,23 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.21
+
+### Added
+
+- Determinism lint: `check`, `build`, `dev`, `deploy`, and `run` now print an advisory warning for
+  bare `Date.now` / `Math.random` / `new Date()` / `performance.now` / `fetch` that sit OUTSIDE a
+  journaled seam (`step.run` / `agent`) — where a restart/resume would re-run them with a different
+  value. It never blocks the command. Shared analysis via `@boardwalk-labs/workflow/lint`, so the
+  CLI, the engines, and the hosted deploy flag the same thing.
+- `dev`/`runs --logs` render the durable-suspension run events (`suspended` / `resumed` /
+  `human_input_requested` / `human_input_resolved`).
+
+### Changed
+
+- Bumped to `@boardwalk-labs/workflow@^0.1.13` + `@boardwalk-labs/engine@^0.1.25` (so `boardwalk dev`
+  picks up the budget parity fix: `max_duration_seconds` is active compute, suspended idle excluded).
+
 ## 0.1.20
 
 ### Added

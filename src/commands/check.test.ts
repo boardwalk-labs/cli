@@ -35,6 +35,36 @@ describe("runCheck", () => {
     expect(out).toContain("API_KEY");
   });
 
+  it("passes but emits an advisory determinism warning for bare nondeterminism", async () => {
+    const file = join(dir, "racy.ts");
+    writeFileSync(
+      file,
+      `export const meta = { slug: "racy", triggers: [{ kind: "manual" }] };
+       const now = Date.now();
+       console.log(now);`,
+    );
+    const lines: string[] = [];
+    await runCheck({ file }, { log: (l) => lines.push(l) });
+    const out = lines.join("\n");
+    expect(out).toContain('"racy" is valid'); // advisory — does not fail the check
+    expect(out).toContain("determinism warning");
+    expect(out).toContain("Date.now");
+  });
+
+  it("emits NO determinism warning when nondeterminism is inside step.run", async () => {
+    const file = join(dir, "clean.ts");
+    writeFileSync(
+      file,
+      `import { step } from "@boardwalk-labs/workflow";
+       export const meta = { slug: "clean", triggers: [{ kind: "manual" }] };
+       const now = await step.run("stamp", () => Date.now());
+       console.log(now);`,
+    );
+    const lines: string[] = [];
+    await runCheck({ file }, { log: (l) => lines.push(l) });
+    expect(lines.join("\n")).not.toContain("determinism warning");
+  });
+
   it("fails a program with no meta", async () => {
     const file = join(dir, "bad.ts");
     writeFileSync(file, `export const notMeta = 1;`);

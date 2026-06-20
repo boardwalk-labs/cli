@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@boardwalk-labs/engine':
-        specifier: ^0.1.14
-        version: 0.1.14
+        specifier: ^0.1.25
+        version: 0.1.25
       '@boardwalk-labs/workflow':
-        specifier: ^0.1.9
-        version: 0.1.9
+        specifier: ^0.1.13
+        version: 0.1.13
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -85,13 +85,13 @@ packages:
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
 
-  '@boardwalk-labs/engine@0.1.14':
-    resolution: {integrity: sha512-lPtd46gdvp0Cn+/FoQJoFbQ++LyGGaU5Pq/clVntmu9fAPMQ44OjSh1xKBnJHD71NFILRHUCSSPNa/DH7buoIg==}
+  '@boardwalk-labs/engine@0.1.25':
+    resolution: {integrity: sha512-CjoJqGZhSftmt6NInywEpxgMzAgy4kKFPBI76JCYLlIoIqUftpzhfGfPB+8no0Zl5bafyx/xCgRV6y6Pp1bopA==}
     engines: {node: '>=24.0.0'}
     hasBin: true
 
-  '@boardwalk-labs/workflow@0.1.9':
-    resolution: {integrity: sha512-sOunsuekm/fyCDRYeoO6IGU0ez1neK5gsnBVoqr2K9sWG1mZaCIckffyPhqMPDwQN4+Z50l3V+hYmhx0YiZyzA==}
+  '@boardwalk-labs/workflow@0.1.13':
+    resolution: {integrity: sha512-ge45v40QyBRkOzjgKV0emO7ou/yS1zVRHS0WywWyVXr7/4S0Jp8AUOw6dYMYxM5NWAuhNOs4bDnEqJ1dgPauUQ==}
     engines: {node: '>=24'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1646,12 +1646,12 @@ snapshots:
 
   '@bcoe/v8-coverage@1.0.2': {}
 
-  '@boardwalk-labs/engine@0.1.14':
+  '@boardwalk-labs/engine@0.1.25':
     dependencies:
-      '@boardwalk-labs/workflow': 0.1.9
+      '@boardwalk-labs/workflow': 0.1.13
       zod: 4.4.3
 
-  '@boardwalk-labs/workflow@0.1.9':
+  '@boardwalk-labs/workflow@0.1.13':
     dependencies:
       typescript: 5.9.3
       zod: 4.4.3
