@@ -94,6 +94,18 @@ export interface RunDetail extends RunListItem {
   error: { code: string; message: string } | null;
 }
 
+/** A human-in-the-loop gate (docs/SUSPENSION.md) — a run paused for a person to answer. */
+export interface HumanInputItem {
+  runId: string;
+  key: string;
+  prompt: string;
+  /** The response form: `{ kind: "text" | "choice" | "multiselect", ... }`. */
+  input: unknown;
+  assignees: string[] | null;
+  status: string;
+  createdAt: number;
+}
+
 /** One enveloped run-telemetry frame: its run-global `cursor` + the validated v1 `RunEvent`. The
  *  cursor orders the log and is the `--follow` resume point (sent as `Last-Event-ID`). */
 export interface RunEventRow {
@@ -527,6 +539,39 @@ export class BoardwalkClient {
     return this.runDetail(body);
   }
 
+  /** A run's human-in-the-loop gates (GET /v1/runs/:id/inputs), optionally filtered by status. */
+  async listRunInputs(runId: string, status?: string): Promise<HumanInputItem[]> {
+    const query = status !== undefined ? `?status=${encodeURIComponent(status)}` : "";
+    const body = await this.request<unknown>(
+      "GET",
+      `/v1/runs/${encodeURIComponent(runId)}/inputs${query}`,
+    );
+    return parseInputs(body);
+  }
+
+  /** The org-wide inbox of pending gates (GET /v1/orgs/:slug/inputs). */
+  async listOrgInputs(orgSlug: string): Promise<HumanInputItem[]> {
+    const body = await this.request<unknown>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/inputs`,
+    );
+    return parseInputs(body);
+  }
+
+  /** Answer a gate (POST /v1/runs/:id/inputs/:key); the run resumes once its batch is answered. The
+   *  endpoint resolves the org from the run id. `submission` is `{ value }` or `{ values, other? }`. */
+  async respondToInput(
+    runId: string,
+    key: string,
+    submission: { value?: string; values?: string[]; other?: string },
+  ): Promise<void> {
+    await this.request<unknown>(
+      "POST",
+      `/v1/runs/${encodeURIComponent(runId)}/inputs/${encodeURIComponent(key)}`,
+      submission,
+    );
+  }
+
   /**
    * The run's stored event log as a one-shot JSON snapshot (GET /v1/runs/:id/events). `sinceCursor`
    * returns only events after that cursor (for incremental fetches); omitted ⇒ the whole log. The
@@ -826,6 +871,29 @@ export class BoardwalkClient {
 /** A number field, or a fallback when it's missing/non-numeric. */
 function numOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** Parse a `{ inputs: [...] }` response into `HumanInputItem[]`, skipping malformed rows. */
+function parseInputs(body: unknown): HumanInputItem[] {
+  if (!isRecord(body) || !Array.isArray(body.inputs)) {
+    throw new CliError("The API returned an unexpected inputs response shape.");
+  }
+  const out: HumanInputItem[] = [];
+  for (const row of body.inputs) {
+    if (!isRecord(row) || typeof row.runId !== "string" || typeof row.key !== "string") continue;
+    out.push({
+      runId: row.runId,
+      key: row.key,
+      prompt: typeof row.prompt === "string" ? row.prompt : "",
+      input: row.input ?? null,
+      assignees: Array.isArray(row.assignees)
+        ? row.assignees.filter((a): a is string => typeof a === "string")
+        : null,
+      status: typeof row.status === "string" ? row.status : "pending",
+      createdAt: numOr(row.createdAt, 0),
+    });
+  }
+  return out;
 }
 
 /** Read a serialized run row into a `RunListItem`, or null when it lacks an id/status. Shared by the

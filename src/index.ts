@@ -317,6 +317,64 @@ function buildProgram(): Command {
     );
 
   program
+    .command("inputs")
+    .argument("[runId]", "list one run's pending inputs (omit for the org-wide inbox)")
+    .option("--org <slug>", "the org for the inbox (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List human-in-the-loop inputs awaiting a response (the org inbox, or one run's).")
+    .action(
+      async (
+        runId: string | undefined,
+        options: { org?: string; json?: boolean; token?: string },
+      ) => {
+        const { runInputs } = await import("./commands/inputs.js");
+        await runInputs(
+          { runId, org: options.org, json: options.json, token: options.token },
+          { config: loadConfig() },
+        );
+      },
+    );
+
+  program
+    .command("respond")
+    .argument("<runId>", "the run with the pending input")
+    .argument("<key>", "the input's key (from `boardwalk inputs`)")
+    .option("--value <text>", "the answer for a text or single-choice gate")
+    .option("--values <a,b,c>", "comma-separated selections for a multi-select gate")
+    .option("--other <text>", 'the open-text "Other..." entry for a choice / multi-select gate')
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Answer a human-in-the-loop input, resuming the run once its batch is answered.")
+    .action(
+      async (
+        runId: string,
+        key: string,
+        options: {
+          value?: string;
+          values?: string;
+          other?: string;
+          json?: boolean;
+          token?: string;
+        },
+      ) => {
+        const { runRespond } = await import("./commands/inputs.js");
+        await runRespond(
+          {
+            runId,
+            key,
+            value: options.value,
+            values: options.values,
+            other: options.other,
+            json: options.json,
+            token: options.token,
+          },
+          { config: loadConfig() },
+        );
+      },
+    );
+
+  program
     .command("webhook")
     .argument("<ref>", "workflow id (a ULID) or slug")
     .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
