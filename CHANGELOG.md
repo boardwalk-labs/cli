@@ -2,6 +2,13 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.22
+
+### Changed
+
+- Bump `@boardwalk-labs/workflow` to ^0.1.14 and `@boardwalk-labs/engine` to ^0.1.26, so `check`/
+  `deploy`/`dev` accept the new `workflow_run` trigger (run a workflow when another completes).
+
 ## 0.1.21
 
 ### Added
