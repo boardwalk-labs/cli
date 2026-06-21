@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, it, expect } from "vitest";
-import { isTerminalStatus, pollToTerminal, parseInput, type RunReader } from "./run.js";
-import type { RunSummary } from "../client.js";
+import {
+  isTerminalStatus,
+  pollToTerminal,
+  parseInput,
+  collectRunOutputs,
+  type RunReader,
+} from "./run.js";
+import type { RunSummary, RunEventSnapshot } from "../client.js";
+import type { RunEvent } from "@boardwalk-labs/workflow";
 
 function run(status: string): RunSummary {
   return {
@@ -32,6 +39,37 @@ describe("parseInput", () => {
     expect(parseInput(undefined)).toBeUndefined();
     expect(parseInput('{"a":1}')).toEqual({ a: 1 });
     expect(() => parseInput("{bad")).toThrow(/not valid JSON/);
+  });
+});
+
+describe("collectRunOutputs", () => {
+  function outputEvent(value: unknown): RunEvent {
+    return { kind: "output", value, runId: "r", turnId: "t", seq: 1, t: 0 };
+  }
+  function phaseEvent(name: string): RunEvent {
+    return { kind: "phase", name, id: "p", runId: "r", turnId: "t", seq: 1, t: 0 };
+  }
+
+  it("pulls every output(...) value from the event log, formatting non-strings as JSON", async () => {
+    const snapshot: RunEventSnapshot = {
+      events: [
+        { cursor: 1, event: phaseEvent("Research") }, // ignored — not an output frame
+        { cursor: 2, event: outputEvent("line one\nline two") },
+        { cursor: 3, event: outputEvent({ ok: true }) },
+      ],
+      done: true,
+    };
+    const outputs = await collectRunOutputs({ getRunEvents: () => Promise.resolve(snapshot) }, "r");
+    expect(outputs).toEqual(["line one\nline two", JSON.stringify({ ok: true }, null, 2)]);
+  });
+
+  it("returns [] when the run produced no output", async () => {
+    const snapshot: RunEventSnapshot = {
+      events: [{ cursor: 1, event: phaseEvent("Research") }],
+      done: true,
+    };
+    const outputs = await collectRunOutputs({ getRunEvents: () => Promise.resolve(snapshot) }, "r");
+    expect(outputs).toEqual([]);
   });
 });
 

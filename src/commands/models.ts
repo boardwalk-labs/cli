@@ -157,10 +157,13 @@ function col(s: string, width: number): string {
   return (s.length > width - 1 ? `${s.slice(0, width - 2)}…` : s).padEnd(width);
 }
 
-/** USD/1M-tokens display: 2 dp for dollar-scale prices, up to 4 dp (trimmed) for sub-dollar ones. */
+/** USD/1M-tokens display: always at least 2 dp so the price column aligns ($0.70, not $0.7);
+ *  sub-cent prices keep up to 4 dp ($0.035), trimming trailing zeros only beyond the 2nd decimal. */
 function usd(n: number): string {
-  const s = n >= 1 ? n.toFixed(2) : String(Number(n.toFixed(4)));
-  return `$${s}`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  const trimmed = Number(n.toFixed(4)); // 0.7000 → 0.7, 0.0350 → 0.035
+  const fractionDigits = Math.max(2, (trimmed.toString().split(".")[1] ?? "").length);
+  return `$${trimmed.toFixed(fractionDigits)}`;
 }
 
 /** Context window as a compact token count (200K, 1M), or "—" when the lane didn't report one. */

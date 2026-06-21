@@ -57,6 +57,15 @@ export interface RunsDeps {
 const MAX_FOLLOW_RECONNECTS = 5;
 const FOLLOW_RECONNECT_MS = 1_000;
 
+/** Map a 404 from a single-run fetch to a friendly "no such run" error; re-throw anything else.
+ *  Without this the raw `GET /v1/runs/<id> failed (404)` leaks (cf. the friendly `workflows show`). */
+function runNotFound(runId: string, err: unknown): never {
+  if (err instanceof CliError && err.status === 404) {
+    throw new CliError(`No run "${runId}" found.`, "Check the id with `boardwalk runs`.");
+  }
+  throw err instanceof Error ? err : new CliError(String(err));
+}
+
 export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> {
   const log = resolveLog(deps);
   const write =
@@ -96,11 +105,13 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
     }
     if (opts.logs === true) {
       const renderer = eventRenderer(opts, write);
-      const snapshot = await client.getRunEvents(runId);
+      const snapshot = await client
+        .getRunEvents(runId)
+        .catch((e: unknown) => runNotFound(runId, e));
       for (const row of snapshot.events) renderer.render(row.event);
       return;
     }
-    const run = await client.getRunDetail(runId);
+    const run = await client.getRunDetail(runId).catch((e: unknown) => runNotFound(runId, e));
     if (opts.json === true) {
       log(JSON.stringify(run, null, 2));
       return;

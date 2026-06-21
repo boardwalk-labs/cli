@@ -89,6 +89,20 @@ describe("formatModelList", () => {
     expect(out).toContain("… and 12 more");
   });
 
+  it("pads sub-dollar prices to ≥2 decimals, keeping sub-cent precision", () => {
+    const priced: ModelListItem[] = [
+      { id: "a/p70", name: "P70", inputPerMtok: 0.7, outputPerMtok: 0.5, contextTokens: null },
+      { id: "a/sub", name: "Sub", inputPerMtok: 0.035, outputPerMtok: 12.5, contextTokens: null },
+    ];
+    const out = formatModelList(priced, { marginPct: 0, all: true, search: undefined }).join("\n");
+    expect(out).toContain("$0.70"); // was "$0.7"
+    expect(out).toContain("$0.50"); // was "$0.5"
+    expect(out).toContain("$0.035"); // sub-cent precision preserved
+    expect(out).toContain("$12.50"); // dollar-scale unchanged
+    expect(out).not.toMatch(/\$0\.7\D/); // never the unpadded "$0.7" (next char is a digit in "$0.70")
+    expect(out).not.toMatch(/\$0\.5\D/); // never the unpadded "$0.5"
+  });
+
   it("reports no matches for a search that hits nothing", () => {
     expect(formatModelList([], { marginPct: 5, all: false, search: "zzz" })).toEqual([
       `No models match "zzz".`,

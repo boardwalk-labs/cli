@@ -3,18 +3,20 @@
 // `boardwalk run <file|dir> --org <slug>` — actually run a workflow, for real.
 //
 // Runs on the PLATFORM (where the real worker + real inference live — no mocks): it deploys the
-// current source (via the project link), triggers a run, and polls it to a terminal state. The
-// run's output payload isn't exposed over REST (dashboard-only), so we report the final
-// status/outcome + the run id and point at the dashboard for full output + logs.
+// current source (via the project link), triggers a run, polls it to a terminal state, and prints
+// the captured `output(...)` values — fetched from the run's stored event log (the same source
+// `boardwalk runs <id> --logs` reads), so the happy path shows the result without a detour to the
+// dashboard.
 
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
-import { BoardwalkClient, type RunSummary } from "../client.js";
+import { BoardwalkClient, type RunSummary, type RunEventSnapshot } from "../client.js";
 import { resolveLog } from "../log.js";
 import { reportDeterminism } from "../lint.js";
 import { deployWithLink, loadProgram } from "../deployment.js";
+import { formatOutputValue } from "../render/renderer.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
@@ -127,7 +129,7 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   log(`▶ run ${run.id} triggered (${run.status})`);
 
   if (opts.noWait === true) {
-    log("  --no-wait: not polling. Check the run in the dashboard.");
+    log(`  --no-wait: not polling. Track it with \`boardwalk runs ${run.id}\`.`);
     return;
   }
 
@@ -137,13 +139,30 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
       log(`  status → ${status}`);
     },
   });
-  printOutcome(log, terminal);
+  // Best-effort: a flaky events read shouldn't sink an otherwise-successful run — the result
+  // block still prints, just with the `--logs` pointer instead of the inline output.
+  const outputs = await collectRunOutputs(client, run.id).catch(() => []);
+  printOutcome(log, terminal, outputs);
   if (terminal.status !== "completed") {
     throw new CliError(
       `Run ${terminal.status}.`,
-      "See the run in the dashboard for logs + output.",
+      `See the full log: boardwalk runs ${terminal.id} --logs`,
     );
   }
+}
+
+/** Pull every `output(...)` value from a run's stored event log, formatted as the `--logs` view
+ *  renders them. Exported for tests; the client's `getRunEvents` satisfies the reader shape. */
+export async function collectRunOutputs(
+  client: { getRunEvents(runId: string): Promise<RunEventSnapshot> },
+  runId: string,
+): Promise<string[]> {
+  const { events } = await client.getRunEvents(runId);
+  const outputs: string[] = [];
+  for (const { event } of events) {
+    if (event.kind === "output") outputs.push(formatOutputValue(event.value));
+  }
+  return outputs;
 }
 
 /** Parse `--input '<json>'` to a value; undefined when absent. Throws on malformed JSON. */
@@ -156,10 +175,18 @@ export function parseInput(raw: string | undefined): unknown {
   }
 }
 
-function printOutcome(log: (line: string) => void, run: RunSummary): void {
+function printOutcome(log: (line: string) => void, run: RunSummary, outputs: string[]): void {
   log("──────── run result ────────");
   log(`run:     ${run.id}`);
   log(`status:  ${run.status}`);
   log(`outcome: ${run.outcomeStatus ?? "(none)"}`);
-  log("output:  view the full output + logs in the dashboard");
+  if (outputs.length === 0) {
+    log("output:  (none)");
+  } else {
+    log("output:");
+    for (const value of outputs) {
+      for (const line of value.split("\n")) log(`  ${line}`);
+    }
+  }
+  log(`logs:    boardwalk runs ${run.id} --logs`);
 }

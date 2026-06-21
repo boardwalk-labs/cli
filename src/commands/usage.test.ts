@@ -105,6 +105,18 @@ describe("runUsage", () => {
     expect(lines.join("\n")).not.toContain("Usage ·"); // no formatted output
   });
 
+  it("maps a 404 to a friendly 'org not found' error, not the raw GET path", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: { message: "Org ghost not found" } }), {
+          status: 404,
+        }),
+      )) as FetchLike;
+    await expect(
+      runUsage({ org: "ghost", token: "t" }, { config: CONFIG, fetchImpl, log: () => undefined }),
+    ).rejects.toThrow(/Org "ghost" not found/);
+  });
+
   it("rejects an invalid --days without making a request", async () => {
     let called = false;
     const fetchImpl = (() => {

@@ -148,7 +148,9 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
   }
 }
 
-function formatOutputValue(value: unknown): string {
+/** Render an `output(...)` value for display: strings verbatim, everything else pretty JSON. Shared
+ *  by the live renderer and `boardwalk run`'s result block so both surface output identically. */
+export function formatOutputValue(value: unknown): string {
   if (typeof value === "string") return value;
   // JSON.stringify returns undefined at runtime for undefined/functions (its types lie).
   if (value === undefined) return "null";

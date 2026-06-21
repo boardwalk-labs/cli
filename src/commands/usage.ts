@@ -55,7 +55,16 @@ export async function runUsage(opts: UsageOptions, deps: UsageDeps): Promise<voi
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
 
-  const usage = await client.getUsage(org, days);
+  const usage = await client.getUsage(org, days).catch((err: unknown) => {
+    // A friendly org-not-found rather than leaking `GET /v1/orgs/<slug>/usage failed (404)`.
+    if (err instanceof CliError && err.status === 404) {
+      throw new CliError(
+        `Org "${org}" not found.`,
+        "Check the slug with `boardwalk status` (it lists your orgs).",
+      );
+    }
+    throw err instanceof Error ? err : new CliError(String(err));
+  });
   if (opts.json === true) {
     log(JSON.stringify(usage, null, 2));
     return;

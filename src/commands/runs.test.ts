@@ -156,6 +156,19 @@ describe("runRuns", () => {
     expect(out).toMatch(/Workflow\s+nightly-summary/);
   });
 
+  it("maps a 404 on a run id to a friendly 'no run found' error, not the raw GET path", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: { message: "Not found" } }), { status: 404 }),
+      )) as FetchLike;
+    await expect(
+      runRuns(
+        { runId: "run_ghost", token: "t" },
+        { config: CONFIG, fetchImpl, log: () => undefined, now: NOW },
+      ),
+    ).rejects.toThrow(/No run "run_ghost" found/);
+  });
+
   it("passes --status and --limit through as query params", async () => {
     const { fetchImpl, urls } = runsFetch({ runs: [], nextCursor: null });
     await runRuns(
