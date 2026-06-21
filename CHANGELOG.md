@@ -2,6 +2,13 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.23
+
+### Changed
+
+- Bump `@boardwalk-labs/workflow` to ^0.1.15 and `@boardwalk-labs/engine` to ^0.1.27, so `check`/
+  `dev`/`build` typecheck programs that set `budget.deadline_seconds`.
+
 ## 0.1.22
 
 ### Changed
