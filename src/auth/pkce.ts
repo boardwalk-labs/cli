@@ -218,7 +218,7 @@ export async function startLoopback(port: number): Promise<Loopback> {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${String(port)}`);
     if (url.pathname !== CALLBACK_PATH) {
-      res.writeHead(404);
+      res.writeHead(404, { Connection: "close" });
       res.end();
       return;
     }
@@ -241,7 +241,10 @@ export async function startLoopback(port: number): Promise<Loopback> {
       message = "Boardwalk login complete — you can close this tab and return to the terminal.";
       resolveCode(code);
     }
-    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    // `Connection: close` so the browser drops its socket once it has the response, rather than
+    // parking it open with HTTP keep-alive — a single parked socket keeps Node's event loop alive
+    // and the CLI hangs after a successful login. `close()` reaps any stragglers regardless.
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", Connection: "close" });
     res.end(message);
   });
 
@@ -266,7 +269,14 @@ export async function startLoopback(port: number): Promise<Loopback> {
       return Promise.race([codePromise, timeout]);
     },
     close(): void {
+      // `server.close()` only stops accepting NEW connections; it leaves already-open sockets
+      // (e.g. a keep-alive callback socket or a browser preconnect) intact, and any one of them
+      // keeps the event loop alive so `boardwalk login` never returns to the shell after printing
+      // "Logged in". `closeAllConnections()` forces the lingering sockets shut so the process exits.
+      // Safe here: the success response is fully flushed before `close()` runs (the caller does a
+      // full token-exchange round-trip in between).
       server.close();
+      server.closeAllConnections();
     },
   };
 }
