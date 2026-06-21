@@ -2,6 +2,25 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.24
+
+### Fixed
+
+- `login` no longer hangs after printing `✓ Logged in.`. The loopback OAuth callback server now
+  forces its sockets shut on teardown (`Connection: close` on the callback response plus
+  `closeAllConnections()`), so the browser's parked keep-alive socket can't hold the event loop
+  open and the command returns to the shell.
+- `runs <id>` and `usage --org <slug>` now show a friendly `No run "…" found.` / `Org "…" not
+found.` for an unknown id/slug, instead of leaking the raw `GET /v1/… failed (404)` line.
+- `models list` pads sub-dollar prices to a consistent 2+ decimals (`$0.70`, not `$0.7`) while
+  keeping sub-cent precision (`$0.035`).
+
+### Changed
+
+- `run` prints the workflow's `output(...)` inline in its result block (read from the run's event
+  log, the same source as `runs <id> --logs`) and points at `boardwalk runs <id> --logs`, rather
+  than deferring the result to the dashboard.
+
 ## 0.1.23
 
 ### Changed
