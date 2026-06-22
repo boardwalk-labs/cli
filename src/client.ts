@@ -176,6 +176,33 @@ export interface SecretListItem {
   createdAt: number | null;
 }
 
+/** A named environment (a config set a run/schedule targets by name; null = the org-level base). */
+export interface EnvironmentItem {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
+export interface CreateEnvironmentInput {
+  name: string;
+  description?: string;
+}
+
+/** A NON-secret environment variable — the value IS returned on reads (injected into a run's
+ *  process.env). `environmentId` null = the org-level base. */
+export interface VariableItem {
+  id: string;
+  name: string;
+  value: string;
+  environmentId: string | null;
+}
+
+export interface CreateVariableInput {
+  name: string;
+  value: string;
+  environmentId?: string | null;
+}
+
 /** Input for creating a secret. The raw `value` is staged into Secrets Manager server-side; only the
  *  ARN + a last-4 hint persist. */
 export interface CreateSecretInput {
@@ -415,6 +442,78 @@ export class BoardwalkClient {
     await this.request<undefined>("DELETE", `/v1/secrets/${encodeURIComponent(id)}`);
   }
 
+  /** List the org's named environments (id/name/description). */
+  async listEnvironments(orgSlug: string): Promise<EnvironmentItem[]> {
+    const body = await this.request<{ environments?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/environments`,
+    );
+    const rows = Array.isArray(body.environments) ? body.environments : [];
+    const out: EnvironmentItem[] = [];
+    for (const row of rows) {
+      const parsed = parseEnvironmentRow(row);
+      if (parsed !== null) out.push(parsed);
+    }
+    return out;
+  }
+
+  /** Create a named environment. */
+  async createEnvironment(
+    orgSlug: string,
+    input: CreateEnvironmentInput,
+  ): Promise<EnvironmentItem> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/environments`,
+      input,
+    );
+    const env = isRecord(body) ? parseEnvironmentRow(body.environment) : null;
+    if (env === null) {
+      throw new CliError("The API returned an unexpected environment response shape.");
+    }
+    return env;
+  }
+
+  /** Delete an environment by id (DELETE /v1/environments/:id). */
+  async deleteEnvironment(id: string): Promise<void> {
+    await this.request<undefined>("DELETE", `/v1/environments/${encodeURIComponent(id)}`);
+  }
+
+  /** List the org's NON-secret variables — values INCLUDED (they're non-secret), across all
+   *  environments (each carries its `environmentId`; null = the org base). */
+  async listVariables(orgSlug: string): Promise<VariableItem[]> {
+    const body = await this.request<{ variables?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/env-variables`,
+    );
+    const rows = Array.isArray(body.variables) ? body.variables : [];
+    const out: VariableItem[] = [];
+    for (const row of rows) {
+      const parsed = parseVariableRow(row);
+      if (parsed !== null) out.push(parsed);
+    }
+    return out;
+  }
+
+  /** Create (or set) a non-secret variable. `environmentId` null/omitted = the org base. */
+  async createVariable(orgSlug: string, input: CreateVariableInput): Promise<VariableItem> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/env-variables`,
+      input,
+    );
+    const variable = isRecord(body) ? parseVariableRow(body.variable) : null;
+    if (variable === null) {
+      throw new CliError("The API returned an unexpected variable response shape.");
+    }
+    return variable;
+  }
+
+  /** Delete a variable by id (DELETE /v1/env-variables/:id). */
+  async deleteVariable(id: string): Promise<void> {
+    await this.request<undefined>("DELETE", `/v1/env-variables/${encodeURIComponent(id)}`);
+  }
+
   /** List the org's inference providers — endpoint metadata only; API keys are never returned. */
   async listProviders(orgSlug: string): Promise<ProviderListItem[]> {
     const body = await this.request<{ providers?: unknown }>(
@@ -504,11 +603,18 @@ export class BoardwalkClient {
     }
   }
 
-  async triggerRun(orgSlug: string, workflowId: string, input: unknown): Promise<RunSummary> {
+  async triggerRun(
+    orgSlug: string,
+    workflowId: string,
+    input: unknown,
+    environment?: string,
+  ): Promise<RunSummary> {
     const path = `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows/${encodeURIComponent(workflowId)}/runs`;
-    return this.runSummary(
-      await this.request<unknown>("POST", path, input === undefined ? {} : { input }),
-    );
+    const body: Record<string, unknown> = {};
+    if (input !== undefined) body.input = input;
+    // `environment` is the NAME; the server resolves it to the environment's id (omitted = org base).
+    if (environment !== undefined) body.environment = environment;
+    return this.runSummary(await this.request<unknown>("POST", path, body));
   }
 
   async getRun(runId: string): Promise<RunSummary> {
@@ -1068,6 +1174,25 @@ function parseSecretRow(row: unknown): SecretListItem | null {
     last4: typeof row.last4 === "string" ? row.last4 : null,
     description: typeof row.description === "string" ? row.description : null,
     createdAt: typeof row.createdAt === "number" ? row.createdAt : null,
+  };
+}
+
+function parseEnvironmentRow(row: unknown): EnvironmentItem | null {
+  if (!isRecord(row) || typeof row.id !== "string" || typeof row.name !== "string") return null;
+  return {
+    id: row.id,
+    name: row.name,
+    description: typeof row.description === "string" ? row.description : null,
+  };
+}
+
+function parseVariableRow(row: unknown): VariableItem | null {
+  if (!isRecord(row) || typeof row.id !== "string" || typeof row.name !== "string") return null;
+  return {
+    id: row.id,
+    name: row.name,
+    value: typeof row.value === "string" ? row.value : "",
+    environmentId: typeof row.environmentId === "string" ? row.environmentId : null,
   };
 }
 

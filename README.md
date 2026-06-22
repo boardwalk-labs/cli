@@ -101,6 +101,28 @@ boardwalk inference add vllm --source openai_compatible --base-url https://vllm.
 boardwalk inference delete my-openai --yes
 ```
 
+## Environments + variables
+
+An **environment** is a named set of config (secrets + non-secret variables) a run targets by name;
+the org base always applies underneath. A **variable** is non-secret config injected into the run as
+a `process.env` value (read it with `process.env.NAME`). The environment is chosen per run, not in the
+manifest — pass `--environment` to `run`:
+
+```
+boardwalk environments                       # named environments (org base always applies underneath)
+boardwalk environments create Production
+boardwalk environments delete Production --yes
+
+boardwalk variables                          # non-secret variables (VALUES are shown — they're not secret)
+boardwalk variables set POSTHOG_PROJECT_ID 394895 --environment Production
+boardwalk variables list --environment Production
+boardwalk variables delete REGION --yes
+
+boardwalk run ./index.ts --org my-team --environment Production   # run against an environment
+```
+
+Use **secrets** (above) for credentials — never store a secret as a variable.
+
 Secret VALUES are never displayed by any surface — `list` shows a name + a last-4 hint. Provider API
 keys are staged into Secrets Manager server-side and never returned. **Writes (`set`/`delete`,
 `add`, and `workflows delete`) need an ELEVATED login** — see below; the default login is read-only

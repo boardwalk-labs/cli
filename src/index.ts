@@ -18,6 +18,8 @@
 //   boardwalk webhook <ref> [--rotate]        Show a workflow's inbound webhook URL (--rotate mints).
 //   boardwalk workflows [list|show|delete]    Inspect the org's workflows.
 //   boardwalk secrets [list|set|delete]       Manage org secrets (writes need login --scopes admin).
+//   boardwalk environments [list|create|delete]  Manage named environments (config sets a run targets).
+//   boardwalk variables [list|set|delete]     Manage non-secret env variables (injected as process.env).
 //   boardwalk inference [list|add|delete]     Manage BYO inference providers (writes need elevated).
 //
 // Auth precedence for deploy/run/cancel/usage/runs/workflows: --token > BOARDWALK_API_KEY env >
@@ -60,6 +62,7 @@ interface DeployCliOptions {
 interface RunCliOptions {
   org?: string;
   input?: string;
+  environment?: string;
   token?: string;
   wait?: boolean;
 }
@@ -209,6 +212,10 @@ function buildProgram(): Command {
     .argument("<file>", "workflow program file, or a package directory")
     .option("--org <slug>", "the org to run in (optional once the project is linked)")
     .option("--input <json>", "trigger payload exposed to the program as `input`")
+    .option(
+      "--environment <name>",
+      "environment to run in (its secrets + variables; default: org base)",
+    )
     .option("--no-wait", "trigger and exit without waiting for the run to finish")
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Deploy the program, trigger a real run, and wait for the result.")
@@ -219,6 +226,7 @@ function buildProgram(): Command {
           file,
           org: options.org,
           input: options.input,
+          environment: options.environment,
           noWait: options.wait === false,
           token: options.token,
         },
@@ -403,6 +411,8 @@ function buildProgram(): Command {
 
   registerWorkflowsCommand(program);
   registerSecretsCommand(program);
+  registerEnvironmentsCommand(program);
+  registerVariablesCommand(program);
   registerInferenceCommand(program);
   registerModelsCommand(program);
 
@@ -549,6 +559,108 @@ function registerSecretsCommand(program: Command): void {
       ) => {
         const { runSecretDelete } = await import("./commands/secrets.js");
         await runSecretDelete({ name, ...options }, { config: loadConfig() });
+      },
+    );
+}
+
+/** Register `environments` + its `list` / `create` / `delete` subcommands (writes need elevation). */
+function registerEnvironmentsCommand(program: Command): void {
+  const environments = program
+    .command("environments")
+    .description("Manage the org's named environments (list, create, delete).");
+
+  environments
+    .command("list", { isDefault: true })
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the org's named environments.")
+    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+      const { runEnvironmentsList } = await import("./commands/environments.js");
+      await runEnvironmentsList(options, { config: loadConfig() });
+    });
+
+  environments
+    .command("create")
+    .argument("<name>", "environment name, e.g. Production")
+    .option("--description <text>", "optional human description")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Create a named environment. Needs `boardwalk login --scopes admin`.")
+    .action(
+      async (name: string, options: { description?: string; org?: string; token?: string }) => {
+        const { runEnvironmentCreate } = await import("./commands/environments.js");
+        await runEnvironmentCreate({ name, ...options }, { config: loadConfig() });
+      },
+    );
+
+  environments
+    .command("delete")
+    .argument("<name>", "environment name")
+    .option("--yes", "actually delete — without it, prints the target and exits", false)
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Delete an environment (irreversible; its variables go too). Needs admin.")
+    .action(async (name: string, options: { yes?: boolean; org?: string; token?: string }) => {
+      const { runEnvironmentDelete } = await import("./commands/environments.js");
+      await runEnvironmentDelete({ name, ...options }, { config: loadConfig() });
+    });
+}
+
+/** Register `variables` + its `list` / `set` / `delete` subcommands (NON-secret config; writes need elevation). */
+function registerVariablesCommand(program: Command): void {
+  const variables = program
+    .command("variables")
+    .description("Manage the org's non-secret environment variables (list, set, delete).");
+
+  variables
+    .command("list", { isDefault: true })
+    .option("--environment <name>", "only variables in this environment (default: all)")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the org's non-secret variables (values included).")
+    .action(
+      async (options: { environment?: string; org?: string; json?: boolean; token?: string }) => {
+        const { runVariablesList } = await import("./commands/variables.js");
+        await runVariablesList(options, { config: loadConfig() });
+      },
+    );
+
+  variables
+    .command("set")
+    .argument("<name>", "variable name, e.g. POSTHOG_PROJECT_ID")
+    .argument("<value>", "the non-secret value")
+    .option("--environment <name>", "scope to this environment (default: org base)")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Set a non-secret variable. Needs `boardwalk login --scopes admin`.")
+    .action(
+      async (
+        name: string,
+        value: string,
+        options: { environment?: string; org?: string; token?: string },
+      ) => {
+        const { runVariableSet } = await import("./commands/variables.js");
+        await runVariableSet({ name, value, ...options }, { config: loadConfig() });
+      },
+    );
+
+  variables
+    .command("delete")
+    .argument("<name>", "variable name")
+    .option("--environment <name>", "scope to this environment (default: org base)")
+    .option("--yes", "actually delete — without it, prints the target and exits", false)
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Delete a non-secret variable. Needs `boardwalk login --scopes admin`.")
+    .action(
+      async (
+        name: string,
+        options: { environment?: string; yes?: boolean; org?: string; token?: string },
+      ) => {
+        const { runVariableDelete } = await import("./commands/variables.js");
+        await runVariableDelete({ name, ...options }, { config: loadConfig() });
       },
     );
 }

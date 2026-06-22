@@ -81,6 +81,8 @@ export interface RunOptions {
   file: string;
   org?: string | undefined;
   input?: string | undefined;
+  /** Environment NAME to run in (omit = the org base). Selected here, not in the manifest. */
+  environment?: string | undefined;
   token?: string | undefined;
   noWait?: boolean;
 }
@@ -125,8 +127,10 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   log(`✓ ${dep.outcome} "${dep.deployedSlug}" version ${String(dep.versionNumber)}`);
 
   const input = parseInput(opts.input);
-  const run = await client.triggerRun(dep.orgSlug, dep.workflowId, input);
-  log(`▶ run ${run.id} triggered (${run.status})`);
+  const run = await client.triggerRun(dep.orgSlug, dep.workflowId, input, opts.environment);
+  log(
+    `▶ run ${run.id} triggered (${run.status})${opts.environment !== undefined ? ` in ${opts.environment}` : ""}`,
+  );
 
   if (opts.noWait === true) {
     log(`  --no-wait: not polling. Track it with \`boardwalk runs ${run.id}\`.`);
