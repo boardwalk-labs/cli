@@ -37,7 +37,9 @@ describe("reportDeterminism", () => {
 describe("enforceDeterminism", () => {
   it("is a no-op on a clean program", () => {
     const lines: string[] = [];
-    expect(() => enforceDeterminism(CLEAN, "index.ts", (l) => lines.push(l), false)).not.toThrow();
+    expect(() => {
+      enforceDeterminism(CLEAN, "index.ts", (l) => lines.push(l), false);
+    }).not.toThrow();
     expect(lines).toEqual([]);
   });
 
@@ -57,15 +59,17 @@ describe("enforceDeterminism", () => {
 
   it("proceeds (no throw) with a note when allow is set", () => {
     const lines: string[] = [];
-    expect(() => enforceDeterminism(RACY, "index.ts", (l) => lines.push(l), true)).not.toThrow();
+    expect(() => {
+      enforceDeterminism(RACY, "index.ts", (l) => lines.push(l), true);
+    }).not.toThrow();
     expect(lines.join("\n")).toContain("proceeding anyway (--allow-nondeterminism)");
   });
 
   it("prints but does NOT block on advisory-only warnings (bare fetch)", () => {
     const lines: string[] = [];
-    expect(() =>
-      enforceDeterminism(FETCH_ONLY, "index.ts", (l) => lines.push(l), false),
-    ).not.toThrow();
+    expect(() => {
+      enforceDeterminism(FETCH_ONLY, "index.ts", (l) => lines.push(l), false);
+    }).not.toThrow();
     const out = lines.join("\n");
     expect(out).toContain("fetch"); // still surfaced
     expect(out).not.toContain("proceeding anyway"); // nothing to override — it just deploys
