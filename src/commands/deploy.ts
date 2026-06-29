@@ -11,7 +11,7 @@ import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient } from "../client.js";
 import { resolveLog } from "../log.js";
-import { reportDeterminism } from "../lint.js";
+import { enforceDeterminism } from "../lint.js";
 import { deployWithLink, loadProgram, planDeploy, type PreparedProgram } from "../deployment.js";
 import { projectDirFor, readLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -20,7 +20,8 @@ export interface DeployOptions {
   file: string;
   org?: string | undefined;
   check: boolean;
-  /** Force esbuild bundling even for a single file (auto-on for a package directory). */
+  /** Deploy even when the determinism lint flags bare nondeterministic calls (the escape hatch). */
+  allowNondeterminism?: boolean | undefined;
   token?: string | undefined;
 }
 
@@ -38,7 +39,7 @@ export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<
   log(
     `  built ${prog.entry} (${String(prog.artifact.size)} bytes${assets > 0 ? `, ${String(assets)} asset${assets === 1 ? "" : "s"}` : ""})`,
   );
-  reportDeterminism(prog.artifact.entrySource, prog.entry, log);
+  enforceDeterminism(prog.artifact.entrySource, prog.entry, log, opts.allowNondeterminism ?? false);
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({

@@ -35,7 +35,7 @@ describe("runCheck", () => {
     expect(out).toContain("API_KEY");
   });
 
-  it("passes but emits an advisory determinism warning for bare nondeterminism", async () => {
+  it("FAILS on bare nondeterminism and does not print the valid banner", async () => {
     const file = join(dir, "racy.ts");
     writeFileSync(
       file,
@@ -44,11 +44,43 @@ describe("runCheck", () => {
        console.log(now);`,
     );
     const lines: string[] = [];
+    await expect(runCheck({ file }, { log: (l) => lines.push(l) })).rejects.toThrow(
+      /determinism issue/,
+    );
+    const out = lines.join("\n");
+    expect(out).toContain("Date.now"); // the warning is still printed
+    expect(out).not.toContain('"racy" is valid'); // the gate runs before the banner
+  });
+
+  it("passes bare nondeterminism with --allow-nondeterminism, still printing the warning", async () => {
+    const file = join(dir, "racy-ok.ts");
+    writeFileSync(
+      file,
+      `export const meta = { slug: "racy-ok", triggers: [{ kind: "manual" }] };
+       const now = Date.now();
+       console.log(now);`,
+    );
+    const lines: string[] = [];
+    await runCheck({ file, allowNondeterminism: true }, { log: (l) => lines.push(l) });
+    const out = lines.join("\n");
+    expect(out).toContain("Date.now");
+    expect(out).toContain("--allow-nondeterminism");
+    expect(out).toContain('"racy-ok" is valid');
+  });
+
+  it("passes a simple non-suspending workflow with a bare fetch (advisory, not blocking)", async () => {
+    const file = join(dir, "fetcher.ts");
+    writeFileSync(
+      file,
+      `export const meta = { slug: "fetcher", triggers: [{ kind: "manual" }] };
+       const r = await fetch("https://example.com");
+       console.log(r);`,
+    );
+    const lines: string[] = [];
     await runCheck({ file }, { log: (l) => lines.push(l) });
     const out = lines.join("\n");
-    expect(out).toContain('"racy" is valid'); // advisory — does not fail the check
-    expect(out).toContain("determinism warning");
-    expect(out).toContain("Date.now");
+    expect(out).toContain("fetch"); // surfaced as advisory
+    expect(out).toContain('"fetcher" is valid'); // but check still passes
   });
 
   it("emits NO determinism warning when nondeterminism is inside step.run", async () => {

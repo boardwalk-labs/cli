@@ -13,11 +13,13 @@ import { readFileSync } from "node:fs";
 import { buildArtifact } from "../artifact.js";
 import { resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
-import { reportDeterminism } from "../lint.js";
+import { enforceDeterminism } from "../lint.js";
 import { resolveLog } from "../log.js";
 
 export interface CheckOptions {
   file: string;
+  /** Pass `check` even when the determinism lint flags bare nondeterministic calls (the escape hatch). */
+  allowNondeterminism?: boolean | undefined;
 }
 
 export interface CheckDeps {
@@ -36,6 +38,11 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   const artifact = await buildArtifact(opts.file);
   const assets = artifact.assetPaths.length;
 
+  // Determinism gate — bare nondeterminism outside a journaled seam corrupts a run on resume/crash,
+  // so it fails `check` (the escape hatch is --allow-nondeterminism). Runs before the "valid" banner
+  // so a failure stops here.
+  enforceDeterminism(source, entry, log, opts.allowNondeterminism ?? false);
+
   log(`✓ "${manifest.slug}" is valid`);
   log(`  entry:    ${artifact.entry}`);
   log(`  triggers: ${manifest.triggers.map((t) => t.kind).join(", ")}`);
@@ -45,7 +52,4 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   }
   log(`  artifact: ${String(artifact.size)} bytes (sha256 ${artifact.digest.slice(0, 12)}…)`);
   if (assets > 0) log(`  assets:   ${artifact.assetPaths.join(", ")}`);
-
-  // Advisory determinism check (does not fail `check`).
-  reportDeterminism(source, entry, log);
 }

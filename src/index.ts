@@ -57,6 +57,7 @@ interface DeployCliOptions {
   org?: string;
   dryRun?: boolean;
   token?: string;
+  allowNondeterminism?: boolean;
 }
 
 interface RunCliOptions {
@@ -65,6 +66,7 @@ interface RunCliOptions {
   environment?: string;
   token?: string;
   wait?: boolean;
+  allowNondeterminism?: boolean;
 }
 
 interface DevCliOptions {
@@ -131,10 +133,15 @@ function buildProgram(): Command {
   program
     .command("check")
     .argument("<file>", "workflow program file, or a package directory")
+    .option(
+      "--allow-nondeterminism",
+      "pass even if the determinism lint flags bare Date.now()/Math.random()/etc.",
+      false,
+    )
     .description("Validate a workflow locally (no auth, no network).")
-    .action(async (file: string) => {
+    .action(async (file: string, options: { allowNondeterminism?: boolean }) => {
       const { runCheck } = await import("./commands/check.js");
-      await runCheck({ file });
+      await runCheck({ file, allowNondeterminism: options.allowNondeterminism });
     });
 
   program
@@ -192,6 +199,11 @@ function buildProgram(): Command {
     .argument("<file>", "workflow program file, or a package directory")
     .option("--org <slug>", "the org to deploy into (optional once the project is linked)")
     .option("--dry-run", "print the plan (create vs update) without writing", false)
+    .option(
+      "--allow-nondeterminism",
+      "deploy even if the determinism lint flags bare Date.now()/Math.random()/etc.",
+      false,
+    )
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Create or update a workflow from a program file.")
     .action(async (file: string, options: DeployCliOptions) => {
@@ -201,6 +213,7 @@ function buildProgram(): Command {
           file,
           org: options.org,
           check: options.dryRun ?? false,
+          allowNondeterminism: options.allowNondeterminism,
           token: options.token,
         },
         { config: loadConfig() },
@@ -217,6 +230,11 @@ function buildProgram(): Command {
       "environment to run in (its secrets + variables; default: org base)",
     )
     .option("--no-wait", "trigger and exit without waiting for the run to finish")
+    .option(
+      "--allow-nondeterminism",
+      "deploy + run even if the determinism lint flags bare Date.now()/Math.random()/etc.",
+      false,
+    )
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Deploy the program, trigger a real run, and wait for the result.")
     .action(async (file: string, options: RunCliOptions) => {
@@ -228,6 +246,7 @@ function buildProgram(): Command {
           input: options.input,
           environment: options.environment,
           noWait: options.wait === false,
+          allowNondeterminism: options.allowNondeterminism,
           token: options.token,
         },
         { config: loadConfig() },
