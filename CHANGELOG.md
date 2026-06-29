@@ -2,6 +2,17 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.27
+
+### Changed
+
+- **Determinism is now enforced.** `deploy`, `run`, and `check` **block** on bare clock/random/uuid
+  calls outside a journaled seam (`Date.now` / `new Date()` / `Math.random` / `crypto.randomUUID` /
+  `crypto.getRandomValues` / `randomUUID`), which corrupt a run's state on a resume or crash. Fix
+  them with the durable `now()` / `random()` / `uuid()` primitives (`@boardwalk-labs/workflow`
+  ≥ 0.1.17), or `step.run(...)`, or pass `--allow-nondeterminism` to override. Bare `fetch` stays
+  advisory (it does not block), and `build` / `dev` print all determinism warnings advisory.
+
 ## 0.1.24
 
 ### Fixed
