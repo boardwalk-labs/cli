@@ -2,6 +2,19 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.30
+
+### Fixed
+
+- `webhook` now renders the real webhook contract: the endpoint URL is bare (the secret is
+  **never** in the URL) and verification happens in a header per the trigger's verifier preset —
+  `X-Boardwalk-Token`, a custom header, `X-Boardwalk-Signature` HMAC, or the GitHub / Stripe /
+  Slack / Linear dialects. Previously the command printed a `…/<token>` URL from the retired
+  URL-token design, and `webhook --rotate` on a token-auth trigger printed only the URL —
+  discarding the freshly minted secret it had just rotated to. `--rotate` now always reveals the
+  secret (show-once) with per-scheme sending guidance, and `--json` carries the new `preset` +
+  `header` fields.
+
 ## 0.1.27
 
 ### Changed
