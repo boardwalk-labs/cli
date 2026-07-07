@@ -292,6 +292,24 @@ export interface UsageSummary {
   byWorkflow: UsageLine[];
 }
 
+/** One plan-allowance gauge (real units): what the cycle includes vs what's been drawn. */
+export interface AllowanceGauges {
+  agentHours: { included: number; used: number };
+  tokenPool: { includedCents: number; usedCents: number };
+  searches: { included: number; used: number };
+}
+
+/** The org's plan + allowance summary (GET /v1/orgs/:slug/billing/allowances) — the subset the
+ *  `boardwalk usage` gauges render. `gauges` is null on plans without allowances (free / legacy /
+ *  enterprise). The whole endpoint is OPTIONAL: an older / self-hosted backend without it makes
+ *  getAllowances return null and the CLI simply omits the plan block. */
+export interface AllowancesSummary {
+  plan: string;
+  periodEnd: number | null;
+  gauges: AllowanceGauges | null;
+  spendCap: { capCents: number | null; usedCents: number };
+}
+
 export interface BoardwalkClientOptions {
   baseUrl: string;
   token: string;
@@ -790,6 +808,24 @@ export class BoardwalkClient {
     return this.modelList(await this.request<unknown>("GET", "/v1/inference/rates"));
   }
 
+  /**
+   * Fetch the org's plan-allowance gauges, or null when the backend doesn't serve them (an older
+   * or self-hosted deployment — the endpoint is additive, so absence is not an error).
+   */
+  async getAllowances(orgSlug: string): Promise<AllowancesSummary | null> {
+    let body: unknown;
+    try {
+      body = await this.request<unknown>(
+        "GET",
+        `/v1/orgs/${encodeURIComponent(orgSlug)}/billing/allowances`,
+      );
+    } catch (err) {
+      if (err instanceof CliError && err.status === 404) return null;
+      throw err;
+    }
+    return parseAllowances(body);
+  }
+
   /** Fetch the org's usage summary over `days` (server default when omitted, capped at 90). */
   async getUsage(orgSlug: string, days?: number): Promise<UsageSummary> {
     const query = days !== undefined ? `?days=${String(days)}` : "";
@@ -977,6 +1013,41 @@ export class BoardwalkClient {
 /** A number field, or a fallback when it's missing/non-numeric. */
 function numOr(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+/** Lenient parse of the allowances payload; null when the shape isn't recognizable. */
+function parseAllowances(body: unknown): AllowancesSummary | null {
+  if (!isRecord(body) || typeof body.plan !== "string") return null;
+  const g = isRecord(body.gauges) ? body.gauges : null;
+  const numPair = (v: unknown, a: string, b: string): [number, number] | null => {
+    if (!isRecord(v)) return null;
+    const x = v[a];
+    const y = v[b];
+    return typeof x === "number" && typeof y === "number" ? [x, y] : null;
+  };
+  let gauges: AllowanceGauges | null = null;
+  if (g !== null) {
+    const hours = numPair(g.agentHours, "included", "used");
+    const pool = numPair(g.tokenPool, "includedCents", "usedCents");
+    const searches = numPair(g.searches, "included", "used");
+    if (hours !== null && pool !== null && searches !== null) {
+      gauges = {
+        agentHours: { included: hours[0], used: hours[1] },
+        tokenPool: { includedCents: pool[0], usedCents: pool[1] },
+        searches: { included: searches[0], used: searches[1] },
+      };
+    }
+  }
+  const cap = isRecord(body.spendCap) ? body.spendCap : {};
+  return {
+    plan: body.plan,
+    periodEnd: typeof body.periodEnd === "number" ? body.periodEnd : null,
+    gauges,
+    spendCap: {
+      capCents: typeof cap.capCents === "number" ? cap.capCents : null,
+      usedCents: numOr(cap.usedCents, 0),
+    },
+  };
 }
 
 /** Parse a `{ inputs: [...] }` response into `HumanInputItem[]`, skipping malformed rows. */

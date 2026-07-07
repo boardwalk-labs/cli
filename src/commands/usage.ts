@@ -11,7 +11,12 @@ import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { resolveLog } from "../log.js";
-import { BoardwalkClient, type UsageSummary, type UsageLine } from "../client.js";
+import {
+  BoardwalkClient,
+  type AllowancesSummary,
+  type UsageSummary,
+  type UsageLine,
+} from "../client.js";
 import { readLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -65,11 +70,61 @@ export async function runUsage(opts: UsageOptions, deps: UsageDeps): Promise<voi
     }
     throw err instanceof Error ? err : new CliError(String(err));
   });
+  // Plan-allowance gauges (§5.1b: real units + a bar, one reset line). Best-effort: the endpoint
+  // is additive, so an older / self-hosted backend (or any error) just omits the block.
+  const allowances = await client.getAllowances(org).catch(() => null);
   if (opts.json === true) {
-    log(JSON.stringify(usage, null, 2));
+    log(JSON.stringify(allowances === null ? usage : { ...usage, allowances }, null, 2));
     return;
   }
+  for (const line of formatAllowances(allowances)) log(line);
   for (const line of formatUsage(org, usage)) log(line);
+}
+
+/**
+ * Render the plan block: one gauge per allowance in REAL units plus a bar ("14.2 of 25
+ * agent-hours"), and a single "Allowances reset <date>" line — never a bare percentage (the
+ * decided display, SUBSCRIPTION_PLAN_RESEARCH §5.1b). Empty for plans without allowances.
+ * Pure — exported for tests.
+ */
+export function formatAllowances(a: AllowancesSummary | null): string[] {
+  if (a?.gauges == null) return [];
+  const g = a.gauges;
+  const lines: string[] = [
+    `Plan · ${a.plan}`,
+    "",
+    gauge("Agent-hours", g.agentHours.used, g.agentHours.included, (n) => trim1(n)),
+    gauge("Token pool", g.tokenPool.usedCents, g.tokenPool.includedCents, usd),
+    gauge("Searches", g.searches.used, g.searches.included, (n) =>
+      Math.round(n).toLocaleString("en-US"),
+    ),
+  ];
+  if (a.spendCap.capCents !== null) {
+    lines.push(gauge("Spend cap", a.spendCap.usedCents, a.spendCap.capCents, usd));
+  }
+  if (a.periodEnd !== null) {
+    const reset = new Date(a.periodEnd).toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+    lines.push("", `  Allowances reset ${reset}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+/** "  Agent-hours  [████████░░░░░░░░░░░░]  14.2 of 25" — a 20-cell bar plus the real units. */
+function gauge(label: string, used: number, included: number, fmt: (n: number) => string): string {
+  const ratio = included <= 0 ? 0 : Math.min(1, Math.max(0, used / included));
+  const filled = Math.round(ratio * 20);
+  const bar = `[${"█".repeat(filled)}${"░".repeat(20 - filled)}]`;
+  return `  ${label.padEnd(11)} ${bar}  ${fmt(used)} of ${fmt(included)}`;
+}
+
+/** One decimal only when it matters: 14.2 stays 14.2, 25 stays 25. */
+function trim1(n: number): string {
+  return Number.isInteger(n) ? n.toLocaleString("en-US") : n.toFixed(1);
 }
 
 /** Parse + validate the `--days` window (a positive whole number), or undefined for the server default. */
