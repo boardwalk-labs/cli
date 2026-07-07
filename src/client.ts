@@ -156,12 +156,19 @@ export interface WorkflowDetail {
   disabled: boolean;
 }
 
-/** A workflow's inbound webhook endpoint (GET /v1/orgs/:slug/workflows/:id/webhook). For `token`
- *  auth the secret rides in the URL path; for `signature` auth it is the HMAC key (sent in a header)
- *  and the URL stays tokenless. The secret VALUE is never returned by the read surface. */
+/** A workflow's inbound webhook endpoint (GET /v1/orgs/:slug/workflows/:id/webhook). The URL is
+ *  the bare workflow endpoint — the secret is NEVER carried in the URL; it rides in a header per
+ *  the trigger's verifier `preset` (`token` = X-Boardwalk-Token, `custom_header` = the named
+ *  `header`, `signature` = HMAC in X-Boardwalk-Signature, or a provider dialect like `github`).
+ *  The secret VALUE is never returned by the read surface. */
 export interface WorkflowWebhookInfo {
   url: string;
+  /** The coarse family the manifest declared. */
   auth: "token" | "signature";
+  /** The resolved verification dialect; null from an older server (fall back on `auth`). */
+  preset: string | null;
+  /** Bearer header name for the `custom_header` preset; null otherwise. */
+  header: string | null;
 }
 
 /** One secret in the org's catalog (GET /v1/orgs/:slug/secrets) — metadata only; VALUES are never
@@ -434,8 +441,8 @@ export class BoardwalkClient {
   }
 
   /** Rotate a workflow's webhook secret (POST .../webhook/rotate; admin-gated server-side) and return
-   *  it ONCE. For `token` auth the returned `url` embeds the fresh secret (the full working URL); for
-   *  `signature` auth `secret` is the new HMAC key and `url` stays tokenless. Null when no webhook trigger. */
+   *  it ONCE as `secret` — the URL stays the bare endpoint (the secret is never in the URL; the
+   *  sender delivers it per the verifier preset). Null when no webhook trigger. */
   async rotateWorkflowWebhook(
     orgSlug: string,
     workflowId: string,
@@ -1342,7 +1349,12 @@ function parseWebhookInfo(raw: unknown): WorkflowWebhookInfo | null {
   if (!isRecord(raw)) return null;
   if (typeof raw.url !== "string" || raw.url.length === 0) return null;
   if (raw.auth !== "token" && raw.auth !== "signature") return null;
-  return { url: raw.url, auth: raw.auth };
+  return {
+    url: raw.url,
+    auth: raw.auth,
+    preset: typeof raw.preset === "string" && raw.preset.length > 0 ? raw.preset : null,
+    header: typeof raw.header === "string" && raw.header.length > 0 ? raw.header : null,
+  };
 }
 
 function parseSecretRow(row: unknown): SecretListItem | null {

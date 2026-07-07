@@ -46,54 +46,100 @@ function routeFetch(routes: { webhook?: unknown; rotated?: unknown; rotateStatus
 }
 
 describe("formatInfo", () => {
-  it("token mode shows the endpoint + how to reveal the full URL", () => {
+  it("token preset shows the BARE endpoint (never a token path segment) + the header to use", () => {
     const out = formatInfo("nightly", {
       url: "https://wh.x/v1/workflows/abc",
       auth: "token",
+      preset: "token",
+      header: null,
     }).join("\n");
     expect(out).toContain("Webhook · nightly");
-    expect(out).toContain("https://wh.x/v1/workflows/abc/<token>");
-    expect(out).toMatch(/Auth\s+token/);
+    expect(out).toMatch(/Endpoint\s+https:\/\/wh\.x\/v1\/workflows\/abc$/m);
+    expect(out).not.toContain("<token>");
+    expect(out).toContain("X-Boardwalk-Token");
+    expect(out).toContain("never in the URL");
     expect(out).toContain("boardwalk webhook nightly --rotate");
   });
 
-  it("signature mode shows the URL + the HMAC header", () => {
+  it("falls back on the auth family when the server sends no preset (older server)", () => {
+    const out = formatInfo("nightly", {
+      url: "https://wh.x/v1/workflows/abc",
+      auth: "token",
+      preset: null,
+      header: null,
+    }).join("\n");
+    expect(out).toContain("X-Boardwalk-Token");
+    expect(out).not.toContain("<token>");
+  });
+
+  it("custom_header preset names the configured header", () => {
+    const out = formatInfo("nightly", {
+      url: "https://wh.x/v1/workflows/abc",
+      auth: "token",
+      preset: "custom_header",
+      header: "x-my-token",
+    }).join("\n");
+    expect(out).toContain("x-my-token");
+  });
+
+  it("signature preset shows the URL + the HMAC header", () => {
     const out = formatInfo("nightly", {
       url: "https://wh.x/v1/workflows/abc",
       auth: "signature",
+      preset: "signature",
+      header: null,
     }).join("\n");
-    expect(out).toMatch(/URL\s+https:\/\/wh\.x\/v1\/workflows\/abc/);
+    expect(out).toMatch(/Endpoint\s+https:\/\/wh\.x\/v1\/workflows\/abc/);
     expect(out).toContain("X-Boardwalk-Signature");
+  });
+
+  it("provider presets name the provider's scheme", () => {
+    const out = formatInfo("nightly", {
+      url: "https://wh.x/v1/workflows/abc",
+      auth: "signature",
+      preset: "github",
+      header: null,
+    }).join("\n");
+    expect(out).toContain("X-Hub-Signature-256");
   });
 });
 
 describe("formatRotated", () => {
-  it("token mode reveals the full URL with show-once + paste guidance", () => {
+  it("token preset reveals the SECRET (not a token-bearing URL) with show-once guidance", () => {
     const out = formatRotated("nightly", {
-      url: "https://wh.x/v1/workflows/abc/whk_xyz",
+      url: "https://wh.x/v1/workflows/abc",
       auth: "token",
+      preset: "token",
+      header: null,
       secret: "whk_xyz",
     }).join("\n");
-    expect(out).toContain("✓ Generated the webhook URL for nightly.");
-    expect(out).toContain("https://wh.x/v1/workflows/abc/whk_xyz");
+    expect(out).toContain("✓ Rotated the webhook secret for nightly.");
+    expect(out).toMatch(/Endpoint\s+https:\/\/wh\.x\/v1\/workflows\/abc$/m);
+    expect(out).toMatch(/Secret\s+whk_xyz/);
     expect(out).toContain("shown only once");
+    expect(out).toContain("X-Boardwalk-Token");
   });
 
-  it("signature mode reveals the secret as the HMAC key", () => {
+  it("signature preset reveals the secret as the HMAC key", () => {
     const out = formatRotated("nightly", {
       url: "https://wh.x/v1/workflows/abc",
       auth: "signature",
+      preset: "signature",
+      header: null,
       secret: "whk_xyz",
     }).join("\n");
-    expect(out).toContain("✓ Rotated the signing secret for nightly.");
+    expect(out).toContain("✓ Rotated the webhook secret for nightly.");
     expect(out).toMatch(/Secret\s+whk_xyz/);
+    expect(out).toContain("X-Boardwalk-Signature");
   });
 });
 
 describe("runWebhook", () => {
-  it("GETs the webhook info and renders it (token mode)", async () => {
+  it("GETs the webhook info and renders it (token preset)", async () => {
     const { fetchImpl, calls } = routeFetch({
-      webhook: { webhook: { url: "https://wh.x/v1/workflows/abc", auth: "token" } },
+      webhook: {
+        webhook: { url: "https://wh.x/v1/workflows/abc", auth: "token", preset: "token" },
+      },
     });
     const lines: string[] = [];
     await runWebhook(
@@ -103,13 +149,21 @@ describe("runWebhook", () => {
     expect(calls).toEqual([
       { url: `https://api.x/v1/orgs/acme/workflows/${WF_ID}/webhook`, method: "GET" },
     ]);
-    expect(lines.join("\n")).toContain("/v1/workflows/abc/<token>");
+    const out = lines.join("\n");
+    expect(out).toContain("https://wh.x/v1/workflows/abc");
+    expect(out).toContain("X-Boardwalk-Token");
+    expect(out).not.toContain("<token>");
   });
 
-  it("--rotate POSTs to /rotate and reveals the full URL once", async () => {
+  it("--rotate POSTs to /rotate and reveals the secret once", async () => {
     const { fetchImpl, calls } = routeFetch({
       rotated: {
-        webhook: { url: "https://wh.x/v1/workflows/abc/whk_xyz", auth: "token", secret: "whk_xyz" },
+        webhook: {
+          url: "https://wh.x/v1/workflows/abc",
+          auth: "token",
+          preset: "token",
+          secret: "whk_xyz",
+        },
       },
     });
     const lines: string[] = [];
@@ -120,7 +174,9 @@ describe("runWebhook", () => {
     expect(calls).toEqual([
       { url: `https://api.x/v1/orgs/acme/workflows/${WF_ID}/webhook/rotate`, method: "POST" },
     ]);
-    expect(lines.join("\n")).toContain("https://wh.x/v1/workflows/abc/whk_xyz");
+    const out = lines.join("\n");
+    expect(out).toMatch(/Secret\s+whk_xyz/);
+    expect(out).toMatch(/Endpoint\s+https:\/\/wh\.x\/v1\/workflows\/abc$/m);
   });
 
   it("emits raw JSON with --json", async () => {
@@ -133,7 +189,7 @@ describe("runWebhook", () => {
       { config: CONFIG, fetchImpl, log: (l) => lines.push(l) },
     );
     expect(JSON.parse(lines.join("\n"))).toEqual({
-      webhook: { url: "https://wh.x/v1/workflows/abc", auth: "token" },
+      webhook: { url: "https://wh.x/v1/workflows/abc", auth: "token", preset: null, header: null },
     });
   });
 
