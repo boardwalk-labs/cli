@@ -14,7 +14,7 @@
 // (now() / random() / uuid()) and essentially no legitimate bare use in a durable workflow, so it
 // blocks — pure upside. Bare `fetch` (and other raw I/O) is the legitimate backbone of a simple
 // script, and the durable fix (step.run) is a real refactor, so it stays advisory and deploys: the
-// "ordinary TypeScript, any fetch" promise holds for non-suspending programs (docs/SUSPENSION.md §10).
+// "ordinary TypeScript, any fetch" promise holds for non-suspending programs (the durable-suspension design).
 // Follow-up once the CLI is on SDK ≥ 0.1.17: block `fetch` too WHEN the program can suspend (a
 // fetch before a `sleep` re-fires on resume), using a suspend-seam detector the SDK exposes (it
 // needs the TypeScript AST, which is only a runtime dep inside the SDK).

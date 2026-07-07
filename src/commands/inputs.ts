@@ -2,7 +2,7 @@
 
 // `boardwalk inputs [runId]` — list human-in-the-loop gates awaiting a response (the org inbox, or
 // one run's gates with a runId), and `boardwalk respond <runId> <key>` — answer a gate, which
-// resumes the run once its whole batch is answered. See docs/SUSPENSION.md.
+// resumes the run once its whole batch is answered.
 //
 // Auth + org precedence match the other network commands: --token > BOARDWALK_API_KEY > stored login;
 // --org > the linked project's org. A single-run list / respond resolves the org from the run id.

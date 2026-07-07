@@ -94,7 +94,7 @@ export interface RunDetail extends RunListItem {
   error: { code: string; message: string } | null;
 }
 
-/** A human-in-the-loop gate (docs/SUSPENSION.md) — a run paused for a person to answer. */
+/** A human-in-the-loop gate (durable suspension) — a run paused for a person to answer. */
 export interface HumanInputItem {
   runId: string;
   key: string;
@@ -318,6 +318,32 @@ export interface BoardwalkClientOptions {
 
 const UNSAFE_METHODS: ReadonlySet<string> = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+export interface RunnerItem {
+  id: string;
+  poolId: string;
+  name: string;
+  labels: string[];
+  os: string | null;
+  arch: string | null;
+  status: string;
+  lastSeenAt: number | null;
+}
+
+function parseRunnerRow(row: unknown): RunnerItem | null {
+  if (!isRecord(row)) return null;
+  if (typeof row.id !== "string" || typeof row.name !== "string") return null;
+  return {
+    id: row.id,
+    poolId: typeof row.poolId === "string" ? row.poolId : "",
+    name: row.name,
+    labels: Array.isArray(row.labels) ? row.labels.filter((l) => typeof l === "string") : [],
+    os: typeof row.os === "string" ? row.os : null,
+    arch: typeof row.arch === "string" ? row.arch : null,
+    status: typeof row.status === "string" ? row.status : "unknown",
+    lastSeenAt: typeof row.lastSeenAt === "number" ? row.lastSeenAt : null,
+  };
+}
+
 export class BoardwalkClient {
   private readonly baseUrl: string;
   private readonly token: string;
@@ -458,6 +484,90 @@ export class BoardwalkClient {
   /** Delete a secret by id (DELETE /v1/secrets/:id). The id-keyed endpoint resolves the org. */
   async deleteSecret(id: string): Promise<void> {
     await this.request<undefined>("DELETE", `/v1/secrets/${encodeURIComponent(id)}`);
+  }
+
+  // ---- self-hosted runners ----
+
+  /** One-step runner registration (`boardwalk runner start`): returns the show-once bwkr_ token. */
+  async registerRunner(
+    orgSlug: string,
+    input: {
+      pool: string;
+      name: string;
+      labels?: string[];
+      os?: string;
+      arch?: string;
+      version?: string;
+    },
+  ): Promise<{ runnerId: string; runnerToken: string }> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/runners`,
+      input,
+    );
+    if (isRecord(body) && isRecord(body.runner) && typeof body.runner.id === "string") {
+      const token = body.runnerToken;
+      if (typeof token === "string" && token.length > 0) {
+        return { runnerId: body.runner.id, runnerToken: token };
+      }
+    }
+    throw new CliError("The API returned an unexpected runner registration response shape.");
+  }
+
+  /** Mint a one-time registration token for a pool (created if absent) — the two-step fleet flow. */
+  async mintRunnerToken(
+    orgSlug: string,
+    pool: string,
+  ): Promise<{ registrationToken: string; expiresAt: number }> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/runner-pools/${encodeURIComponent(pool)}/registration-tokens`,
+    );
+    if (
+      isRecord(body) &&
+      typeof body.registrationToken === "string" &&
+      typeof body.expiresAt === "number"
+    ) {
+      return { registrationToken: body.registrationToken, expiresAt: body.expiresAt };
+    }
+    throw new CliError("The API returned an unexpected registration-token response shape.");
+  }
+
+  async listRunners(orgSlug: string): Promise<RunnerItem[]> {
+    const body = await this.request<{ runners?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/runners`,
+    );
+    const rows = Array.isArray(body.runners) ? body.runners : [];
+    const out: RunnerItem[] = [];
+    for (const row of rows) {
+      const parsed = parseRunnerRow(row);
+      if (parsed !== null) out.push(parsed);
+    }
+    return out;
+  }
+
+  async listRunnerPools(orgSlug: string): Promise<{ id: string; name: string }[]> {
+    const body = await this.request<{ pools?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/runner-pools`,
+    );
+    const rows = Array.isArray(body.pools) ? body.pools : [];
+    const out: { id: string; name: string }[] = [];
+    for (const row of rows) {
+      if (isRecord(row) && typeof row.id === "string" && typeof row.name === "string") {
+        out.push({ id: row.id, name: row.name });
+      }
+    }
+    return out;
+  }
+
+  async drainRunner(runnerId: string): Promise<void> {
+    await this.request<unknown>("POST", `/v1/runners/${encodeURIComponent(runnerId)}/drain`);
+  }
+
+  async deregisterRunner(runnerId: string): Promise<void> {
+    await this.request<unknown>("DELETE", `/v1/runners/${encodeURIComponent(runnerId)}`);
   }
 
   /** List the org's named environments (id/name/description). */

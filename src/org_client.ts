@@ -22,7 +22,7 @@ export interface OrgClientDeps {
 export async function resolveOrgClient(
   deps: OrgClientDeps,
   opts: { org?: string | undefined; token?: string | undefined },
-): Promise<{ client: BoardwalkClient; org: string | undefined }> {
+): Promise<{ client: BoardwalkClient; org: string | undefined; baseUrl: string }> {
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({
     config: deps.config,
@@ -36,7 +36,7 @@ export async function resolveOrgClient(
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
   const org = (opts.org ?? "").trim() || readLink(deps.cwd ?? process.cwd())?.orgSlug;
-  return { client, org };
+  return { client, org, baseUrl };
 }
 
 /** Require an org slug (from `--org` or the linked project). Throws a `CliError` when absent. */

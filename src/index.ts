@@ -19,6 +19,7 @@
 //   boardwalk workflows [list|show|delete]    Inspect the org's workflows.
 //   boardwalk secrets [list|set|delete]       Manage org secrets (writes need login --scopes admin).
 //   boardwalk environments [list|create|delete]  Manage named environments (config sets a run targets).
+//   boardwalk runner [start|register|list|remove|pools]  Run workflows on THIS machine (self-hosted runner).
 //   boardwalk variables [list|set|delete]     Manage non-secret env variables (injected as process.env).
 //   boardwalk inference [list|add|delete]     Manage BYO inference providers (writes need elevated).
 //
@@ -431,6 +432,7 @@ function buildProgram(): Command {
   registerWorkflowsCommand(program);
   registerSecretsCommand(program);
   registerEnvironmentsCommand(program);
+  registerRunnerCommand(program);
   registerVariablesCommand(program);
   registerInferenceCommand(program);
   registerModelsCommand(program);
@@ -583,6 +585,99 @@ function registerSecretsCommand(program: Command): void {
 }
 
 /** Register `environments` + its `list` / `create` / `delete` subcommands (writes need elevation). */
+function registerRunnerCommand(program: Command): void {
+  const runner = program
+    .command("runner")
+    .description("Run Boardwalk workflows on THIS machine (a self-hosted runner).");
+
+  runner
+    .command("start", { isDefault: true })
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--pool <name>", "runner pool to serve (created on first use)", "default")
+    .option("--name <name>", "machine name shown in the dashboard (default: hostname)")
+    .option("--labels <a,b>", "extra labels for runs_on matching, comma-separated")
+    .option("--once", "execute one run, then exit", false)
+    .option("--work-dir <dir>", "root for per-run workspaces")
+    .option("--verbose", "debug-level daemon logs (poll cycles, heartbeats)", false)
+    .option("--debug", "verbose, plus debug logging inside each run process", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description(
+      "Register this machine (admin role; plain `boardwalk login` is enough) and go online. " +
+        'Workflows target it with runs_on: { kind: "self-hosted" }. Ctrl-C drains.',
+    )
+    .action(
+      async (options: {
+        org?: string;
+        pool?: string;
+        name?: string;
+        labels?: string;
+        once?: boolean;
+        workDir?: string;
+        verbose?: boolean;
+        debug?: boolean;
+        token?: string;
+      }) => {
+        const { runRunnerStart } = await import("./commands/runner.js");
+        await runRunnerStart(options, { config: loadConfig() });
+      },
+    );
+
+  runner
+    .command("register")
+    .requiredOption("--url <origin>", "the Boardwalk API origin, e.g. https://api.boardwalk.sh")
+    .requiredOption("--token <bwkreg>", "one-time registration token (Settings > Runners)")
+    .option("--name <name>", "machine name (default: hostname)")
+    .option("--labels <a,b>", "extra labels, comma-separated")
+    .description("Fleet flow: redeem a registration token minted elsewhere; then `runner start`.")
+    .action(async (options: { url: string; token: string; name?: string; labels?: string }) => {
+      const { runRunnerRegister } = await import("./commands/runner.js");
+      await runRunnerRegister(
+        {
+          url: options.url,
+          registrationToken: options.token,
+          name: options.name,
+          labels: options.labels,
+        },
+        { config: loadConfig() },
+      );
+    });
+
+  runner
+    .command("list")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the org's self-hosted runners (status, pool, labels, last seen).")
+    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+      const { runRunnerList } = await import("./commands/runner.js");
+      await runRunnerList(options, { config: loadConfig() });
+    });
+
+  runner
+    .command("remove")
+    .argument("<runnerId>", "runner id (from `runner list`)")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--yes", "confirm: the runner's credential dies immediately", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Deregister a runner.")
+    .action(async (runnerId: string, options: { org?: string; yes?: boolean; token?: string }) => {
+      const { runRunnerRemove } = await import("./commands/runner.js");
+      await runRunnerRemove({ runnerId, ...options }, { config: loadConfig() });
+    });
+
+  const pools = runner.command("pools").description("Runner pool utilities.");
+  pools
+    .command("token")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--pool <name>", "pool to mint for (created if absent)", "default")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Mint a one-time registration token for fleet installs (shown once, 1h TTL).")
+    .action(async (options: { org?: string; pool?: string; token?: string }) => {
+      const { runRunnerPoolToken } = await import("./commands/runner.js");
+      await runRunnerPoolToken(options, { config: loadConfig() });
+    });
+}
+
 function registerEnvironmentsCommand(program: Command): void {
   const environments = program
     .command("environments")
