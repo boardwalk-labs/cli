@@ -15,16 +15,14 @@
 // and toolchain; Ctrl-C drains (the current run finishes, nothing new is claimed).
 
 import * as os from "node:os";
-import { createRequire } from "node:module";
-import { spawn as nodeSpawn } from "node:child_process";
 import * as path from "node:path";
 import {
   PoolClient,
   defaultIdentityDir,
   loadIdentity,
   saveIdentity,
-  startDaemon,
-  type RunProcessHandle,
+  startRunner,
+  type IsolationConfig,
   type RunnerIdentity,
 } from "@boardwalk-labs/runner/daemon";
 import { CliError } from "../errors.js";
@@ -40,12 +38,8 @@ export interface RunnerDeps {
   log?: (line: string) => void;
   /** Test seams. */
   identityDir?: string;
-  daemon?: typeof startDaemon;
-  spawnRun?: (opts: {
-    entry: string;
-    env: Record<string, string>;
-    cwd: string;
-  }) => RunProcessHandle;
+  /** The daemon runner (defaults to the package's shared startRunner). Injected in tests. */
+  startRunner?: typeof startRunner;
   hostname?: () => string;
 }
 
@@ -59,6 +53,11 @@ export interface RunnerStartOptions {
   debug?: boolean | undefined;
   workDir?: string | undefined;
   token?: string | undefined;
+  /** Isolation: containerized by default; `--host` is the escape hatch. */
+  host?: boolean | undefined;
+  image?: string | undefined;
+  network?: string | undefined;
+  mount?: string | undefined;
 }
 
 export interface RunnerRegisterOptions {
@@ -112,53 +111,19 @@ function splitLabels(raw: string | undefined): string[] {
     .filter((l) => l.length > 0);
 }
 
-/** Spawn one run process: the runner package's runtime entry, resolved from THIS install. */
-function defaultSpawnRun(opts: {
-  entry: string;
-  env: Record<string, string>;
-  cwd: string;
-}): RunProcessHandle {
-  const base: Record<string, string> = {};
-  for (const key of [
-    "PATH",
-    "LANG",
-    "NODE_USE_ENV_PROXY",
-    "HTTPS_PROXY",
-    "https_proxy",
-    "HTTP_PROXY",
-    "http_proxy",
-    "NO_PROXY",
-    "no_proxy",
-    "BOARDWALK_RUNNER_DEBUG",
-  ]) {
-    const v = process.env[key];
-    if (v !== undefined) base[key] = v;
-  }
-  const child = nodeSpawn(process.execPath, [opts.entry], {
-    cwd: opts.cwd,
-    env: { ...base, HOME: opts.cwd, TMPDIR: path.join(opts.cwd, "..", "tmp"), ...opts.env },
-    stdio: "inherit",
-  });
-  const exit = new Promise<number>((resolve) => {
-    child.on("exit", (code, signal) => {
-      resolve(code ?? (signal !== null ? 143 : 1));
-    });
-    child.on("error", () => {
-      resolve(1);
-    });
-  });
+/** Isolation config from the start flags: containerized by default; `--host` is the escape hatch. */
+function isolationFromOptions(opts: RunnerStartOptions): IsolationConfig {
+  if (opts.host === true) return { mode: "host" };
+  const mounts = (opts.mount ?? "")
+    .split(",")
+    .map((m) => m.trim())
+    .filter((m) => m.length > 0);
   return {
-    wait: () => exit,
-    kill: () => {
-      child.kill("SIGTERM");
-    },
+    mode: "container",
+    ...(opts.image !== undefined ? { image: opts.image } : {}),
+    ...(opts.network !== undefined ? { network: opts.network } : {}),
+    ...(mounts.length > 0 ? { mounts } : {}),
   };
-}
-
-function runtimeEntryPath(): string {
-  // createRequire honors the package's export map and works under both Node and the test
-  // runner (import.meta.resolve does not exist in the vitest transform).
-  return createRequire(import.meta.url).resolve("@boardwalk-labs/runner/runtime/main");
 }
 
 /** `boardwalk runner start` — register if needed, then go online (foreground). */
@@ -199,31 +164,19 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
     log(`Using saved runner identity "${identity.name}" (pool "${pool}")`);
   }
 
-  const daemonImpl = deps.daemon ?? startDaemon;
-  const daemon = daemonImpl({
-    client: new PoolClient({ baseUrl, runnerToken: identity.runner_token }),
-    runtimeEntry: runtimeEntryPath(),
+  // The daemon lifecycle + isolation are the runner package's shared startRunner — the same code
+  // the standalone `boardwalk-runner` bin runs, so the two entry points can't drift.
+  const run = deps.startRunner ?? startRunner;
+  await run({
+    baseUrl,
+    identity,
+    isolation: isolationFromOptions(opts),
     workDir: opts.workDir ?? path.join(identityDir, "work"),
-    runnerId: identity.runner_id,
-    spawn: deps.spawnRun ?? defaultSpawnRun,
+    log: (line) => {
+      log(line.replace(/\n+$/, ""));
+    },
     ...(opts.once === true ? { once: true } : {}),
   });
-  let interrupts = 0;
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.on(signal, () => {
-      interrupts += 1;
-      if (interrupts === 1) {
-        log(
-          "Draining: finishing the current run, claiming nothing new. Ctrl-C again to force-quit.",
-        );
-        daemon.drain();
-      } else {
-        process.exit(130);
-      }
-    });
-  }
-  log(`Runner "${identity.name}" online in pool "${pool}". Waiting for runs...`);
-  await daemon.done;
 }
 
 /** `boardwalk runner register` — two-step fleet flow (redeem a token minted elsewhere). */

@@ -598,12 +598,17 @@ function registerRunnerCommand(program: Command): void {
     .option("--labels <a,b>", "extra labels for runs_on matching, comma-separated")
     .option("--once", "execute one run, then exit", false)
     .option("--work-dir <dir>", "root for per-run workspaces")
+    .option("--host", "run WITHOUT isolation: full machine access (trusted workflows only)", false)
+    .option("--image <ref>", "runner image for containerized runs (default: version-pinned)")
+    .option("--network <mode>", "container network mode (default: host)")
+    .option("--mount <a:b,…>", "extra host paths to expose to the run, comma-separated")
     .option("--verbose", "debug-level daemon logs (poll cycles, heartbeats)", false)
     .option("--debug", "verbose, plus debug logging inside each run process", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description(
       "Register this machine (admin role; plain `boardwalk login` is enough) and go online. " +
-        'Workflows target it with runs_on: { kind: "self-hosted" }. Ctrl-C drains.',
+        "Runs are containerized by default (--host to opt out). Workflows target it with " +
+        'runs_on: { kind: "self-hosted" }. Ctrl-C drains.',
     )
     .action(
       async (options: {
@@ -613,6 +618,10 @@ function registerRunnerCommand(program: Command): void {
         labels?: string;
         once?: boolean;
         workDir?: string;
+        host?: boolean;
+        image?: string;
+        network?: string;
+        mount?: string;
         verbose?: boolean;
         debug?: boolean;
         token?: string;

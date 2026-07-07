@@ -135,7 +135,7 @@ describe("runner start", () => {
           { status: 201 },
         ),
     );
-    const daemon = vi.fn().mockReturnValue({ done: Promise.resolve(), drain: () => undefined });
+    const startRunner = vi.fn().mockResolvedValue(undefined);
     await runRunnerStart(
       { org: "acme", pool: "default", name: "mbp", token: "bwk_t", once: true },
       {
@@ -143,7 +143,7 @@ describe("runner start", () => {
         fetchImpl,
         log: () => undefined,
         identityDir,
-        daemon: daemon as never,
+        startRunner,
         hostname: () => "mbp",
       },
     );
@@ -154,11 +154,16 @@ describe("runner start", () => {
     const identity = await loadIdentity(identityDir, "https://api.x", "default");
     expect(identity?.runner_id).toBe("01H_new");
     expect(identity?.runner_token).toBe("bwkr_raw");
-    // Daemon started with the standing credential + once mode.
-    expect(daemon).toHaveBeenCalledTimes(1);
-    const arg = daemon.mock.calls[0]?.[0] as { runnerId: string; once?: boolean };
-    expect(arg.runnerId).toBe("01H_new");
+    // The shared startRunner drove the daemon, with the standing credential + once + default isolation.
+    expect(startRunner).toHaveBeenCalledTimes(1);
+    const arg = startRunner.mock.calls[0]?.[0] as {
+      identity: { runner_id: string };
+      once?: boolean;
+      isolation: { mode: string };
+    };
+    expect(arg.identity.runner_id).toBe("01H_new");
     expect(arg.once).toBe(true);
+    expect(arg.isolation.mode).toBe("container"); // containerized by default
   });
 
   it("reuses a saved identity without re-registering", async () => {
@@ -172,16 +177,42 @@ describe("runner start", () => {
       created_at: 1,
     });
     const { fetchImpl, calls } = routeFetch(() => new Response("{}", { status: 200 }));
-    const daemon = vi.fn().mockReturnValue({ done: Promise.resolve(), drain: () => undefined });
+    const startRunner = vi.fn().mockResolvedValue(undefined);
     await runRunnerStart(
       { org: "acme", token: "bwk_t" },
-      { config: CONFIG, fetchImpl, log: () => undefined, identityDir, daemon: daemon as never },
+      { config: CONFIG, fetchImpl, log: () => undefined, identityDir, startRunner },
     );
     expect(calls).toHaveLength(0); // no management-API call at all
-    expect((daemon.mock.calls[0]?.[0] as { runnerId: string }).runnerId).toBe("01H_saved");
+    const arg = startRunner.mock.calls[0]?.[0] as { identity: { runner_id: string } };
+    expect(arg.identity.runner_id).toBe("01H_saved");
   });
 
-  it("--debug turns on debug logging for daemon and children", async () => {
+  it("--host selects the unisolated escape hatch", async () => {
+    const identityDir = await tmpDir("bw-cli-runner-");
+    await saveIdentity(identityDir, {
+      runner_id: "r",
+      runner_token: "t",
+      control_plane_url: "https://api.x",
+      pool: "default",
+      name: "m",
+      created_at: 1,
+    });
+    const startRunner = vi.fn().mockResolvedValue(undefined);
+    await runRunnerStart(
+      { org: "acme", token: "bwk_t", host: true },
+      {
+        config: CONFIG,
+        fetchImpl: routeFetch(() => new Response("{}")).fetchImpl,
+        log: () => undefined,
+        identityDir,
+        startRunner,
+      },
+    );
+    const arg = startRunner.mock.calls[0]?.[0] as { isolation: { mode: string } };
+    expect(arg.isolation.mode).toBe("host");
+  });
+
+  it("--debug turns on debug logging", async () => {
     const identityDir = await tmpDir("bw-cli-runner-");
     await saveIdentity(identityDir, {
       runner_id: "r",
@@ -193,7 +224,6 @@ describe("runner start", () => {
     });
     delete process.env.BOARDWALK_RUNNER_DEBUG;
     delete process.env.BOARDWALK_RUNNER_LOG_LEVEL;
-    const daemon = vi.fn().mockReturnValue({ done: Promise.resolve(), drain: () => undefined });
     await runRunnerStart(
       { org: "acme", token: "bwk_t", debug: true },
       {
@@ -201,7 +231,7 @@ describe("runner start", () => {
         fetchImpl: routeFetch(() => new Response("{}")).fetchImpl,
         log: () => undefined,
         identityDir,
-        daemon: daemon as never,
+        startRunner: vi.fn().mockResolvedValue(undefined),
       },
     );
     expect(process.env.BOARDWALK_RUNNER_LOG_LEVEL).toBe("debug");

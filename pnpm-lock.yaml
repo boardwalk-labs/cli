@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.27
         version: 0.1.27
       '@boardwalk-labs/runner':
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: ^0.1.9
+        version: 0.1.9
       '@boardwalk-labs/workflow':
         specifier: ^0.1.16
         version: 0.1.16
@@ -98,8 +98,8 @@ packages:
     engines: {node: '>=24.0.0'}
     hasBin: true
 
-  '@boardwalk-labs/runner@0.1.2':
-    resolution: {integrity: sha512-h7jZyhdc/7Lr/pRsR6h4m5Lk/Ndiu+MT5C55qLy5Wf0DFCBK1pba/nrJHvd2er+WVi/n3cPfy2klqy8PW6E0JA==}
+  '@boardwalk-labs/runner@0.1.9':
+    resolution: {integrity: sha512-eH2g8kRWhC7+0Rpl10r6zR9VbZTs6GayQ1dAAvpVxmxKkWaF7BMr853jesgON978S50idedD5re2I96zaBzM5Q==}
     engines: {node: '>=24'}
     hasBin: true
 
@@ -1673,7 +1673,7 @@ snapshots:
       '@boardwalk-labs/workflow': 0.1.18
       zod: 4.4.3
 
-  '@boardwalk-labs/runner@0.1.2':
+  '@boardwalk-labs/runner@0.1.9':
     dependencies:
       '@boardwalk-labs/engine': 0.1.29
       '@boardwalk-labs/workflow': 0.1.18
