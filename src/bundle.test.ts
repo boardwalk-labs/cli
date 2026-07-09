@@ -4,8 +4,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bundleWorkflow, resolveEntry, isPackageDir } from "./bundle.js";
+import { bundleWorkflow, bundleWorkflowWithMap, resolveEntry, isPackageDir } from "./bundle.js";
 import { extractWorkflowSlug } from "./manifest.js";
+import { CliError } from "./errors.js";
 
 describe("isPackageDir", () => {
   let dir: string;
@@ -108,5 +109,63 @@ describe("bundleWorkflow", () => {
     writeFileSync(join(dir, "pkg", "index.ts"), `export const meta = { slug: "pkg-wf" };`);
     const out = await bundleWorkflow(resolveEntry(join(dir, "pkg")));
     expect(extractWorkflowSlug(out, "bundle.js")).toBe("pkg-wf");
+  });
+});
+
+// The Bun-native bundler path (used only inside the compiled single-file executable). Real Bun isn't
+// available here, so we inject a fake `Bun.build` and verify the branch's OWN logic — picking the
+// entry/sourcemap outputs and appending the fixed sourceMappingURL. (That real Bun output is
+// extractable is covered by the release workflow's binary smoke test.)
+describe("bundleWorkflow — Bun runtime branch", () => {
+  const fakeArtifact = (
+    text: string,
+    kind: BunBuildArtifact["kind"],
+    path: string,
+  ): BunBuildArtifact => Object.assign(new Blob([text]), { path, kind });
+
+  let lastConfig: BunBuildConfig | undefined;
+  function installFakeBun(output: BunBuildOutput): void {
+    (globalThis as { Bun?: unknown }).Bun = {
+      build: (config: BunBuildConfig): Promise<BunBuildOutput> => {
+        lastConfig = config;
+        return Promise.resolve(output);
+      },
+    };
+  }
+  afterEach(() => {
+    delete (globalThis as { Bun?: unknown }).Bun;
+    lastConfig = undefined;
+  });
+
+  it("bundleWorkflow takes the Bun path and returns the entry output, SDK external + unminified", async () => {
+    installFakeBun({
+      success: true,
+      outputs: [fakeArtifact("export const meta = {};\n", "entry-point", "index.js")],
+      logs: [],
+    });
+    const out = await bundleWorkflow("/some/index.ts");
+    expect(out).toBe("export const meta = {};\n");
+    expect(lastConfig?.external).toContain("@boardwalk-labs/workflow");
+    expect(lastConfig?.minify).toBe(false); // meta must stay statically extractable
+  });
+
+  it("bundleWorkflowWithMap returns the map and appends the fixed sourceMappingURL link", async () => {
+    installFakeBun({
+      success: true,
+      outputs: [
+        fakeArtifact("CODE", "entry-point", "index.js"),
+        fakeArtifact('{"version":3}', "sourcemap", "index.js.map"),
+      ],
+      logs: [],
+    });
+    const { code, map } = await bundleWorkflowWithMap("/some/index.ts");
+    expect(map).toBe('{"version":3}');
+    expect(code).toBe("CODE\n//# sourceMappingURL=index.mjs.map\n");
+    expect(lastConfig?.sourcemap).toBe("external");
+  });
+
+  it("surfaces a Bun build failure as a CliError", async () => {
+    installFakeBun({ success: false, outputs: [], logs: ["boom"] });
+    await expect(bundleWorkflow("/some/index.ts")).rejects.toThrow(CliError);
   });
 });

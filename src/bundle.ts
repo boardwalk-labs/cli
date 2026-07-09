@@ -61,10 +61,13 @@ export function resolveEntry(target: string): string {
 }
 
 /**
- * esbuild-bundle the entry into one self-contained ESM string. `@boardwalk-labs/workflow` is left
- * external (host-provided). Not minified — the `meta` literal must stay statically extractable.
+ * Bundle the entry into one self-contained ESM string. `@boardwalk-labs/workflow` is left external
+ * (host-provided). Not minified — the `meta` literal must stay statically extractable. Uses Bun's
+ * native bundler when the CLI runs as a Bun single-file executable (esbuild ships a native binary
+ * that can't be embedded in the compiled binary); the esbuild path is unchanged under Node.
  */
 export async function bundleWorkflow(entryFile: string): Promise<string> {
+  if (typeof Bun !== "undefined") return (await bunBundle(Bun, entryFile, false)).code;
   let result;
   try {
     result = await build({
@@ -104,6 +107,11 @@ export interface BundledProgram {
  * `sourceMappingURL` matches the artifact's layout.
  */
 export async function bundleWorkflowWithMap(entryFile: string): Promise<BundledProgram> {
+  if (typeof Bun !== "undefined") {
+    const { code, map } = await bunBundle(Bun, entryFile, true);
+    if (map === undefined) throw new CliError(`Bundling produced no sourcemap for ${entryFile}.`);
+    return { code, map };
+  }
   let result;
   try {
     result = await build({
@@ -132,6 +140,47 @@ export async function bundleWorkflowWithMap(entryFile: string): Promise<BundledP
     throw new CliError(`Bundling produced no output for ${entryFile}.`);
   }
   return { code: js.text, map: map.text };
+}
+
+/**
+ * The Bun-native bundler path (used only inside the compiled single-file executable). Same contract
+ * as the esbuild functions above: ESM, SDK external, NOT minified so `meta` stays extractable. For
+ * the map case we request an EXTERNAL sourcemap (no auto comment) and append the fixed
+ * `index.mjs.map` link ourselves, so the artifact layout matches the esbuild path exactly.
+ */
+async function bunBundle(
+  bun: NonNullable<typeof Bun>,
+  entryFile: string,
+  withMap: boolean,
+): Promise<{ code: string; map?: string }> {
+  let result: BunBuildOutput;
+  try {
+    result = await bun.build({
+      entrypoints: [entryFile],
+      target: "node",
+      format: "esm",
+      external: [SDK_PACKAGE, `${SDK_PACKAGE}/*`],
+      sourcemap: withMap ? "external" : "none",
+      minify: false,
+    });
+  } catch (err) {
+    throw new CliError(
+      `Bundling failed for ${entryFile}.`,
+      err instanceof Error ? err.message : undefined,
+    );
+  }
+  if (!result.success) {
+    const detail = result.logs.map((l) => String(l)).join("\n");
+    throw new CliError(`Bundling failed for ${entryFile}.`, detail.length > 0 ? detail : undefined);
+  }
+  const js = result.outputs.find((o) => o.kind === "entry-point");
+  if (js === undefined) throw new CliError(`Bundling produced no output for ${entryFile}.`);
+  const code = await js.text();
+  if (!withMap) return { code };
+  const mapArtifact = result.outputs.find((o) => o.kind === "sourcemap");
+  if (mapArtifact === undefined) return { code };
+  const map = await mapArtifact.text();
+  return { code: `${code}\n//# sourceMappingURL=index.mjs.map\n`, map };
 }
 
 function readPkgEntry(pkgPath: string): string | null {

@@ -2,6 +2,33 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.1.31
+
+### Added
+
+- **Native single-file executables** — the CLI now ships as a Node-free binary compiled with Bun
+  (`bun build --compile`), cross-built for macOS (arm64/x64), Linux (x64/x64-baseline/arm64), and
+  Windows (x64) and attached to each GitHub Release. Install via `curl -fsSL https://boardwalk.sh/install | bash`
+  (`scripts/install.sh` detects OS/arch/AVX2) — no Node required. The npm package
+  (`@boardwalk-labs/cli`) stays the full Node build; this is an additional distribution channel.
+- Under the compiled binary the workflow bundler uses **Bun's native bundler** instead of esbuild
+  (whose native child-process binary can't be embedded in a single-file executable); the esbuild
+  path is unchanged under Node.
+
+### Changed
+
+- The local-engine commands — `boardwalk dev` and every `boardwalk runner` subcommand — are
+  **excluded from the single-file binary** and fail fast with a pointer to the Node build when run
+  under Bun. Their dependency graph pulls `@boardwalk-labs/engine` → `node:sqlite`, which Bun doesn't
+  implement and eagerly resolves at startup (it would crash _every_ command), so they load via a
+  non-static import that Bun's compiler leaves out. The control-plane commands
+  (deploy/run/runs/secrets/…) work from the binary; `dev`/`runner` stay on the Node build.
+
+### Fixed
+
+- Release workflow pins `npm@^11.5.1` for publishing (npm 12's provenance path breaks with
+  `Cannot find module 'sigstore'`).
+
 ## 0.1.30
 
 ### Fixed

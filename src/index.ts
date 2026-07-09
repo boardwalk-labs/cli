@@ -34,11 +34,30 @@ import { readFileSync } from "node:fs";
 import { Command } from "commander";
 import { CliError } from "./errors.js";
 import { loadConfig } from "./config.js";
+import { assertNodeRuntime } from "./runtime_guard.js";
+import { lazyImport } from "./lazy_import.js";
+
+// The local-engine command modules (`dev`, `runner`) are loaded by a NON-STATIC specifier so Bun's
+// `--compile` does NOT bundle them into the single-file binary: their graph pulls
+// @boardwalk-labs/engine → `node:sqlite`, which Bun lacks and eagerly resolves at startup (crashing
+// EVERY command). The `import()` type keeps them fully typed; callers `assertNodeRuntime()` first, so
+// under the binary the user gets a clear pointer to the Node build. (eslint bans `import()` type
+// annotations by default — here it is deliberate and load-bearing, so scope the rule off.)
+/* eslint-disable @typescript-eslint/consistent-type-imports */
+const loadDev = () => lazyImport<typeof import("./commands/dev.js")>("./commands/dev.js");
+const loadRunner = () => lazyImport<typeof import("./commands/runner.js")>("./commands/runner.js");
+/* eslint-enable @typescript-eslint/consistent-type-imports */
+
+// Injected at Bun compile time via `--define` (see the release workflow's `binaries` job): the
+// single-file binary has no package.json on disk to read, so the version is baked in at build. Under
+// Node this identifier is undeclared (only `typeof` is safe), and readVersion() reads package.json.
+declare const __BOARDWALK_CLI_VERSION__: string | undefined;
 
 // Read the version from package.json (one level up from both src/ and dist/) so `--version`
 // can never drift from the published package. Cheap sync read at load — doesn't touch the
-// lazy-import budget that keeps `--help` fast.
+// lazy-import budget that keeps `--help` fast. In the compiled binary the injected constant wins.
 function readVersion(): string {
+  if (typeof __BOARDWALK_CLI_VERSION__ === "string") return __BOARDWALK_CLI_VERSION__;
   try {
     const raw = readFileSync(new URL("../package.json", import.meta.url), "utf8");
     const parsed: unknown = JSON.parse(raw);
@@ -119,7 +138,10 @@ function buildProgram(): Command {
     .option("--token <token>", "bearer to mint the inference key with, instead of stored login")
     .description("Run the workflow now, locally (no account needed).")
     .action(async (file: string, options: DevCliOptions) => {
-      const { runDev } = await import("./commands/dev.js");
+      // `dev` runs a local engine (→ @boardwalk-labs/engine → node:sqlite), which the Bun single-file
+      // binary can't host; guard first, then load via a non-static specifier so it's not bundled.
+      assertNodeRuntime("dev");
+      const { runDev } = await loadDev();
       await runDev({
         file,
         input: options.input,
@@ -626,7 +648,8 @@ function registerRunnerCommand(program: Command): void {
         debug?: boolean;
         token?: string;
       }) => {
-        const { runRunnerStart } = await import("./commands/runner.js");
+        assertNodeRuntime("runner start");
+        const { runRunnerStart } = await loadRunner();
         await runRunnerStart(options, { config: loadConfig() });
       },
     );
@@ -639,7 +662,8 @@ function registerRunnerCommand(program: Command): void {
     .option("--labels <a,b>", "extra labels, comma-separated")
     .description("Fleet flow: redeem a registration token minted elsewhere; then `runner start`.")
     .action(async (options: { url: string; token: string; name?: string; labels?: string }) => {
-      const { runRunnerRegister } = await import("./commands/runner.js");
+      assertNodeRuntime("runner register");
+      const { runRunnerRegister } = await loadRunner();
       await runRunnerRegister(
         {
           url: options.url,
@@ -658,7 +682,8 @@ function registerRunnerCommand(program: Command): void {
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("List the org's self-hosted runners (status, pool, labels, last seen).")
     .action(async (options: { org?: string; json?: boolean; token?: string }) => {
-      const { runRunnerList } = await import("./commands/runner.js");
+      assertNodeRuntime("runner list");
+      const { runRunnerList } = await loadRunner();
       await runRunnerList(options, { config: loadConfig() });
     });
 
@@ -670,7 +695,8 @@ function registerRunnerCommand(program: Command): void {
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Deregister a runner.")
     .action(async (runnerId: string, options: { org?: string; yes?: boolean; token?: string }) => {
-      const { runRunnerRemove } = await import("./commands/runner.js");
+      assertNodeRuntime("runner remove");
+      const { runRunnerRemove } = await loadRunner();
       await runRunnerRemove({ runnerId, ...options }, { config: loadConfig() });
     });
 
@@ -682,7 +708,8 @@ function registerRunnerCommand(program: Command): void {
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Mint a one-time registration token for fleet installs (shown once, 1h TTL).")
     .action(async (options: { org?: string; pool?: string; token?: string }) => {
-      const { runRunnerPoolToken } = await import("./commands/runner.js");
+      assertNodeRuntime("runner pools token");
+      const { runRunnerPoolToken } = await loadRunner();
       await runRunnerPoolToken(options, { config: loadConfig() });
     });
 }
