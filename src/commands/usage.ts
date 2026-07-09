@@ -70,7 +70,7 @@ export async function runUsage(opts: UsageOptions, deps: UsageDeps): Promise<voi
     }
     throw err instanceof Error ? err : new CliError(String(err));
   });
-  // Plan-allowance gauges (§5.1b: real units + a bar, one reset line). Best-effort: the endpoint
+  // Plan-allowance gauges (real units + a bar, one reset line). Best-effort: the endpoint
   // is additive, so an older / self-hosted backend (or any error) just omits the block.
   const allowances = await client.getAllowances(org).catch(() => null);
   if (opts.json === true) {
@@ -84,7 +84,7 @@ export async function runUsage(opts: UsageOptions, deps: UsageDeps): Promise<voi
 /**
  * Render the plan block: one gauge per allowance in REAL units plus a bar ("14.2 of 25
  * agent-hours"), and a single "Allowances reset <date>" line — never a bare percentage (the
- * decided display, SUBSCRIPTION_PLAN_RESEARCH §5.1b). Empty for plans without allowances.
+ * decided display). Empty for plans without allowances.
  * Pure — exported for tests.
  */
 export function formatAllowances(a: AllowancesSummary | null): string[] {
