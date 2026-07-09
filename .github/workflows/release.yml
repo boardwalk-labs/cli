@@ -137,33 +137,43 @@ jobs:
       - name: Attach binaries to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist-bin/*
+          files: dist-bin/boardwalk-* # binaries only — not the stray sourcemap sidecar
           fail_on_unmatched_files: true
 
+  # Point the Homebrew tap at the release's native binaries (Node-free). Regenerates the 4 platform
+  # sha256s and patches the tap's formula template in place; needs `binaries` (the assets it hashes).
   bump-homebrew:
-    needs: publish
+    needs: binaries
     if: ${{ !contains(github.ref_name, '-') }} # skip prereleases
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for the npm registry to propagate
-        run: sleep 30
-      - name: Update the Homebrew tap formula
+      - name: Point the Homebrew tap at the native binaries
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           VERSION="${REF_NAME#v}"
-          TARBALL_URL="https://registry.npmjs.org/@boardwalk-labs/cli/-/cli-${VERSION}.tgz"
-          SHA256=$(curl -sSL "$TARBALL_URL" | shasum -a 256 | cut -d' ' -f1)
-          echo "version=$VERSION  sha256=$SHA256"
+          BASE="https://github.com/boardwalk-labs/cli/releases/download/${REF_NAME}"
+          sha() { curl -fsSL "$BASE/$1" | shasum -a 256 | cut -d' ' -f1; }
+          MAC_ARM=$(sha boardwalk-darwin-arm64)
+          MAC_X64=$(sha boardwalk-darwin-x64)
+          LNX_ARM=$(sha boardwalk-linux-arm64)
+          LNX_X64=$(sha boardwalk-linux-x64)
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/boardwalk-labs/homebrew-tap.git" tap
           cd tap
-          sed -i "s|url \".*\"|url \"${TARBALL_URL}\"|" Formula/boardwalk.rb
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/boardwalk.rb
+          f=Formula/boardwalk.rb
+          # Bump version + the version segment of every download URL, then each platform's sha256
+          # (the sha256 line always immediately follows its url line — `n` steps onto it).
+          sed -i -E "s|^  version \".*\"|  version \"${VERSION}\"|" "$f"
+          sed -i -E "s|/download/v[0-9]+\.[0-9]+\.[0-9]+[^/]*/|/download/${REF_NAME}/|g" "$f"
+          sed -i "/boardwalk-darwin-arm64\"/{n;s|sha256 \".*\"|sha256 \"${MAC_ARM}\"|;}" "$f"
+          sed -i "/boardwalk-darwin-x64\"/{n;s|sha256 \".*\"|sha256 \"${MAC_X64}\"|;}" "$f"
+          sed -i "/boardwalk-linux-arm64\"/{n;s|sha256 \".*\"|sha256 \"${LNX_ARM}\"|;}" "$f"
+          sed -i "/boardwalk-linux-x64\"/{n;s|sha256 \".*\"|sha256 \"${LNX_X64}\"|;}" "$f"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/boardwalk.rb
+          git add "$f"
           git diff --cached --quiet && { echo "no formula change; skipping commit"; exit 0; }
           git commit -m "boardwalk ${VERSION}"
           git push
@@ -173,30 +183,15 @@ jobs:
     if: ${{ !contains(github.ref_name, '-') }} # skip prereleases
     runs-on: macos-latest
     steps:
-      - name: Install + test the freshly-bumped formula
+      - name: Install + test the native-binary formula
         env:
           HOMEBREW_NO_ANALYTICS: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
-        # Homebrew passes npm `--min-release-age` (a supply-chain guard against freshly-published
-        # versions). Right after a release, this repo's just-published deps (@boardwalk-labs/engine,
-        # @boardwalk-labs/workflow) are younger than that threshold and get filtered out, so npm can't
-        # resolve them and brew install fails, even though the formula is correct and the package
-        # installs fine once they age (~a day). npm surfaces this filter two ways depending on version:
-        # an `ENOVERSIONS` error, or (more commonly) an `ETARGET` "No matching version found ... with a
-        # date before <date>" error. Treat *either* form as a skip-with-warning; any OTHER failure is
-        # real. The "with a date before" phrase only appears under a before/min-release-age filter, so
-        # matching it won't mask a genuinely-missing version (which says "No matching version" alone).
+        # The formula now installs a self-contained binary with NO dependencies, so the old npm
+        # `--min-release-age` dance (deps too freshly published to resolve) no longer applies.
         run: |
+          set -euo pipefail
           brew update
-          if out=$(brew install --verbose boardwalk-labs/tap/boardwalk 2>&1); then
-            echo "$out"
-            brew test boardwalk-labs/tap/boardwalk
-          else
-            echo "$out"
-            if echo "$out" | grep -qE "ENOVERSIONS|with a date before|min-release-age"; then
-              echo "::warning title=brew smoke skipped::A just-published dependency is newer than Homebrew's npm --min-release-age guard, so npm filters it out and brew install can't resolve it. This self-heals as the version ages (~a day); the formula is otherwise valid. Skipping."
-            else
-              echo "::error::brew install failed for a non-transient reason"
-              exit 1
-            fi
-          fi
+          brew install boardwalk-labs/tap/boardwalk
+          brew test boardwalk-labs/tap/boardwalk
+          boardwalk --version

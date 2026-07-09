@@ -2,13 +2,24 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## Unreleased
+
+### Changed
+
+- **Homebrew now installs the native binary** (no Node). The tap formula downloads the
+  platform-specific single-file executable from the GitHub Release instead of the npm tarball, so
+  `brew install boardwalk-labs/tap/boardwalk` no longer depends on Node — and the release's
+  brew-smoke-test drops the old npm `--min-release-age` workaround (a binary has no deps).
+- Release attaches the binaries only (dropped a stray `index.js.map` sourcemap sidecar).
+
 ## 0.1.31
 
 ### Added
 
 - **Native single-file executables** — the CLI now ships as a Node-free binary compiled with Bun
   (`bun build --compile`), cross-built for macOS (arm64/x64), Linux (x64/x64-baseline/arm64), and
-  Windows (x64) and attached to each GitHub Release. Install via `curl -fsSL https://boardwalk.sh/install | bash`
+  Windows (x64) and attached to each GitHub Release. Install with
+  `curl -fsSL https://raw.githubusercontent.com/boardwalk-labs/cli/main/scripts/install.sh | bash`
   (`scripts/install.sh` detects OS/arch/AVX2) — no Node required. The npm package
   (`@boardwalk-labs/cli`) stays the full Node build; this is an additional distribution channel.
 - Under the compiled binary the workflow bundler uses **Bun's native bundler** instead of esbuild

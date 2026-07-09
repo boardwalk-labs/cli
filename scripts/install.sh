@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install the Boardwalk CLI as a native single-file binary — no Node required.
 #
-#   curl -fsSL https://boardwalk.sh/install | bash
+#   curl -fsSL https://raw.githubusercontent.com/boardwalk-labs/cli/main/scripts/install.sh | bash
+#
+# (Once the brand domain is wired, `https://boardwalk.sh/install` will redirect here.)
 #
 # Overrides:
 #   BOARDWALK_VERSION      release tag to install (default: latest), e.g. v0.1.31
