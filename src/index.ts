@@ -458,6 +458,7 @@ function buildProgram(): Command {
   registerVariablesCommand(program);
   registerInferenceCommand(program);
   registerModelsCommand(program);
+  registerNotificationsCommand(program);
 
   return program;
 }
@@ -602,6 +603,63 @@ function registerSecretsCommand(program: Command): void {
       ) => {
         const { runSecretDelete } = await import("./commands/secrets.js");
         await runSecretDelete({ name, ...options }, { config: loadConfig() });
+      },
+    );
+}
+
+/** Register `notifications` + its `list` / `unread` / `read` subcommands (the caller's own feed). */
+function registerNotificationsCommand(program: Command): void {
+  const notifications = program
+    .command("notifications")
+    .description("Your in-app notifications for the org (watched runs, input requests, billing).");
+
+  notifications
+    .command("list", { isDefault: true })
+    .option("--unread", "only unread notifications", false)
+    .option("--limit <n>", "max notifications to return")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List your notifications for the org (newest first).")
+    .action(
+      async (options: {
+        unread?: boolean;
+        limit?: string;
+        org?: string;
+        json?: boolean;
+        token?: string;
+      }) => {
+        const { runNotificationsList } = await import("./commands/notifications.js");
+        await runNotificationsList(options, { config: loadConfig() });
+      },
+    );
+
+  notifications
+    .command("unread")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Print your unread-notification count for the org (a bare number).")
+    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+      const { runNotificationsUnread } = await import("./commands/notifications.js");
+      await runNotificationsUnread(options, { config: loadConfig() });
+    });
+
+  notifications
+    .command("read")
+    .argument("[ids...]", "notification ids to mark read")
+    .option("--all", "mark every unread notification read", false)
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Mark notifications read — by id, or --all.")
+    .action(
+      async (
+        ids: string[],
+        options: { all?: boolean; org?: string; json?: boolean; token?: string },
+      ) => {
+        const { runNotificationsRead } = await import("./commands/notifications.js");
+        await runNotificationsRead({ ids, ...options }, { config: loadConfig() });
       },
     );
 }

@@ -183,6 +183,23 @@ export interface SecretListItem {
   createdAt: number | null;
 }
 
+/** One in-app notification (the caller's own, in the active org). */
+export interface NotificationItem {
+  id: string;
+  kind: string;
+  title: string;
+  body: string | null;
+  /** App-relative deep link to the subject (e.g. "/acme/runs/01H…"), or null. */
+  link: string | null;
+  /** Epoch ms the row was read, or null when unread. */
+  readAt: number | null;
+  createdAt: number;
+}
+export interface NotificationList {
+  notifications: NotificationItem[];
+  nextCursor: string | null;
+}
+
 /** A named environment (a config set a run/schedule targets by name; null = the org-level base). */
 export interface EnvironmentItem {
   id: string;
@@ -491,6 +508,63 @@ export class BoardwalkClient {
   /** Delete a secret by id (DELETE /v1/secrets/:id). The id-keyed endpoint resolves the org. */
   async deleteSecret(id: string): Promise<void> {
     await this.request<undefined>("DELETE", `/v1/secrets/${encodeURIComponent(id)}`);
+  }
+
+  // ---- notifications (in-app feed) ----
+
+  /** List the caller's in-app notifications for the org (newest first). */
+  async listNotifications(
+    orgSlug: string,
+    opts: { unread?: boolean; limit?: number; cursor?: string } = {},
+  ): Promise<NotificationList> {
+    const params = new URLSearchParams();
+    if (opts.unread === true) params.set("unread", "true");
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    if (opts.cursor !== undefined) params.set("cursor", opts.cursor);
+    const query = params.toString();
+    const body = await this.request<{ notifications?: unknown; nextCursor?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/notifications${query.length > 0 ? `?${query}` : ""}`,
+    );
+    const rows = Array.isArray(body.notifications) ? body.notifications : [];
+    const notifications: NotificationItem[] = [];
+    for (const row of rows) {
+      const parsed = parseNotificationRow(row);
+      if (parsed !== null) notifications.push(parsed);
+    }
+    return {
+      notifications,
+      nextCursor: typeof body.nextCursor === "string" ? body.nextCursor : null,
+    };
+  }
+
+  /** The caller's unread-notification count for the org. */
+  async getUnreadNotificationCount(orgSlug: string): Promise<number> {
+    const body = await this.request<{ unread?: unknown }>(
+      "GET",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/notifications/unread-count`,
+    );
+    return typeof body.unread === "number" ? body.unread : 0;
+  }
+
+  /** Mark the given notification ids read; returns how many flipped unread → read. */
+  async markNotificationsRead(orgSlug: string, ids: string[]): Promise<number> {
+    const body = await this.request<{ updated?: unknown }>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/notifications/read`,
+      { ids },
+    );
+    return typeof body.updated === "number" ? body.updated : 0;
+  }
+
+  /** Mark every unread notification read; returns how many flipped. */
+  async markAllNotificationsRead(orgSlug: string): Promise<number> {
+    const body = await this.request<{ updated?: unknown }>(
+      "POST",
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/notifications/read-all`,
+      {},
+    );
+    return typeof body.updated === "number" ? body.updated : 0;
   }
 
   // ---- self-hosted runners ----
@@ -1367,6 +1441,19 @@ function parseSecretRow(row: unknown): SecretListItem | null {
     last4: typeof row.last4 === "string" ? row.last4 : null,
     description: typeof row.description === "string" ? row.description : null,
     createdAt: typeof row.createdAt === "number" ? row.createdAt : null,
+  };
+}
+
+function parseNotificationRow(row: unknown): NotificationItem | null {
+  if (!isRecord(row) || typeof row.id !== "string" || typeof row.title !== "string") return null;
+  return {
+    id: row.id,
+    kind: typeof row.kind === "string" ? row.kind : "",
+    title: row.title,
+    body: typeof row.body === "string" ? row.body : null,
+    link: typeof row.link === "string" ? row.link : null,
+    readAt: typeof row.readAt === "number" ? row.readAt : null,
+    createdAt: typeof row.createdAt === "number" ? row.createdAt : 0,
   };
 }
 
