@@ -34,8 +34,8 @@ function meFetch(body: unknown, status = 200): { fetchImpl: FetchLike; urls: str
 const ME_OK = {
   user: { id: "user_1", email: "ada@example.com", name: "Ada Lovelace" },
   memberships: [
-    { orgId: "o1", role: "owner", slug: "demo-org", name: "Demo Org" },
-    { orgId: "o2", role: "member", slug: "acme", name: "Acme" },
+    { orgId: "o1", role: "owner", slug: "demo-org", name: "Demo Org", plan: "solo" },
+    { orgId: "o2", role: "member", slug: "acme", name: "Acme", plan: "free" },
   ],
 };
 
@@ -50,8 +50,8 @@ describe("formatStatus", () => {
         email: "ada@example.com",
         name: "Ada Lovelace",
         orgs: [
-          { slug: "demo-org", role: "owner" },
-          { slug: "acme", role: "member" },
+          { slug: "demo-org", role: "owner", plan: "solo" },
+          { slug: "acme", role: "member", plan: "free" },
         ],
       },
       project: { orgSlug: "demo-org", workflowId: "wf_abc123" },
@@ -65,8 +65,27 @@ describe("formatStatus", () => {
     expect(out).toMatch(/Host\s+https:\/\/api\.x\s+\(default\)/);
     expect(out).toMatch(/Account\s+✓ ada@example\.com \(Ada Lovelace\)/);
     expect(out).toMatch(/Auth\s+OAuth session · scope=workflows · expires in 13h/);
-    expect(out).toMatch(/Orgs\s+demo-org \(owner\) · acme \(member\)/);
+    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · acme \(member · Free\)/);
     expect(out).toMatch(/Project\s+demo-org \/ wf_abc123/);
+  });
+
+  it("omits the tier when the backend doesn't supply a plan (older/self-hosted)", () => {
+    const out = formatStatus(
+      base({
+        account: {
+          kind: "ok",
+          email: "ada@example.com",
+          name: "Ada Lovelace",
+          orgs: [
+            { slug: "demo-org", role: "owner", plan: null },
+            { slug: "acme", role: "member", plan: "pro" },
+          ],
+        },
+      }),
+      NOW,
+    ).join("\n");
+    // Missing plan → bare "(role)"; a known plan on the same line still shows its tier.
+    expect(out).toMatch(/Orgs\s+demo-org \(owner\) · acme \(member · Pro\)/);
   });
 
   it("labels a self-host / dev host by the env var that set it", () => {
@@ -156,7 +175,7 @@ describe("runStatus", () => {
     expect(urls).toEqual(["https://api.x/v1/me"]);
     const out = lines.join("\n");
     expect(out).toMatch(/Account\s+✓ ada@example\.com \(Ada Lovelace\)/);
-    expect(out).toMatch(/Orgs\s+demo-org \(owner\) · acme \(member\)/);
+    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · acme \(member · Free\)/);
     expect(out).toContain("--token (one-off)");
     expect(exits).toEqual([]); // valid → exit 0 (untouched)
   });

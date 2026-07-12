@@ -283,7 +283,9 @@ export interface ModelList {
  *  renders for `boardwalk status`; memberships drive the "Orgs" line. */
 export interface MeResult {
   user: { id: string; email: string; name: string | null };
-  memberships: { slug: string | null; role: string; name: string | null }[];
+  /** `plan` is the org's subscription tier (free/solo/pro/team/…) — benign org metadata every member
+   *  may see (NOT the billing-gated dollar figures). null on an older backend that predates the field. */
+  memberships: { slug: string | null; role: string; name: string | null; plan: string | null }[];
 }
 
 /** A freshly-minted inference-gateway key: the plaintext token (shown once) + its expiry/id. */
@@ -1125,6 +1127,7 @@ export class BoardwalkClient {
           slug: typeof m.slug === "string" ? m.slug : null,
           role: m.role,
           name: typeof m.name === "string" ? m.name : null,
+          plan: typeof m.plan === "string" ? m.plan : null,
         });
       }
     }

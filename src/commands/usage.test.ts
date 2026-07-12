@@ -212,7 +212,8 @@ describe("formatAllowances", () => {
       },
       spendCap: { capCents: 5000, usedCents: 1234 },
     }).join("\n");
-    expect(out).toContain("Plan · solo");
+    expect(out).toContain("Plan · Solo");
+    expect(out).toContain("Managed inference");
     expect(out).toContain("14.2 of 25");
     expect(out).toContain("$6.10 of $10.00");
     expect(out).toContain("312 of 500");
@@ -243,8 +244,8 @@ describe("runUsage with allowances", () => {
       { config: CONFIG, fetchImpl, log: (l) => lines.push(l) },
     );
     const out = lines.join("\n");
-    expect(out.indexOf("Plan · solo")).toBeGreaterThanOrEqual(0);
-    expect(out.indexOf("Plan · solo")).toBeLessThan(out.indexOf("Usage · acme-corp"));
+    expect(out.indexOf("Plan · Solo")).toBeGreaterThanOrEqual(0);
+    expect(out.indexOf("Plan · Solo")).toBeLessThan(out.indexOf("Usage · acme-corp"));
   });
 
   it("merges allowances into --json output when present", async () => {

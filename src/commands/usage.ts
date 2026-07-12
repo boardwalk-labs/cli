@@ -18,6 +18,7 @@ import {
   type UsageLine,
 } from "../client.js";
 import { readLink } from "../project.js";
+import { planLabel } from "../plan_label.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 export interface UsageOptions {
@@ -91,10 +92,12 @@ export function formatAllowances(a: AllowancesSummary | null): string[] {
   if (a?.gauges == null) return [];
   const g = a.gauges;
   const lines: string[] = [
-    `Plan · ${a.plan}`,
+    // Display the tier name (not the raw enum), and label the pool "Managed inference" — both matching
+    // the web billing page, so `usage` and the dashboard read as one product.
+    `Plan · ${planLabel(a.plan) ?? a.plan}`,
     "",
     gauge("Agent-hours", g.agentHours.used, g.agentHours.included, (n) => trim1(n)),
-    gauge("Token pool", g.tokenPool.usedCents, g.tokenPool.includedCents, usd),
+    gauge("Managed inference", g.tokenPool.usedCents, g.tokenPool.includedCents, usd),
     gauge("Searches", g.searches.used, g.searches.included, (n) =>
       Math.round(n).toLocaleString("en-US"),
     ),
@@ -119,7 +122,8 @@ function gauge(label: string, used: number, included: number, fmt: (n: number) =
   const ratio = included <= 0 ? 0 : Math.min(1, Math.max(0, used / included));
   const filled = Math.round(ratio * 20);
   const bar = `[${"█".repeat(filled)}${"░".repeat(20 - filled)}]`;
-  return `  ${label.padEnd(11)} ${bar}  ${fmt(used)} of ${fmt(included)}`;
+  // Pad to the longest gauge label ("Managed inference" = 17) so every bar starts at the same column.
+  return `  ${label.padEnd(17)} ${bar}  ${fmt(used)} of ${fmt(included)}`;
 }
 
 /** One decimal only when it matters: 14.2 stays 14.2, 25 stays 25. */
