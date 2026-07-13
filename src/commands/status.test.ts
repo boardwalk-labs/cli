@@ -50,8 +50,8 @@ describe("formatStatus", () => {
         email: "ada@example.com",
         name: "Ada Lovelace",
         orgs: [
-          { slug: "demo-org", role: "owner", plan: "solo" },
-          { slug: "acme", role: "member", plan: "free" },
+          { id: "01ORGDEMO", slug: "demo-org", role: "owner", plan: "solo" },
+          { id: "01ORGACME", slug: "acme", role: "member", plan: "free" },
         ],
       },
       project: { orgSlug: "demo-org", workflowId: "wf_abc123" },
@@ -65,7 +65,9 @@ describe("formatStatus", () => {
     expect(out).toMatch(/Host\s+https:\/\/api\.x\s+\(default\)/);
     expect(out).toMatch(/Account\s+✓ ada@example\.com \(Ada Lovelace\)/);
     expect(out).toMatch(/Auth\s+OAuth session · scope=workflows · expires in 13h/);
-    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · acme \(member · Free\)/);
+    // One org per line, each carrying the org id (what an OIDC trust policy pins on).
+    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · id 01ORGDEMO/);
+    expect(out).toMatch(/^\s+acme \(member · Free\) · id 01ORGACME$/m);
     expect(out).toMatch(/Project\s+demo-org \/ wf_abc123/);
   });
 
@@ -77,15 +79,16 @@ describe("formatStatus", () => {
           email: "ada@example.com",
           name: "Ada Lovelace",
           orgs: [
-            { slug: "demo-org", role: "owner", plan: null },
-            { slug: "acme", role: "member", plan: "pro" },
+            { id: null, slug: "demo-org", role: "owner", plan: null },
+            { id: null, slug: "acme", role: "member", plan: "pro" },
           ],
         },
       }),
       NOW,
     ).join("\n");
-    // Missing plan → bare "(role)"; a known plan on the same line still shows its tier.
-    expect(out).toMatch(/Orgs\s+demo-org \(owner\) · acme \(member · Pro\)/);
+    // Missing plan → bare "(role)"; missing org id (older backend) → the id suffix drops too.
+    expect(out).toMatch(/Orgs\s+demo-org \(owner\)$/m);
+    expect(out).toMatch(/^\s+acme \(member · Pro\)$/m);
   });
 
   it("labels a self-host / dev host by the env var that set it", () => {
@@ -175,7 +178,8 @@ describe("runStatus", () => {
     expect(urls).toEqual(["https://api.x/v1/me"]);
     const out = lines.join("\n");
     expect(out).toMatch(/Account\s+✓ ada@example\.com \(Ada Lovelace\)/);
-    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · acme \(member · Free\)/);
+    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · id o1/);
+    expect(out).toMatch(/^\s+acme \(member · Free\) · id o2$/m);
     expect(out).toContain("--token (one-off)");
     expect(exits).toEqual([]); // valid → exit 0 (untouched)
   });

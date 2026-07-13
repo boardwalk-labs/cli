@@ -285,7 +285,15 @@ export interface MeResult {
   user: { id: string; email: string; name: string | null };
   /** `plan` is the org's subscription tier (free/solo/pro/team/…) — benign org metadata every member
    *  may see (NOT the billing-gated dollar figures). null on an older backend that predates the field. */
-  memberships: { slug: string | null; role: string; name: string | null; plan: string | null }[];
+  /** `orgId` is the org's stable ULID — what an OIDC trust policy pins on (`sub` is
+   *  `org:<orgId>:workflow:<workflowId>:run:<runId>`), so `status`/`whoami` surface it verbatim. */
+  memberships: {
+    orgId: string | null;
+    slug: string | null;
+    role: string;
+    name: string | null;
+    plan: string | null;
+  }[];
 }
 
 /** A freshly-minted inference-gateway key: the plaintext token (shown once) + its expiry/id. */
@@ -1131,6 +1139,7 @@ export class BoardwalkClient {
       for (const m of body.memberships) {
         if (!isRecord(m) || typeof m.role !== "string") continue;
         memberships.push({
+          orgId: typeof m.orgId === "string" ? m.orgId : null,
           slug: typeof m.slug === "string" ? m.slug : null,
           role: m.role,
           name: typeof m.name === "string" ? m.name : null,

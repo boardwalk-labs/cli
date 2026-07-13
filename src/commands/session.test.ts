@@ -37,21 +37,35 @@ describe("runLogin --token (first-class API-key auth)", () => {
     expect(lines.join("\n")).toContain("Stored API key");
   });
 
-  it("whoami reports the API-key method", async () => {
+  it("whoami reports the API-key method (session line prints even when the probe fails)", async () => {
     const c = config(dir);
     await runLogin({ config: c }, { token: "bwk_x" });
     const lines: string[] = [];
-    runWhoami({ config: c, log: (l) => lines.push(l) });
+    const offline = (() => Promise.reject(new Error("offline"))) as typeof fetch;
+    await runWhoami({ config: c, log: (l) => lines.push(l), fetchImpl: offline });
     expect(lines.join("\n")).toContain("API key");
+    expect(lines.join("\n")).not.toContain("org "); // probe failed → no org lines, no error
+  });
+
+  it("whoami lists the account's orgs with their ids (OIDC trust policies pin on the id)", async () => {
+    const c = config(dir);
+    await runLogin({ config: c }, { token: "bwk_x" });
+    const me = {
+      user: { id: "user_1", email: "ada@example.com", name: null },
+      memberships: [{ orgId: "01ORGDEMO", role: "owner", slug: "demo-org", plan: "solo" }],
+    };
+    const fetchImpl = (() =>
+      Promise.resolve(new Response(JSON.stringify(me), { status: 200 }))) as typeof fetch;
+    const lines: string[] = [];
+    await runWhoami({ config: c, log: (l) => lines.push(l), fetchImpl });
+    expect(lines.join("\n")).toContain("org demo-org (owner) id=01ORGDEMO");
   });
 
   it("logout clears the stored key", async () => {
     const c = config(dir);
     await runLogin({ config: c }, { token: "bwk_x" });
     runLogout({ config: c, log: () => undefined });
-    expect(() => {
-      runWhoami({ config: c, log: () => undefined });
-    }).toThrow(/Not logged in/);
+    await expect(runWhoami({ config: c, log: () => undefined })).rejects.toThrow(/Not logged in/);
   });
 });
 

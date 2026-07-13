@@ -7,10 +7,17 @@ import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { performLogin } from "../auth/login.js";
 import { resolveLog } from "../log.js";
+import { resolveToken, resolveBaseUrl } from "../auth/resolve.js";
+import { BoardwalkClient } from "../client.js";
+import type { FetchLike } from "../auth/pkce.js";
 
 export interface SessionDeps {
   config: CliConfig;
   log?: (line: string) => void;
+  fetchImpl?: FetchLike;
+  env?: NodeJS.ProcessEnv;
+  /** Epoch ms for token-expiry decisions (injectable for tests). */
+  now?: number;
 }
 
 export interface LoginOptions {
@@ -86,8 +93,11 @@ export function runLogout(deps: SessionDeps): void {
   log("✓ Logged out — local credentials removed.");
 }
 
-/** Report whether a stored session exists. (Identity claims live in the JWT; v0 keeps this minimal.) */
-export function runWhoami(deps: SessionDeps): void {
+/** Report the stored session, then best-effort enrich with the account's orgs (slug, role, and the
+ *  org ID an OIDC trust policy pins on — `sub` is `org:<id>:workflow:<wf>:run:<run>`). The session
+ *  line is LOCAL and always prints; the `/v1/me` probe degrades silently when offline, so `whoami`
+ *  stays usable without a network. `status` remains the full diagnostic. */
+export async function runWhoami(deps: SessionDeps): Promise<void> {
   const log = resolveLog(deps);
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const session = store.getSession();
@@ -102,4 +112,40 @@ export function runWhoami(deps: SessionDeps): void {
   const scope = session.scope ?? "(none)";
   const expiry = session.expiresAt !== null ? new Date(session.expiresAt).toISOString() : "never";
   log(`Logged in via ${method}. scope=${scope} expires=${expiry}`);
+
+  const orgLines = await whoamiOrgLines(deps, store);
+  for (const line of orgLines) log(line);
+}
+
+/** The org lines for `whoami`, or [] when the account can't be reached (offline / expired / rejected
+ *  — never an error: the local session line above is the command's contract). */
+async function whoamiOrgLines(deps: SessionDeps, store: CredentialStore): Promise<string[]> {
+  const env = deps.env ?? process.env;
+  try {
+    const token = await resolveToken({
+      config: deps.config,
+      store,
+      env,
+      now: deps.now ?? Date.now(),
+      ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+    });
+    const base = resolveBaseUrl({
+      config: deps.config,
+      session: store.getSession(),
+      usingFlag: false,
+      usingEnvKey: (env.BOARDWALK_API_KEY ?? "").trim().length > 0,
+    });
+    const client = new BoardwalkClient({
+      baseUrl: base.url,
+      token,
+      ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+    });
+    const me = await client.getMe();
+    return me.memberships.map(
+      (m) =>
+        `  org ${m.slug ?? "(unknown)"} (${m.role})${m.orgId === null ? "" : ` id=${m.orgId}`}`,
+    );
+  } catch {
+    return [];
+  }
 }

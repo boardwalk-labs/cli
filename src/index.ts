@@ -8,7 +8,8 @@
 //   boardwalk check <file>              Validate a workflow locally (no auth/network).
 //   boardwalk login                     Authenticate via browser (OAuth PKCE).
 //   boardwalk logout                    Remove local credentials.
-//   boardwalk whoami                    Show the current session (quick, local).
+//   boardwalk whoami                    Show the current session + orgs with ids (org lines are
+//                                       best-effort network; the session line still prints offline).
 //   boardwalk status                    Show host, login (live-verified), and project link.
 //   boardwalk deploy <file> --org <s>   Create/update a workflow from a program file.
 //   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
@@ -202,10 +203,10 @@ function buildProgram(): Command {
 
   program
     .command("whoami")
-    .description("Show the current session.")
+    .description("Show the current session and the account's orgs (slug, role, org id).")
     .action(async () => {
       const { runWhoami } = await import("./commands/session.js");
-      runWhoami({ config: loadConfig() });
+      await runWhoami({ config: loadConfig() });
     });
 
   program

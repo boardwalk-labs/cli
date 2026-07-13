@@ -53,7 +53,7 @@ function routeFetch(routes: {
     const method = init?.method ?? "GET";
     const body = typeof init?.body === "string" ? init.body : null;
     calls.push({ url, method, body });
-    if (/\/notifications\/unread-count$/.test(url)) {
+    if (url.endsWith("/notifications/unread-count")) {
       return Promise.resolve(new Response(JSON.stringify({ unread: routes.unread ?? 0 })));
     }
     if (/\/notifications\/read(-all)?$/.test(url)) {

@@ -58,7 +58,7 @@ type AccountProbe =
       kind: "ok";
       email: string;
       name: string | null;
-      orgs: { slug: string | null; role: string; plan: string | null }[];
+      orgs: { id: string | null; slug: string | null; role: string; plan: string | null }[];
     }
   | { kind: "rejected" } // 401/403 — token present but the server refused it
   | { kind: "unreachable" } // network error / non-auth failure — creds may be fine, couldn't verify
@@ -189,7 +189,7 @@ async function probe(deps: StatusDeps, baseUrl: string, token: string): Promise<
       kind: "ok",
       email: me.user.email,
       name: me.user.name,
-      orgs: me.memberships.map((m) => ({ slug: m.slug, role: m.role, plan: m.plan })),
+      orgs: me.memberships.map((m) => ({ id: m.orgId, slug: m.slug, role: m.role, plan: m.plan })),
     };
   } catch (err) {
     if (err instanceof CliError && (err.status === 401 || err.status === 403)) {
@@ -223,15 +223,17 @@ export function formatStatus(report: StatusReport, now: number): string[] {
   if (authLine !== null) lines.push(row("Auth", authLine));
 
   if (report.account.kind === "ok" && report.account.orgs.length > 0) {
-    // "slug (role · Tier)" — the subscription tier rides on /v1/me (benign org metadata every member
-    // sees), so it shows for any role. An older backend omits `plan` (null) → just "slug (role)".
-    const orgs = report.account.orgs
-      .map((o) => {
-        const tier = planLabel(o.plan);
-        return `${o.slug ?? "(unknown)"} (${o.role}${tier === null ? "" : ` · ${tier}`})`;
-      })
-      .join(" · ");
-    lines.push(row("Orgs", orgs));
+    // One org per line: "slug (role · Tier) · id <ulid>". The tier rides on /v1/me (benign org
+    // metadata every member sees); an older backend omits `plan`/`orgId` (null) → those parts drop.
+    // The id is shown verbatim because OIDC trust policies pin on it (sub = org:<id>:…) — it must
+    // be copy-pasteable, never truncated.
+    report.account.orgs.forEach((o, i) => {
+      const tier = planLabel(o.plan);
+      const entry =
+        `${o.slug ?? "(unknown)"} (${o.role}${tier === null ? "" : ` · ${tier}`})` +
+        (o.id === null ? "" : ` · id ${o.id}`);
+      lines.push(row(i === 0 ? "Orgs" : "", entry));
+    });
   }
 
   lines.push(
