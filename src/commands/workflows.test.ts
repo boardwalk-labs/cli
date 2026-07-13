@@ -104,6 +104,14 @@ describe("formatWorkflowList", () => {
     ]);
   });
 
+  it("shows the active search term in the header and the no-match line", () => {
+    const out = formatWorkflowList("acme", [item()], NOW, "night").join("\n");
+    expect(out).toContain('Workflows · acme · "night"  (1)');
+    expect(formatWorkflowList("acme", [], NOW, "zzz")).toEqual([
+      'No workflows in acme match "zzz".',
+    ]);
+  });
+
   it("marks a disabled row and leaves enabled rows unmarked", () => {
     const out = formatWorkflowList(
       "acme",
@@ -165,6 +173,21 @@ describe("runWorkflowsList", () => {
         { config: CONFIG, fetchImpl, log: () => undefined, cwd: "/tmp/boardwalk-no-link-xyz" },
       ),
     ).rejects.toThrow(/No org specified/);
+  });
+
+  it("passes --search server-side as ?q= (trimmed + url-encoded) and drops a blank term", async () => {
+    const { fetchImpl, calls } = routeFetch({ workflows: [item()] });
+    await runWorkflowsList(
+      { org: "acme", token: "t", search: "  merge conflicts  " },
+      { config: CONFIG, fetchImpl, log: () => undefined, now: NOW },
+    );
+    expect(calls[0]?.url).toBe("https://api.x/v1/orgs/acme/workflows?q=merge%20conflicts");
+
+    await runWorkflowsList(
+      { org: "acme", token: "t", search: "   " },
+      { config: CONFIG, fetchImpl, log: () => undefined, now: NOW },
+    );
+    expect(calls[1]?.url).toBe("https://api.x/v1/orgs/acme/workflows");
   });
 });
 

@@ -391,11 +391,18 @@ export class BoardwalkClient {
   }
 
   /** List the org's workflows with the at-a-glance projection (title, triggers, last run) the
-   *  `boardwalk workflows` table renders. Rows missing an id/slug are skipped (lenient). */
-  async listWorkflowSummaries(orgSlug: string): Promise<WorkflowListItem[]> {
+   *  `boardwalk workflows` table renders. Rows missing an id/slug are skipped (lenient).
+   *  `opts.search` narrows server-side (`?q=`) to workflows whose title or slug contains the
+   *  term, case-insensitively. */
+  async listWorkflowSummaries(
+    orgSlug: string,
+    opts: { search?: string } = {},
+  ): Promise<WorkflowListItem[]> {
+    const search = opts.search?.trim();
+    const query = search !== undefined && search !== "" ? `?q=${encodeURIComponent(search)}` : "";
     const body = await this.request<{ workflows?: unknown }>(
       "GET",
-      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows`,
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows${query}`,
     );
     const rows = Array.isArray(body.workflows) ? body.workflows : [];
     const items: WorkflowListItem[] = [];

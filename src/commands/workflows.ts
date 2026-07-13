@@ -21,6 +21,8 @@ import type { FetchLike } from "../auth/pkce.js";
 
 export interface WorkflowsListOptions {
   org?: string | undefined;
+  /** Server-side search: only workflows whose title or slug contains this (case-insensitive). */
+  search?: string | undefined;
   json?: boolean | undefined;
   token?: string | undefined;
 }
@@ -68,12 +70,16 @@ export async function runWorkflowsList(
       "Pass --org <slug>, or run from a linked project (deploy/run links one).",
     );
   }
-  const workflows = await client.listWorkflowSummaries(org);
+  const search = opts.search?.trim();
+  const workflows = await client.listWorkflowSummaries(
+    org,
+    search !== undefined && search !== "" ? { search } : {},
+  );
   if (opts.json === true) {
     log(JSON.stringify({ workflows }, null, 2));
     return;
   }
-  for (const line of formatWorkflowList(org, workflows, now)) log(line);
+  for (const line of formatWorkflowList(org, workflows, now, search)) log(line);
 }
 
 export async function runWorkflowShow(
@@ -151,17 +157,22 @@ async function setWorkflowDisabled(
 
 // ── formatters (pure — exported for tests) ──────────────────────────────────────────────────────
 
-/** Render the workflow list as an aligned table. `now` renders the last-run age. */
+/** Render the workflow list as an aligned table. `now` renders the last-run age; `search` (the
+ *  active `--search` term, if any) shapes the header + the empty-state line. */
 export function formatWorkflowList(
   org: string,
   workflows: WorkflowListItem[],
   now: number,
+  search?: string,
 ): string[] {
+  const searching = search !== undefined && search !== "";
   if (workflows.length === 0) {
-    return [`No workflows in ${org} yet — create one with \`boardwalk deploy\`.`];
+    return searching
+      ? [`No workflows in ${org} match "${search}".`]
+      : [`No workflows in ${org} yet — create one with \`boardwalk deploy\`.`];
   }
   const lines = [
-    `Workflows · ${org}  (${String(workflows.length)})`,
+    `Workflows · ${org}${searching ? ` · "${search}"` : ""}  (${String(workflows.length)})`,
     "",
     `  ${col("SLUG", SLUG_W)}${col("TITLE", TITLE_W)}${col("TRIGGERS", TRIGGERS_W)}LAST RUN`,
   ];

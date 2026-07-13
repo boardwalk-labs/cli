@@ -472,13 +472,17 @@ function registerWorkflowsCommand(program: Command): void {
   workflows
     .command("list", { isDefault: true })
     .option("--org <slug>", "the org to list (optional once the project is linked)")
+    .option(
+      "-q, --search <term>",
+      "only workflows whose title or slug contains this (case-insensitive)",
+    )
     .option("--json", "print the raw response as JSON", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("List the org's workflows.")
-    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+    .action(async (options: { org?: string; search?: string; json?: boolean; token?: string }) => {
       const { runWorkflowsList } = await import("./commands/workflows.js");
       await runWorkflowsList(
-        { org: options.org, json: options.json, token: options.token },
+        { org: options.org, search: options.search, json: options.json, token: options.token },
         { config: loadConfig() },
       );
     });
