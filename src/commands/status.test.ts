@@ -50,8 +50,8 @@ describe("formatStatus", () => {
         email: "ada@example.com",
         name: "Ada Lovelace",
         orgs: [
-          { id: "01ORGDEMO", slug: "demo-org", role: "owner", plan: "solo" },
-          { id: "01ORGACME", slug: "acme", role: "member", plan: "free" },
+          { id: "demo-org-id", slug: "demo-org", role: "owner", plan: "solo" },
+          { id: "acme-org-id", slug: "acme", role: "member", plan: "free" },
         ],
       },
       project: { orgSlug: "demo-org", workflowId: "wf_abc123" },
@@ -66,8 +66,8 @@ describe("formatStatus", () => {
     expect(out).toMatch(/Account\s+✓ ada@example\.com \(Ada Lovelace\)/);
     expect(out).toMatch(/Auth\s+OAuth session · scope=workflows · expires in 13h/);
     // One org per line, each carrying the org id (what an OIDC trust policy pins on).
-    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · id 01ORGDEMO/);
-    expect(out).toMatch(/^\s+acme \(member · Free\) · id 01ORGACME$/m);
+    expect(out).toMatch(/Orgs\s+demo-org \(owner · Solo\) · id demo-org-id/);
+    expect(out).toMatch(/^\s+acme \(member · Free\) · id acme-org-id$/m);
     expect(out).toMatch(/Project\s+demo-org \/ wf_abc123/);
   });
 
