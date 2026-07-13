@@ -227,6 +227,7 @@ export async function startLoopback(port: number): Promise<Loopback> {
     const error = url.searchParams.get("error") ?? "";
     const expectedState = pendingState;
 
+    let ok = false;
     let message: string;
     if (error.length > 0) {
       message = `Authorization failed: ${error}`;
@@ -238,14 +239,15 @@ export async function startLoopback(port: number): Promise<Loopback> {
       message = "Authorization failed: state mismatch (possible CSRF).";
       rejectCode(new CliError(message));
     } else {
-      message = "Boardwalk login complete — you can close this tab and return to the terminal.";
+      ok = true;
+      message = "Boardwalk login complete. You can close this tab and return to the terminal.";
       resolveCode(code);
     }
     // `Connection: close` so the browser drops its socket once it has the response, rather than
     // parking it open with HTTP keep-alive — a single parked socket keeps Node's event loop alive
     // and the CLI hangs after a successful login. `close()` reaps any stragglers regardless.
-    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", Connection: "close" });
-    res.end(message);
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", Connection: "close" });
+    res.end(renderCallbackPage(ok, message));
   });
 
   let pendingState: string | null = null;
@@ -279,4 +281,61 @@ export async function startLoopback(port: number): Promise<Loopback> {
       server.closeAllConnections();
     },
   };
+}
+
+/** Escape text bound into the callback page. The OAuth `error` param is attacker-influenceable. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * The page the browser lands on after the OAuth redirect. Deliberately minimal: bold text on the
+ * near-black Boardwalk canvas, echoing the marketing line ("Agent automation that you control")
+ * with our periwinkle accent underline. Fully self-contained — the loopback socket has no route to
+ * our CDN, so it must render with zero network requests.
+ */
+function renderCallbackPage(ok: boolean, message: string): string {
+  const heading = ok
+    ? 'Go <span class="u">automate</span> some things.'
+    : "Sign in didn&rsquo;t finish.";
+  const hint = ok
+    ? "You can close this tab and head back to your terminal."
+    : `${escapeHtml(message.replace(/^Authorization failed:\s*/i, ""))} Run <code>boardwalk login</code> again.`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Boardwalk</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:'Sora',ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    color:#ededed;background:#0a0a0a;
+    display:grid;place-items:center;padding:24px;text-align:center;
+    -webkit-font-smoothing:antialiased;
+  }
+  main{max-width:30rem;animation:rise .5s cubic-bezier(.16,.84,.44,1) both}
+  h1{margin:0;font-size:clamp(24px,5vw,30px);line-height:1.25;font-weight:700;letter-spacing:-.015em;color:#f4f4f4}
+  .u{position:relative;white-space:nowrap}
+  .u::after{content:"";position:absolute;left:0;right:0;bottom:-.14em;height:3px;border-radius:2px;background:#5a8ef2}
+  p{margin:18px 0 0;font-size:14px;line-height:1.55;color:#8f9299}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;color:#c7c7c7}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){main{animation:none}}
+</style>
+</head>
+<body>
+  <main role="status" aria-live="polite">
+    <h1>${heading}</h1>
+    <p>${hint}</p>
+  </main>
+</body>
+</html>`;
 }
