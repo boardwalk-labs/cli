@@ -98,8 +98,11 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
       return outputOnly ? `${value}\n` : `── output ──\n${value}\n`;
     }
     case "program_output":
-      // Captured stdout/stderr passes through verbatim (it carries its own newlines).
-      return event.text;
+      // Captured stdout/stderr. Producers differ on framing — the hosted runner emits one frame
+      // per console call WITHOUT a trailing newline; the self-host engine forwards raw stdout
+      // chunks WITH them — so terminate the frame unless it already is (otherwise consecutive
+      // `console.log` lines run together on one line).
+      return event.text.endsWith("\n") ? event.text : `${event.text}\n`;
     case "turn_started":
       return "· agent turn started\n";
     case "turn_ended": {

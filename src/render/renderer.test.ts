@@ -103,4 +103,14 @@ describe("createRenderer", () => {
     ]);
     expect(out).toBe("warn: x\n");
   });
+
+  it("terminates newline-less program output frames so console.log lines never run together", () => {
+    // The hosted runner emits one frame per console call with NO trailing newline; without
+    // normalization consecutive lines concatenate ("diff chars=25729repo-two: 1 commit(s)").
+    const out = rendered(parseChannels({ verbose: false, stream: "log" }), [
+      event({ kind: "program_output", stream: "stdout", text: "repo-one: 3 commit(s)" }),
+      event({ kind: "program_output", stream: "stdout", text: "repo-two: 1 commit(s)" }),
+    ]);
+    expect(out).toBe("repo-one: 3 commit(s)\nrepo-two: 1 commit(s)\n");
+  });
 });
