@@ -138,6 +138,10 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
     }
     case "resumed":
       return "▶ resumed\n";
+    case "egress_denied":
+      // The platform egress proxy blocked an outbound request — surface WHY the fetch failed so
+      // the author isn't staring at an opaque network error.
+      return `⊘ egress denied: ${event.method !== undefined ? `${event.method} ` : ""}${event.host} — ${event.reason}\n`;
     case "human_input_requested":
       return `⏸ input needed [${event.key}]: ${event.prompt}\n`;
     case "human_input_resolved":

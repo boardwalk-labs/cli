@@ -9,14 +9,14 @@ importers:
   .:
     dependencies:
       '@boardwalk-labs/engine':
-        specifier: ^0.1.27
-        version: 0.1.27
+        specifier: ^0.1.35
+        version: 0.1.35
       '@boardwalk-labs/runner':
         specifier: ^0.1.9
         version: 0.1.9
       '@boardwalk-labs/workflow':
-        specifier: ^0.1.16
-        version: 0.1.16
+        specifier: ^0.1.29
+        version: 0.1.29
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -88,13 +88,8 @@ packages:
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
 
-  '@boardwalk-labs/engine@0.1.27':
-    resolution: {integrity: sha512-5LJ8TmKBZNFTg4GRJy2wfZfE9/rWprrHaNQ+F8NnegLCBkt1zCRdgO40tySCAspOTENX2FwfYTuDb8MgEnKTYQ==}
-    engines: {node: '>=24.0.0'}
-    hasBin: true
-
-  '@boardwalk-labs/engine@0.1.29':
-    resolution: {integrity: sha512-CST7xzS49OlKTEf9Fd1BY8UVahJebIawKY2F5G+jxUW+HCR2+J1p++3U/TtCG7keDL+v0M00Kp17n/15pAaQ0Q==}
+  '@boardwalk-labs/engine@0.1.35':
+    resolution: {integrity: sha512-0ZVJGkVXm/30mfq5fTkUTww5HuriwwhXJZHVq33GEXyply/suA7g6Ng1L/u23TV6jhiP942i81rS6dpno5v9eg==}
     engines: {node: '>=24.0.0'}
     hasBin: true
 
@@ -103,12 +98,8 @@ packages:
     engines: {node: '>=24'}
     hasBin: true
 
-  '@boardwalk-labs/workflow@0.1.16':
-    resolution: {integrity: sha512-4lqr3Ju00S44Ap5JFJ0US/YoWx96bVTvrGdeSIA8OvtSByLlzHzKs87ZXHhkKdKHkYPhfMsNnWggr6/AKJvFLA==}
-    engines: {node: '>=24'}
-
-  '@boardwalk-labs/workflow@0.1.18':
-    resolution: {integrity: sha512-ECW6U5iDXACq9TmNINNR0c/ceRIr6hC3ydeimdAZbwBlFdw2e16kOe8y657KuD0LV2AifgOglqtUQ7UsVZ1jfA==}
+  '@boardwalk-labs/workflow@0.1.29':
+    resolution: {integrity: sha512-4MQE5I90dCG0URvT+UartWg5EljOM/DruzPwNy7sHW0IP6emDihuQdgx2oZAUyj9oq/uLBl705fHbaWg7oz+BA==}
     engines: {node: '>=24'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1663,29 +1654,19 @@ snapshots:
 
   '@bcoe/v8-coverage@1.0.2': {}
 
-  '@boardwalk-labs/engine@0.1.27':
+  '@boardwalk-labs/engine@0.1.35':
     dependencies:
-      '@boardwalk-labs/workflow': 0.1.16
-      zod: 4.4.3
-
-  '@boardwalk-labs/engine@0.1.29':
-    dependencies:
-      '@boardwalk-labs/workflow': 0.1.18
+      '@boardwalk-labs/workflow': 0.1.29
       zod: 4.4.3
 
   '@boardwalk-labs/runner@0.1.9':
     dependencies:
-      '@boardwalk-labs/engine': 0.1.29
-      '@boardwalk-labs/workflow': 0.1.18
+      '@boardwalk-labs/engine': 0.1.35
+      '@boardwalk-labs/workflow': 0.1.29
       tar: 7.5.16
       zod: 4.4.3
 
-  '@boardwalk-labs/workflow@0.1.16':
-    dependencies:
-      typescript: 5.9.3
-      zod: 4.4.3
-
-  '@boardwalk-labs/workflow@0.1.18':
+  '@boardwalk-labs/workflow@0.1.29':
     dependencies:
       typescript: 5.9.3
       zod: 4.4.3

@@ -104,6 +104,18 @@ describe("createRenderer", () => {
     expect(out).toBe("warn: x\n");
   });
 
+  it("renders an egress denial with the method, host, and reason", () => {
+    const out = rendered(parseChannels({ verbose: true }), [
+      event({
+        kind: "egress_denied",
+        method: "GET",
+        host: "internal.example",
+        reason: "not in the allowlist",
+      }),
+    ]);
+    expect(out).toBe("⊘ egress denied: GET internal.example — not in the allowlist\n");
+  });
+
   it("terminates newline-less program output frames so console.log lines never run together", () => {
     // The hosted runner emits one frame per console call with NO trailing newline; without
     // normalization consecutive lines concatenate ("diff chars=25729repo-two: 1 commit(s)").
