@@ -22,6 +22,7 @@ import { type RunEvent, type RunStatus, runEventSchema } from "@boardwalk-labs/w
 import { CliError } from "./errors.js";
 import { isRecord } from "./guards.js";
 import { readSseFrames } from "./sse.js";
+import { recordServerVersionHeaders } from "./version_nudge.js";
 import type { FetchLike } from "./auth/pkce.js";
 
 /** Terminal run statuses — a run here will emit no further events (used to stop `--follow`). */
@@ -956,6 +957,7 @@ export class BoardwalkClient {
         err instanceof Error ? err.message : undefined,
       );
     }
+    recordServerVersionHeaders(res.headers);
     if (!res.ok) {
       throw new CliError(
         `GET ${path} failed (${String(res.status)}).`,
@@ -1064,6 +1066,7 @@ export class BoardwalkClient {
         err instanceof Error ? err.message : undefined,
       );
     }
+    recordServerVersionHeaders(res.headers);
 
     const text = await res.text();
     if (!res.ok) {

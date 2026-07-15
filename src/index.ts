@@ -970,7 +970,23 @@ function registerModelsCommand(program: Command): void {
 }
 
 async function main(): Promise<void> {
-  await buildProgram().parseAsync(process.argv);
+  try {
+    await buildProgram().parseAsync(process.argv);
+  } finally {
+    // After the command runs, nudge if the server advertised a newer/min CLI version. Silent when
+    // no API call was made (seen === undefined) or we nudged in the last 24h. To stderr, so it never
+    // corrupts a `--json` stdout payload. Guarded — a nudge must never change the command's outcome.
+    try {
+      const { maybePrintVersionNudge } = await import("./version_nudge.js");
+      maybePrintVersionNudge({
+        configDir: loadConfig().configDir,
+        currentVersion: VERSION,
+        moduleUrl: import.meta.url,
+      });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 main().catch((err: unknown) => {
