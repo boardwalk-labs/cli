@@ -15,7 +15,12 @@ import { resolveLog } from "../log.js";
 import { BoardwalkClient, isTerminalStatus, type RunListItem, type RunDetail } from "../client.js";
 import { readLink } from "../project.js";
 import { resolveWorkflowId } from "../workflow_ref.js";
-import { createRenderer, parseChannels } from "../render/renderer.js";
+import {
+  createJsonLineRenderer,
+  createRenderer,
+  parseChannels,
+  type EventRenderer,
+} from "../render/renderer.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 export interface RunsOptions {
@@ -34,6 +39,8 @@ export interface RunsOptions {
   /** Event channels for --logs/--follow: --verbose = all; --stream = an explicit list. */
   verbose?: boolean | undefined;
   stream?: string | undefined;
+  /** With --logs/--follow: emit every event as one line of NDJSON (all channels, no ANSI). */
+  jsonStream?: boolean | undefined;
   token?: string | undefined;
 }
 
@@ -158,11 +165,10 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
   }
 }
 
-/** Build the event renderer for --logs/--follow from the channel flags (default: lifecycle+phase+output). */
-function eventRenderer(
-  opts: RunsOptions,
-  write: (text: string) => void,
-): ReturnType<typeof createRenderer> {
+/** Build the event renderer for --logs/--follow: NDJSON with --json-stream, else the channel-filtered
+ *  human view (default channels: lifecycle+phase+output). */
+function eventRenderer(opts: RunsOptions, write: (text: string) => void): EventRenderer {
+  if (opts.jsonStream === true) return createJsonLineRenderer(write);
   const channels = parseChannels({ verbose: opts.verbose ?? false, stream: opts.stream });
   return createRenderer(channels, write);
 }
@@ -176,7 +182,7 @@ function eventRenderer(
 async function followRunEvents(
   client: BoardwalkClient,
   runId: string,
-  renderer: ReturnType<typeof createRenderer>,
+  renderer: EventRenderer,
   write: (text: string) => void,
   deps: RunsDeps,
 ): Promise<void> {

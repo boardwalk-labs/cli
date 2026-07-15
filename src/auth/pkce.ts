@@ -23,7 +23,8 @@ export type FetchLike = typeof fetch;
 
 const CALLBACK_PATH = "/callback";
 const TOKEN_REQUEST_TIMEOUT_MS = 20_000;
-const CALLBACK_TIMEOUT_MS = 180_000;
+const CALLBACK_TIMEOUT_MS = 600_000;
+const CALLBACK_REMINDER_MS = 120_000;
 /** Treat a token as expired this long BEFORE its true expiry, to avoid using it mid-flight. */
 const EXPIRY_GRACE_MS = 30_000;
 
@@ -198,8 +199,12 @@ function oauthErrorDetail(bodyText: string): string | undefined {
 export interface Loopback {
   redirectUri: string;
   port: number;
-  /** Resolves with the authorization `code` once the browser redirects back (validates `state`). */
-  awaitCode(expectedState: string): Promise<string>;
+  /**
+   * Resolves with the authorization `code` once the browser redirects back (validates `state`).
+   * `onReminder`, if given, fires once after ~2 minutes of waiting (a nudge to re-open the authorize
+   * URL); it is cancelled the moment the code arrives or the wait times out.
+   */
+  awaitCode(expectedState: string, onReminder?: () => void): Promise<string>;
   close(): void;
 }
 
@@ -260,15 +265,26 @@ export async function startLoopback(port: number): Promise<Loopback> {
   return {
     redirectUri: `http://127.0.0.1:${String(port)}${CALLBACK_PATH}`,
     port,
-    awaitCode(expectedState: string): Promise<string> {
+    awaitCode(expectedState: string, onReminder?: () => void): Promise<string> {
       pendingState = expectedState;
+      let reminderTimer: ReturnType<typeof setTimeout> | undefined;
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<string>((_resolve, reject) => {
-        const t = setTimeout(() => {
-          reject(new CliError("Timed out waiting for the browser authorization (3 min)."));
+        timeoutTimer = setTimeout(() => {
+          reject(new CliError("Timed out waiting for the browser authorization (10 min)."));
         }, CALLBACK_TIMEOUT_MS);
-        t.unref();
+        timeoutTimer.unref();
       });
-      return Promise.race([codePromise, timeout]);
+      if (onReminder !== undefined) {
+        reminderTimer = setTimeout(onReminder, CALLBACK_REMINDER_MS);
+        reminderTimer.unref();
+      }
+      // Clear both timers on settle so the reminder never fires after a successful login and the
+      // unref'd timeout never lingers.
+      return Promise.race([codePromise, timeout]).finally(() => {
+        if (reminderTimer !== undefined) clearTimeout(reminderTimer);
+        if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
+      });
     },
     close(): void {
       // `server.close()` only stops accepting NEW connections; it leaves already-open sockets

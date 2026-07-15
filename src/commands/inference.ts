@@ -122,7 +122,7 @@ export async function runInferenceAdd(
       log("  Bedrock uses a cross-account role — wire it in the web UI (bedrock-role).");
     }
   } catch (err) {
-    throw elevationHint(err);
+    throw elevationHint(err, "Adding an inference provider");
   }
 }
 
@@ -147,7 +147,7 @@ export async function runInferenceDelete(
     await client.deleteProvider(resolvedOrg, name);
     log(`✓ deleted provider ${name}.`);
   } catch (err) {
-    throw elevationHint(err);
+    throw elevationHint(err, "Deleting an inference provider");
   }
 }
 

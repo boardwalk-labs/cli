@@ -127,7 +127,7 @@ export async function runSecretSet(opts: SecretSetOptions, deps: SecretsDeps): P
       `✓ set secret ${row.name} (${row.scope}/${row.kind}${row.last4 !== null ? `, …${row.last4}` : ""}).`,
     );
   } catch (err) {
-    throw elevationHint(err);
+    throw elevationHint(err, "Writing a secret");
   }
 }
 
@@ -169,7 +169,7 @@ export async function runSecretDelete(opts: SecretDeleteOptions, deps: SecretsDe
     await client.deleteSecret(target.id);
     log(`✓ deleted secret ${target.name}.`);
   } catch (err) {
-    throw elevationHint(err);
+    throw elevationHint(err, "Deleting a secret");
   }
 }
 

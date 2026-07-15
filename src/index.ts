@@ -86,6 +86,7 @@ interface RunCliOptions {
   environment?: string;
   token?: string;
   wait?: boolean;
+  json?: boolean;
 }
 
 interface DevCliOptions {
@@ -241,6 +242,11 @@ function buildProgram(): Command {
       "environment to run in (its secrets + variables; default: org base)",
     )
     .option("--no-wait", "trigger and exit without waiting for the run to finish")
+    .option(
+      "--json",
+      "print a JSON object ({ runId, status, ... }) on stdout; progress to stderr",
+      false,
+    )
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description("Deploy the program, trigger a real run, and wait for the result.")
     .action(async (file: string, options: RunCliOptions) => {
@@ -252,6 +258,7 @@ function buildProgram(): Command {
           input: options.input,
           environment: options.environment,
           noWait: options.wait === false,
+          json: options.json,
           token: options.token,
         },
         { config: loadConfig() },
@@ -300,6 +307,11 @@ function buildProgram(): Command {
       "--stream <channels>",
       "with --logs/--follow: comma-separated channels (lifecycle,phase,output,log,agent)",
     )
+    .option(
+      "--json-stream",
+      "with --logs/--follow: emit every event as one line of NDJSON (all channels, no ANSI)",
+      false,
+    )
     .option("--json", "print the raw response as JSON", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description(
@@ -317,6 +329,7 @@ function buildProgram(): Command {
           follow?: boolean;
           verbose?: boolean;
           stream?: string;
+          jsonStream?: boolean;
           json?: boolean;
           token?: string;
         },
@@ -340,6 +353,7 @@ function buildProgram(): Command {
             follow: options.follow,
             verbose: options.verbose,
             stream: options.stream,
+            jsonStream: options.jsonStream,
             json: options.json,
             token: options.token,
           },

@@ -68,7 +68,10 @@ describe("startLoopback teardown", () => {
     const port = await freePort();
     const loopback = await startLoopback(port);
     const state = "expected-state";
-    const codePromise = loopback.awaitCode(state);
+    let reminderFired = false;
+    const codePromise = loopback.awaitCode(state, () => {
+      reminderFired = true;
+    });
 
     // Mimic the browser: a keep-alive socket that delivers the OAuth callback and would otherwise
     // stay parked open after receiving the success page.
@@ -80,6 +83,8 @@ describe("startLoopback teardown", () => {
     await once(socket, "data"); // drain the "login complete" response
 
     expect(await codePromise).toBe("auth-code-1");
+    // A prompt login must NOT trigger the ~2-min reminder (it's cleared on settle).
+    expect(reminderFired).toBe(false);
 
     loopback.close();
     // The lingering socket must be torn down; otherwise the event loop never drains and the CLI

@@ -13,7 +13,7 @@ import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient, type RunSummary, type RunEventSnapshot } from "../client.js";
-import { resolveLog } from "../log.js";
+import { resolveErrLog, resolveLog } from "../log.js";
 import { deployWithLink, loadProgram } from "../deployment.js";
 import { formatOutputValue } from "../render/renderer.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -84,6 +84,8 @@ export interface RunOptions {
   environment?: string | undefined;
   token?: string | undefined;
   noWait?: boolean;
+  /** Emit a single JSON object ({ runId, status, ... }) on stdout; route progress to stderr. */
+  json?: boolean | undefined;
 }
 
 export interface RunDeps {
@@ -93,7 +95,12 @@ export interface RunDeps {
 }
 
 export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
-  const log = resolveLog(deps);
+  // In --json mode, human progress goes to stderr so stdout carries ONLY the JSON payload — a
+  // script can `boardwalk run . --json | jq -r .runId` cleanly. `emit` writes the payload (still
+  // through deps.log so tests capture it); `log` writes progress.
+  const jsonMode = opts.json === true;
+  const emit = resolveLog(deps);
+  const log = jsonMode ? resolveErrLog(deps) : emit;
 
   const prog = await loadProgram(opts.file);
   const assets = prog.artifact.assetPaths.length;
@@ -132,6 +139,7 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
 
   if (opts.noWait === true) {
     log(`  --no-wait: not polling. Track it with \`boardwalk runs ${run.id}\`.`);
+    if (jsonMode) emit(JSON.stringify({ runId: run.id, status: run.status }));
     return;
   }
 
@@ -144,7 +152,18 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   // Best-effort: a flaky events read shouldn't sink an otherwise-successful run — the result
   // block still prints, just with the `--logs` pointer instead of the inline output.
   const outputs = await collectRunOutputs(client, run.id).catch(() => []);
-  printOutcome(log, terminal, outputs);
+  if (jsonMode) {
+    emit(
+      JSON.stringify({
+        runId: terminal.id,
+        status: terminal.status,
+        outcome: terminal.outcomeStatus ?? null,
+        outputs,
+      }),
+    );
+  } else {
+    printOutcome(log, terminal, outputs);
+  }
   if (terminal.status !== "completed") {
     throw new CliError(
       `Run ${terminal.status}.`,

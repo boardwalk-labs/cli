@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import type { RunEvent } from "@boardwalk-labs/workflow";
 import { CHANNELS, DEFAULT_CHANNELS } from "@boardwalk-labs/workflow";
-import { createRenderer, parseChannels } from "./renderer.js";
+import { createJsonLineRenderer, createRenderer, parseChannels } from "./renderer.js";
 
 function event(body: Record<string, unknown>): RunEvent {
   return { runId: "r1", turnId: "t1", seq: 1, t: 0, ...body } as unknown as RunEvent;
@@ -124,5 +124,24 @@ describe("createRenderer", () => {
       event({ kind: "program_output", stream: "stdout", text: "repo-two: 1 commit(s)" }),
     ]);
     expect(out).toBe("repo-one: 3 commit(s)\nrepo-two: 1 commit(s)\n");
+  });
+});
+
+describe("createJsonLineRenderer", () => {
+  it("emits every event as one line of NDJSON regardless of channel, no filtering", () => {
+    const lines: string[] = [];
+    const renderer = createJsonLineRenderer((text) => lines.push(text));
+    const events = [
+      event({ kind: "phase", name: "Build" }),
+      event({ kind: "log", level: "info", text: "hi" }),
+      event({ kind: "run_status", status: "completed" }),
+    ];
+    for (const e of events) renderer.render(e);
+
+    // One write per event, each a newline-terminated JSON object that round-trips.
+    expect(lines).toHaveLength(3);
+    for (const line of lines) expect(line.endsWith("\n")).toBe(true);
+    const parsed = lines.map((l): RunEvent => JSON.parse(l) as RunEvent);
+    expect(parsed).toEqual(events);
   });
 });

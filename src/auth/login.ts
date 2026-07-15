@@ -75,7 +75,9 @@ export async function performLogin(deps: PerformLoginDeps): Promise<StoredSessio
       // Non-fatal: the user can paste the URL printed above.
     });
 
-    const code = await loopback.awaitCode(state);
+    const code = await loopback.awaitCode(state, () => {
+      log(`Still waiting for browser approval — visit:\n  ${url}`);
+    });
     const token = await exchangeCode({
       tokenEndpoint: endpoints.tokenEndpoint,
       clientId,

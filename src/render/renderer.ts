@@ -82,6 +82,19 @@ export function createRenderer(
   };
 }
 
+/**
+ * A renderer that emits every event as one line of NDJSON (no channel filtering, no ANSI) — the
+ * machine-readable counterpart of {@link createRenderer}, for `runs --logs/--follow --json-stream`.
+ * One `write` per event, so a pipe/`tail -f` sees each event as soon as it arrives.
+ */
+export function createJsonLineRenderer(write: (text: string) => void): EventRenderer {
+  return {
+    render(event: RunEvent): void {
+      write(`${JSON.stringify(event)}\n`);
+    },
+  };
+}
+
 function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
   switch (event.kind) {
     case "run_status": {
