@@ -227,6 +227,15 @@ export interface EnvironmentItem {
   description: string | null;
 }
 
+/** One SCOPE of a workflow's persistent workspace — (workflow, environment). `environmentId: null`
+ *  is the base scope: runs with no environment. */
+export interface WorkspaceScopeItem {
+  environmentId: string | null;
+  environmentName: string | null;
+  bytes: number;
+  updatedAt: number;
+}
+
 export interface CreateEnvironmentInput {
   name: string;
   description?: string;
@@ -723,6 +732,30 @@ export class BoardwalkClient {
   /** Delete an environment by id (DELETE /v1/environments/:id). */
   async deleteEnvironment(id: string): Promise<void> {
     await this.request<undefined>("DELETE", `/v1/environments/${encodeURIComponent(id)}`);
+  }
+
+  /** What a workflow is STORING across runs, per (workflow, environment) scope. An empty list means
+   *  it has never persisted — normal, since a workspace is scratch unless the workflow opts in. */
+  async listWorkspaces(workflowId: string): Promise<WorkspaceScopeItem[]> {
+    const body = await this.request<{ workspaces?: unknown }>(
+      "GET",
+      `/v1/workflows/${encodeURIComponent(workflowId)}/workspaces`,
+    );
+    const rows = Array.isArray(body.workspaces) ? body.workspaces : [];
+    const out: WorkspaceScopeItem[] = [];
+    for (const row of rows) {
+      const parsed = parseWorkspaceRow(row);
+      if (parsed !== null) out.push(parsed);
+    }
+    return out;
+  }
+
+  /** Clear ONE scope's persistent workspace. `null` = the base scope; the next run of the workflow
+   *  in that environment starts empty. The workflow itself is untouched. */
+  async resetWorkspace(workflowId: string, environmentId: string | null): Promise<void> {
+    const base = `/v1/workflows/${encodeURIComponent(workflowId)}/workspaces`;
+    const path = environmentId === null ? base : `${base}/${encodeURIComponent(environmentId)}`;
+    await this.request<undefined>("DELETE", path);
   }
 
   /** List the org's NON-secret variables — values INCLUDED (they're non-secret), across all
@@ -1517,6 +1550,18 @@ function parseEnvironmentRow(row: unknown): EnvironmentItem | null {
     id: row.id,
     name: row.name,
     description: typeof row.description === "string" ? row.description : null,
+  };
+}
+
+function parseWorkspaceRow(row: unknown): WorkspaceScopeItem | null {
+  if (!isRecord(row) || typeof row.bytes !== "number" || typeof row.updatedAt !== "number") {
+    return null;
+  }
+  return {
+    environmentId: typeof row.environmentId === "string" ? row.environmentId : null,
+    environmentName: typeof row.environmentName === "string" ? row.environmentName : null,
+    bytes: row.bytes,
+    updatedAt: row.updatedAt,
   };
 }
 

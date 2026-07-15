@@ -230,6 +230,16 @@ describe("collectAssets", () => {
     );
   });
 
+  it("keeps a root README.md — it's a workflow's landing prose, not a build file", () => {
+    // A dashboard renders this as the workflow's front page, so the default rule shipping it is a
+    // contract, not an accident: sorting README.md in with package.json/tsconfig as "not runtime"
+    // would silently blank that page. It rides along as an ordinary asset — no special casing.
+    writeFileSync(join(pkg, "index.ts"), "x");
+    writeFileSync(join(pkg, "README.md"), "# what this workflow does");
+
+    expect(collectAssets(pkg).map((a) => a.relPath)).toEqual(["README.md"]);
+  });
+
   it("honors an explicit boardwalk.assets list (files + dirs) and ignores everything else", () => {
     writeFileSync(
       join(pkg, "package.json"),

@@ -58,9 +58,14 @@ boardwalk dev ./index.ts --stream phase,log
 
 `deploy` builds the program into a content-addressed artifact: esbuild bundles your entry (deps
 pinned at deploy, `@boardwalk-labs/workflow` stays external), package assets (markdown skills, prompt
-templates) ride along at their relative paths, and the lot is packed into a deterministic tarball,
-uploaded via a presigned URL, and verified server-side. The server re-derives the manifest from
-your `meta` — the CLI never sends a hand-built manifest.
+templates, a `README.md`) ride along at their relative paths, and the lot is packed into a
+deterministic tarball, uploaded via a presigned URL, and verified server-side. The server re-derives
+the manifest from your `meta` — the CLI never sends a hand-built manifest.
+
+A `README.md` at the package root is rendered as the workflow's landing page in the dashboard.
+Assets only ship on a **package** deploy (`deploy .`): a lone file (`deploy index.ts`) ships just
+that file, even if a README sits beside it. If you declare an explicit `boardwalk.assets` list in
+`package.json`, that list is exhaustive — name your README in it or it won't ship.
 
 ### Project link (`.boardwalk/project.json`)
 

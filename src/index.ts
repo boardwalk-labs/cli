@@ -20,6 +20,7 @@
 //   boardwalk workflows [list|show|delete]    Inspect the org's workflows.
 //   boardwalk secrets [list|set|delete]       Manage org secrets (writes need login --scopes admin).
 //   boardwalk environments [list|create|delete]  Manage named environments (config sets a run targets).
+//   boardwalk workspace [show|reset]             Inspect/clear a workflow's persistent workspace.
 //   boardwalk runner [start|register|list|remove|pools]  Run workflows on THIS machine (self-hosted runner).
 //   boardwalk variables [list|set|delete]     Manage non-secret env variables (injected as process.env).
 //   boardwalk inference [list|add|delete]     Manage BYO inference providers (writes need elevated).
@@ -450,6 +451,7 @@ function buildProgram(): Command {
   registerWorkflowsCommand(program);
   registerSecretsCommand(program);
   registerEnvironmentsCommand(program);
+  registerWorkspaceCommand(program);
   registerRunnerCommand(program);
   registerVariablesCommand(program);
   registerInferenceCommand(program);
@@ -827,6 +829,45 @@ function registerEnvironmentsCommand(program: Command): void {
       const { runEnvironmentDelete } = await import("./commands/environments.js");
       await runEnvironmentDelete({ name, ...options }, { config: loadConfig() });
     });
+}
+
+/** Register `workspace` + its `show` / `reset` subcommands (a workflow's PERSISTENT workspace). */
+function registerWorkspaceCommand(program: Command): void {
+  const workspace = program
+    .command("workspace")
+    .description("Inspect or reset a workflow's persistent workspace (show, reset).");
+
+  workspace
+    .command("show", { isDefault: true })
+    .argument("<workflow>", "workflow slug")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Show what a workflow stores across runs, per environment: size + last written.")
+    .action(async (workflow: string, options: { org?: string; json?: boolean; token?: string }) => {
+      const { runWorkspaceShow } = await import("./commands/workspace.js");
+      await runWorkspaceShow({ workflow, ...options }, { config: loadConfig() });
+    });
+
+  workspace
+    .command("reset")
+    .argument("<workflow>", "workflow slug")
+    .option("--environment <name>", "reset this environment's workspace (default: the base scope)")
+    .option("--yes", "actually reset — without it, prints what would be cleared and exits", false)
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description(
+      "Clear a workflow's persistent workspace so the next run starts empty (irreversible; the workflow, its triggers, and its history are untouched).",
+    )
+    .action(
+      async (
+        workflow: string,
+        options: { environment?: string; yes?: boolean; org?: string; token?: string },
+      ) => {
+        const { runWorkspaceReset } = await import("./commands/workspace.js");
+        await runWorkspaceReset({ workflow, ...options }, { config: loadConfig() });
+      },
+    );
 }
 
 /** Register `variables` + its `list` / `set` / `delete` subcommands (NON-secret config; writes need elevation). */
