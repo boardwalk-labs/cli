@@ -184,6 +184,16 @@ pnpm build      # → dist/, run via ./bin/boardwalk.js
 pnpm boardwalk -- dev ./index.ts   # run from source via tsx
 ```
 
+## The Boardwalk repos
+
+- [`boardwalk`](https://github.com/boardwalk-labs/boardwalk) — the open-source single-node engine: cron scheduling, webhooks, durable runs, run history
+- [`sdk`](https://github.com/boardwalk-labs/sdk) — `@boardwalk-labs/workflow`, the TypeScript API a workflow program imports
+- [`examples`](https://github.com/boardwalk-labs/examples) — copyable workflow templates (`boardwalk init --template`)
+- [`plugins`](https://github.com/boardwalk-labs/plugins) — skills + MCP server for Claude Code, Codex, Cursor, OpenClaw, OpenCode
+- [`runner`](https://github.com/boardwalk-labs/runner) — self-hosted runner: your machines execute hosted-scheduled runs
+
+Hosted platform and docs: [boardwalk.sh](https://boardwalk.sh).
+
 ## License
 
 MIT
