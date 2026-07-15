@@ -269,15 +269,33 @@ export function formatRunDetail(run: RunDetail, now: number): string[] {
 
   const tokens = run.tokensIn + run.tokensOut;
   if (tokens > 0) {
+    // Cache-served input rides the token line: it's a SUBSET of `in`, so showing it as a share of
+    // input answers "am I paying full price for this prompt?" without a second line.
+    const cached = run.cachedTokensIn ?? 0;
+    const cacheNote =
+      cached > 0 && run.tokensIn > 0
+        ? `, ${String(Math.round((cached / run.tokensIn) * 100))}% cached`
+        : "";
     lines.push(
       field(
         "Tokens",
-        `${compact(tokens)}  (${compact(run.tokensIn)} in · ${compact(run.tokensOut)} out)`,
+        `${compact(tokens)}  (${compact(run.tokensIn)} in${cacheNote} · ${compact(run.tokensOut)} out)`,
       ),
     );
   }
+  // The run's real recorded spend. Omitted entirely when the server doesn't report it (older
+  // deployments) — never shown as "$0.00" for "unknown".
+  if (run.costUsd !== undefined && run.costUsd !== null) {
+    lines.push(field("Spend", formatUsd(run.costUsd)));
+  }
   if (run.error !== null) lines.push(field("Error", `${run.error.code}: ${run.error.message}`));
   return lines;
+}
+
+/** Money for humans: sub-cent spend gets 4 dp so a cheap run isn't rendered as "$0.00". */
+export function formatUsd(usd: number): string {
+  if (usd > 0 && usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
 }
 
 const ID_W = 32;

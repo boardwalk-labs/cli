@@ -103,6 +103,27 @@ describe("formatRunDetail", () => {
     expect(out).not.toContain("Error");
   });
 
+  it("shows the run's spend and the cache share of input when the server reports them", () => {
+    const out = formatRunDetail(detail({ costUsd: 1.25, cachedTokensIn: 9_075 }), NOW).join("\n");
+    expect(out).toMatch(/Spend\s+\$1\.25/);
+    // 9,075 of 12,100 input tokens ⇒ 75% cached, shown inline on the token line.
+    expect(out).toMatch(/Tokens\s+18\.4K\s+\(12\.1K in, 75% cached · 6\.3K out\)/);
+  });
+
+  it("renders sub-cent spend at 4dp rather than a misleading $0.00", () => {
+    expect(formatRunDetail(detail({ costUsd: 0.0031 }), NOW).join("\n")).toMatch(
+      /Spend\s+\$0\.0031/,
+    );
+    expect(formatRunDetail(detail({ costUsd: 0 }), NOW).join("\n")).toMatch(/Spend\s+\$0\.00/);
+  });
+
+  it("omits Spend entirely when the server doesn't report it (never a fake $0.00)", () => {
+    const out = formatRunDetail(detail(), NOW).join("\n");
+    expect(out).not.toContain("Spend");
+    // …and with no cache data the token line stays exactly as before.
+    expect(out).toMatch(/Tokens\s+18\.4K\s+\(12\.1K in · 6\.3K out\)/);
+  });
+
   it("shows the curated error for a failed run", () => {
     const out = formatRunDetail(
       detail({ status: "failed", error: { code: "TOOL_ERROR", message: "merge tool exited 1" } }),

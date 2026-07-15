@@ -91,6 +91,14 @@ export interface RunDetail extends RunListItem {
   outcomeStatus: string | null;
   tokensIn: number;
   tokensOut: number;
+  /** The run's recorded spend in USD — compute + managed inference + search, each priced when it was
+   *  booked, summed from the same rows the bill is forwarded from (so it can't drift from the bill).
+   *  A BYO-inference run shows only its compute. Null on servers that don't report it. */
+  costUsd?: number | null;
+  /** Cache-served input tokens (a SUBSET of `tokensIn` on the managed lane). Display-only — the cost
+   *  above already reflects the cache discount. Null on servers that don't report it. */
+  cachedTokensIn?: number | null;
+  cachedWriteTokens?: number | null;
   /** Curated failure cause for a failed run; null otherwise. */
   error: { code: string; message: string } | null;
 }
