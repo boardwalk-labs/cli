@@ -69,6 +69,10 @@ const EXCLUDE_DIRS = new Set([
   ".turbo",
   ".cache",
 ]);
+/** The workflow's landing-page filename, matched case-insensitively (README.md and readme.md are both
+ *  common). ONE documented name, so a file either renders on the workflow's page or plainly doesn't,
+ *  with no near-misses to guess at. Kept in lockstep with the dashboard's own lookup. */
+const README_NAME = "readme.md";
 
 /** One of the author's source files, stored under `.bw-src/` at its entry-relative POSIX path. */
 export interface ArtifactSource {
@@ -113,7 +117,9 @@ export async function buildArtifact(target: string): Promise<BuiltArtifact> {
   const originalSource = readFileSync(entry, "utf8");
 
   const pkgDir = isPackageDir(target) ? resolve(target) : null;
-  const assets = pkgDir === null ? [] : collectAssets(pkgDir);
+  // A lone file ships no directory sweep — deploying `~/scratch/index.ts` must not publish all of
+  // `~/scratch` — but its README still rides along, because the README always ships (readmeAsset).
+  const assets = pkgDir === null ? readmeAsset(dirname(entry)) : collectAssets(pkgDir);
   const sdkVersion = resolveSdkVersion(pkgDir);
   const lockDigest = pkgDir === null ? null : lockfileDigest(pkgDir);
   // A package ships its WHOLE local source tree, not just the entry: the tree is what a dashboard
@@ -158,11 +164,45 @@ export async function buildArtifact(target: string): Promise<BuiltArtifact> {
 }
 
 /**
+ * The README in `dir`, matched case-insensitively, as a 0-or-1 asset list.
+ *
+ * **The README always ships**, by every path into an artifact. It is documentation the CONTROL PLANE
+ * renders — the workflow's landing page in the dashboard — not a runtime asset the program reads, so
+ * neither rule that scopes RUNTIME assets has any business dropping it:
+ *
+ * - A lone-file deploy ships no directory sweep (`boardwalk deploy ~/scratch/index.ts` must not
+ *   publish all of `~/scratch`), but one known filename is not a sweep.
+ * - An explicit `boardwalk.assets` list scopes what the PROGRAM can read; it doesn't decide what
+ *   documents the workflow. Without this, `assets: ["skills"]` silently blanked the landing page.
+ *
+ * This mirrors `npm pack`, which always includes README/LICENSE/package.json whatever `files` says —
+ * the same npm-pack model {@link defaultAssetFilter} already follows. Nothing reads a README at run
+ * time, so including it can never change how a program behaves.
+ *
+ * Only the file directly in `dir`: a nested `skills/README.md` is that subtree's docs, not the
+ * workflow's landing prose, and rides along as an ordinary asset (or not at all).
+ */
+function readmeAsset(dir: string): ArtifactAsset[] {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const name = names.find((n) => n.toLowerCase() === README_NAME);
+  if (name === undefined) return [];
+  const absPath = join(dir, name);
+  // Keep the on-disk casing in the artifact; the dashboard matches case-insensitively.
+  return statSync(absPath).isFile() ? [{ relPath: name, absPath }] : [];
+}
+
+/**
  * Collect the package's runtime assets. With an explicit `boardwalk.assets` list in package.json,
- * exactly those paths are shipped (a file, or a directory included recursively). Otherwise the
- * default is npm-pack-style: every file under the package root EXCEPT source the bundle already
- * inlines, build/config files, dotfiles, and excluded dirs (`node_modules`, `.git`, …). Returns a
- * deterministic, path-sorted list with POSIX relative paths.
+ * exactly those paths are shipped (a file, or a directory included recursively) — plus the README,
+ * which always ships (see {@link readmeAsset}). Otherwise the default is npm-pack-style: every file
+ * under the package root EXCEPT source the bundle already inlines, build/config files, dotfiles, and
+ * excluded dirs (`node_modules`, `.git`, …). Returns a deterministic, path-sorted list with POSIX
+ * relative paths.
  */
 export function collectAssets(pkgDir: string): ArtifactAsset[] {
   const explicit = readAssetGlobs(pkgDir);
@@ -184,7 +224,10 @@ export function collectAssets(pkgDir: string): ArtifactAsset[] {
       if (statSync(abs).isDirectory()) walk(abs, () => true, add);
       else add(abs);
     }
+    // The README rides along even when the explicit list omits it (`add` dedups if it named it).
+    for (const readme of readmeAsset(pkgDir)) add(readme.absPath);
   } else {
+    // The default rule already keeps it — a README is a non-source, non-config file.
     walk(pkgDir, defaultAssetFilter, add);
   }
 
@@ -209,7 +252,9 @@ export interface PackageContext {
  * in the artifact tarball and land in the extracted program dir. `AGENTS.md` is derived from the SAME
  * {@link collectAssets} the artifact uses; the `skills/` subtree is passed by directory so the engine
  * carries folder-per-skill resources verbatim (matching the hosted tarball extract). A single program
- * file (not a package directory) ships no assets, matching {@link buildArtifact}.
+ * file (not a package directory) gets no directory sweep and so has no context, matching
+ * {@link buildArtifact}. (Its README still ships in the artifact — but a README is the control
+ * plane's, not the engine's: nothing reads it at run time, so it is deliberately not context here.)
  */
 export function collectPackageContext(target: string): PackageContext {
   if (!isPackageDir(target)) return {};

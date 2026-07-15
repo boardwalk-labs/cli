@@ -81,6 +81,35 @@ await agent("go");
     expect(readFileSync(join(out, SOURCE_FILE), "utf8")).toContain("\n\n");
   });
 
+  it("ships a README beside a lone entry — the README always ships", async () => {
+    // The docs tell authors to put a README "next to your index.ts", so a lone-file deploy has to
+    // honour that too, not just `deploy .`. Nothing reads a README at run time, so including it can
+    // never change how the program behaves.
+    const entry = join(dir, "index.ts");
+    writeFileSync(entry, `export const meta = { slug: "solo", description: "d" };\nawait 0;`);
+    writeFileSync(join(dir, "README.md"), "# solo");
+
+    const art = await buildArtifact(entry);
+
+    expect(art.assetPaths).toEqual(["README.md"]);
+    const out = extractTo(art.tarball, dir);
+    expect(readFileSync(join(out, "README.md"), "utf8")).toBe("# solo");
+  });
+
+  it("ships ONLY the README beside a lone entry — never a directory sweep", async () => {
+    // The whole point of the lone-file mode: `boardwalk deploy ~/scratch/index.ts` must not publish
+    // everything in ~/scratch. One known filename is not a sweep; anything else beside it stays put.
+    const entry = join(dir, "index.ts");
+    writeFileSync(entry, `export const meta = { slug: "solo", description: "d" };\nawait 0;`);
+    writeFileSync(join(dir, "README.md"), "# solo");
+    writeFileSync(join(dir, "secrets.json"), `{"token":"nope"}`);
+    writeFileSync(join(dir, "notes.md"), "unrelated");
+    mkdirSync(join(dir, "skills"), { recursive: true });
+    writeFileSync(join(dir, "skills", "review.md"), "not shipped by a lone file");
+
+    expect((await buildArtifact(entry)).assetPaths).toEqual(["README.md"]);
+  });
+
   it("is deterministic — same source ⇒ same digest", async () => {
     const entry = join(dir, "wf.ts");
     writeFileSync(
@@ -240,6 +269,36 @@ describe("collectAssets", () => {
     expect(collectAssets(pkg).map((a) => a.relPath)).toEqual(["README.md"]);
   });
 
+  it("ships the README even when an explicit boardwalk.assets list omits it", () => {
+    // `boardwalk.assets` scopes what the PROGRAM may read at run time; it doesn't get to decide what
+    // DOCUMENTS the workflow. Before this, `assets: ["skills"]` silently blanked the landing page.
+    // (npm pack does the same: README/LICENSE/package.json ship whatever `files` says.)
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ boardwalk: { assets: ["skills"] } }));
+    writeFileSync(join(pkg, "README.md"), "# docs");
+    writeFileSync(join(pkg, "ignored.md"), "not listed, not shipped");
+    mkdirSync(join(pkg, "skills"));
+    writeFileSync(join(pkg, "skills", "review.md"), "s");
+
+    expect(collectAssets(pkg).map((a) => a.relPath)).toEqual(["README.md", "skills/review.md"]);
+  });
+
+  it("does not duplicate a README an explicit list already names", () => {
+    writeFileSync(
+      join(pkg, "package.json"),
+      JSON.stringify({ boardwalk: { assets: ["README.md"] } }),
+    );
+    writeFileSync(join(pkg, "README.md"), "# docs");
+
+    expect(collectAssets(pkg).map((a) => a.relPath)).toEqual(["README.md"]);
+  });
+
+  it("matches the README case-insensitively, keeping its on-disk casing", () => {
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ boardwalk: { assets: [] } }));
+    writeFileSync(join(pkg, "readme.md"), "# docs");
+
+    expect(collectAssets(pkg).map((a) => a.relPath)).toEqual(["readme.md"]);
+  });
+
   it("honors an explicit boardwalk.assets list (files + dirs) and ignores everything else", () => {
     writeFileSync(
       join(pkg, "package.json"),
@@ -354,7 +413,9 @@ describe("collectPackageContext", () => {
   });
 
   it("returns an empty context for a single program FILE (not a package dir)", () => {
-    // Matches buildArtifact: a lone file ships no assets even if one sits beside it.
+    // Matches buildArtifact: a lone file gets no directory sweep, so no AGENTS.md and no skills/ even
+    // when they sit beside it. (Its README does ship — that's the one exception, and it's not context
+    // the engine reads, so it's absent here by design.)
     writeFileSync(join(pkg, "AGENTS.md"), "beside-the-file");
     expect(collectPackageContext(join(pkg, "index.ts"))).toEqual({});
   });

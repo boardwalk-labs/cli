@@ -62,10 +62,12 @@ templates, a `README.md`) ride along at their relative paths, and the lot is pac
 deterministic tarball, uploaded via a presigned URL, and verified server-side. The server re-derives
 the manifest from your `meta` — the CLI never sends a hand-built manifest.
 
-A `README.md` at the package root is rendered as the workflow's landing page in the dashboard.
-Assets only ship on a **package** deploy (`deploy .`): a lone file (`deploy index.ts`) ships just
-that file, even if a README sits beside it. If you declare an explicit `boardwalk.assets` list in
-`package.json`, that list is exhaustive — name your README in it or it won't ship.
+A `README.md` at the package root is rendered as the workflow's landing page in the dashboard, and it
+**always ships**: beside a lone entry file (`deploy index.ts`) as well as in a package, and whether or
+not an explicit `boardwalk.assets` list names it. That list scopes what your _program_ can read at run
+time; nothing reads a README at run time, so it doesn't apply (this is what `npm pack` does with
+README/LICENSE/package.json vs `files`). A lone file still ships no directory _sweep_ — only its
+README rides along, never the rest of the folder.
 
 ### Project link (`.boardwalk/project.json`)
 
