@@ -11,7 +11,6 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { bundleWorkflow, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
-import { reportDeterminism } from "../lint.js";
 import { resolveLog } from "../log.js";
 
 export interface BuildOptions {
@@ -39,6 +38,5 @@ export async function runBuild(opts: BuildOptions, deps: BuildDeps = {}): Promis
   writeFileSync(outPath, program, "utf8");
 
   log(`built "${manifest.slug}" → ${outPath}`);
-  reportDeterminism(source, entry, log);
   return outPath;
 }

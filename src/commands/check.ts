@@ -13,13 +13,10 @@ import { readFileSync } from "node:fs";
 import { buildArtifact } from "../artifact.js";
 import { resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
-import { enforceDeterminism } from "../lint.js";
 import { resolveLog } from "../log.js";
 
 export interface CheckOptions {
   file: string;
-  /** Pass `check` even when the determinism lint flags bare nondeterministic calls (the escape hatch). */
-  allowNondeterminism?: boolean | undefined;
 }
 
 export interface CheckDeps {
@@ -37,11 +34,6 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   // Build the artifact (esbuild bundle + assets) — proves the program compiles end-to-end.
   const artifact = await buildArtifact(opts.file);
   const assets = artifact.assetPaths.length;
-
-  // Determinism gate — bare nondeterminism outside a journaled seam corrupts a run on resume/crash,
-  // so it fails `check` (the escape hatch is --allow-nondeterminism). Runs before the "valid" banner
-  // so a failure stops here.
-  enforceDeterminism(source, entry, log, opts.allowNondeterminism ?? false);
 
   log(`✓ "${manifest.slug}" is valid`);
   log(`  entry:    ${artifact.entry}`);

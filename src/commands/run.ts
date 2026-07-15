@@ -14,7 +14,6 @@ import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient, type RunSummary, type RunEventSnapshot } from "../client.js";
 import { resolveLog } from "../log.js";
-import { enforceDeterminism } from "../lint.js";
 import { deployWithLink, loadProgram } from "../deployment.js";
 import { formatOutputValue } from "../render/renderer.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -85,8 +84,6 @@ export interface RunOptions {
   environment?: string | undefined;
   token?: string | undefined;
   noWait?: boolean;
-  /** Deploy + run even when the determinism lint flags bare nondeterministic calls (the escape hatch). */
-  allowNondeterminism?: boolean | undefined;
 }
 
 export interface RunDeps {
@@ -103,7 +100,6 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   log(
     `  built ${prog.entry} (${String(prog.artifact.size)} bytes${assets > 0 ? `, ${String(assets)} asset${assets === 1 ? "" : "s"}` : ""})`,
   );
-  enforceDeterminism(prog.artifact.entrySource, prog.entry, log, opts.allowNondeterminism ?? false);
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({

@@ -18,7 +18,6 @@ import { CliError } from "../errors.js";
 import { collectPackageContext } from "../artifact.js";
 import { bundleWorkflow, resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
-import { reportDeterminism } from "../lint.js";
 import { projectDirFor, readLink } from "../project.js";
 import { loadConfig, type CliConfig } from "../config.js";
 import { createDevEngine, type DevEngineFactory } from "../dev/engine.js";
@@ -68,9 +67,6 @@ export async function runDev(opts: DevOptions, deps: DevDeps = {}): Promise<void
   const entry = resolveEntry(opts.file);
   const source = readFileSync(entry, "utf8");
   extractValidatedManifest(source, entry);
-  reportDeterminism(source, entry, (line) => {
-    write(`${line}\n`);
-  });
   const input = jsonInput(parseInput(opts.input));
 
   // 2. The local secret store: the project's env file (explicit --env must exist).
