@@ -7,6 +7,11 @@
 // ($BOARDWALK_TEMPLATES_URL to point at a fork/mirror). The default `hello` template is
 // BUILT IN — `init` works offline and with zero configuration.
 //
+// After scaffolding, init also writes the Boardwalk agent skills into
+// `.claude/skills/` (fetched from the plugins repo; $BOARDWALK_SKILLS_URL to override)
+// so a coding agent working in the project can drive the CLI with local context.
+// This step is best-effort: offline it is skipped with a note and init still succeeds.
+//
 // Never overwrites: every target path is checked before anything is written.
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -28,6 +33,13 @@ export interface InitDeps {
 
 /** Where templates live: the examples repo, raw. Overridable for forks/mirrors. */
 const DEFAULT_TEMPLATES_URL = "https://raw.githubusercontent.com/boardwalk-labs/examples/main";
+
+/** Where the agent skills live: the plugins repo, raw. Overridable for forks/mirrors. */
+const DEFAULT_SKILLS_URL =
+  "https://raw.githubusercontent.com/boardwalk-labs/plugins/main/plugins/boardwalk/skills";
+
+/** The skills init drops into a fresh project (the CLI surface + authoring quality). */
+const INIT_SKILLS = ["boardwalk-use-cli", "write-good-workflows"] as const;
 
 // ── The built-in `hello` template (offline floor) ───────────────────────────────────────
 
@@ -107,7 +119,9 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
       ]),
     );
     scaffold(dir, files);
-    finish(log, opts, slug, opts.template, []);
+    log(`✓ scaffolded "${slug}" (template: ${opts.template})`);
+    await writeAgentSkills(dir, deps, log);
+    finish(log, opts, []);
     return;
   }
 
@@ -138,8 +152,51 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
     );
   }
 
-  scaffold(resolve(opts.dir), files);
-  finish(log, opts, template.name, template.name, template.secrets);
+  const dir = resolve(opts.dir);
+  scaffold(dir, files);
+  log(`✓ scaffolded "${template.name}" (template: ${template.name})`);
+  await writeAgentSkills(dir, deps, log);
+  finish(log, opts, template.secrets);
+}
+
+/**
+ * Drop the Boardwalk agent skills into `<dir>/.claude/skills/` so a coding agent working in
+ * the project can operate the CLI with local context (the same skills the Boardwalk plugin
+ * installs globally). Best-effort by design: init's offline floor must hold, so ANY fetch
+ * problem skips the whole step with a note. Fetch-all-then-write keeps it atomic — either
+ * every skill lands or none does. Existing files are never overwritten.
+ */
+async function writeAgentSkills(
+  dir: string,
+  deps: InitDeps,
+  log: (line: string) => void,
+): Promise<void> {
+  const env = deps.env ?? process.env;
+  const baseUrl = (env.BOARDWALK_SKILLS_URL ?? DEFAULT_SKILLS_URL).replace(/\/+$/, "");
+  const fetchImpl = deps.fetchImpl ?? fetch;
+
+  const bodies: [string, string][] = [];
+  try {
+    for (const name of INIT_SKILLS) {
+      bodies.push([name, await fetchText(`${baseUrl}/${name}/SKILL.md`, fetchImpl, "skill")]);
+    }
+  } catch {
+    log("- skipped agent skills (couldn't reach the skills repo — offline?)");
+    log("  they also ship in the Boardwalk plugin: claude plugin install boardwalk@boardwalk-labs");
+    return;
+  }
+
+  const written: string[] = [];
+  for (const [name, body] of bodies) {
+    const target = join(dir, ".claude", "skills", name, "SKILL.md");
+    if (existsSync(target)) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, body);
+    written.push(name);
+  }
+  if (written.length > 0) {
+    log(`✓ wrote agent skills: .claude/skills/{${written.join(", ")}}`);
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────
@@ -162,14 +219,7 @@ function scaffold(dir: string, files: Record<string, string>): void {
   }
 }
 
-function finish(
-  log: (line: string) => void,
-  opts: InitOptions,
-  name: string,
-  template: string,
-  secrets: readonly string[],
-): void {
-  log(`✓ scaffolded "${name}" (template: ${template})`);
+function finish(log: (line: string) => void, opts: InitOptions, secrets: readonly string[]): void {
   log("");
   log("next:");
   log(`  cd ${opts.dir === "." ? "." : opts.dir} && npm install`);

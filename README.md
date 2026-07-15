@@ -20,7 +20,10 @@ boardwalk status                           # host + login (live-verified) + proj
 ## The author loop
 
 - **`init [dir]`** — scaffold a workflow project: program file, `package.json`, `.env.example`,
-  `.gitignore`. The default template runs green under `dev` immediately.
+  `.gitignore`. The default template runs green under `dev` immediately. Also drops the
+  Boardwalk agent skills into `.claude/skills/` so a coding agent in the project can drive the
+  CLI with local context (best-effort: skipped offline; `BOARDWALK_SKILLS_URL` overrides the
+  source).
 - **`dev <file|dir>`** — run the workflow locally. Derives and validates the manifest
   (precise errors before anything runs), bundles the program, executes it in-process, and streams
   the run-event log. Secrets resolve from `.env` (or `--env <path>`); values never print.

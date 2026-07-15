@@ -43,6 +43,18 @@ console.log("remote-digest ran");`,
 
 const ENV = { BOARDWALK_TEMPLATES_URL: "https://templates.test" };
 
+/** A fetch that fails every call — the offline floor. */
+const offlineFetch = (() => {
+  throw new Error("offline");
+}) as unknown as typeof fetch;
+
+const SKILLS_ENV = { BOARDWALK_SKILLS_URL: "https://skills.test" };
+
+const SKILL_FILES: Record<string, string> = {
+  "/boardwalk-use-cli/SKILL.md": "---\nname: boardwalk-use-cli\n---\nUse the CLI.\n",
+  "/write-good-workflows/SKILL.md": "---\nname: write-good-workflows\n---\nWrite well.\n",
+};
+
 describe("runInit (built-in template)", () => {
   let dir: string;
   beforeEach(() => {
@@ -52,17 +64,12 @@ describe("runInit (built-in template)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("scaffolds hello with a manifest-valid program, offline", async () => {
+  it("scaffolds hello with a manifest-valid program, offline (skills skipped with a note)", async () => {
     const target = join(dir, "my-digest");
     const lines: string[] = [];
     await runInit(
       { dir: target, template: "hello" },
-      {
-        log: (l) => lines.push(l),
-        fetchImpl: (() => {
-          throw new Error("built-in templates must not hit the network");
-        }) as unknown as typeof fetch,
-      },
+      { log: (l) => lines.push(l), fetchImpl: offlineFetch },
     );
 
     for (const f of ["index.ts", "package.json", ".env.example", ".gitignore"]) {
@@ -70,27 +77,102 @@ describe("runInit (built-in template)", () => {
     }
     const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
     expect(manifest.slug).toBe("my-digest");
-    expect(lines.join("\n")).toContain('scaffolded "my-digest"');
+    const out = lines.join("\n");
+    expect(out).toContain('scaffolded "my-digest"');
+    expect(out).toContain("skipped agent skills");
+    expect(existsSync(join(target, ".claude"))).toBe(false);
   });
 
   it("refuses to overwrite existing files", async () => {
     const target = join(dir, "taken");
-    await runInit({ dir: target, template: "hello" }, { log: () => undefined });
+    await runInit(
+      { dir: target, template: "hello" },
+      { log: () => undefined, fetchImpl: offlineFetch },
+    );
     await expect(
-      runInit({ dir: target, template: "hello" }, { log: () => undefined }),
+      runInit(
+        { dir: target, template: "hello" },
+        { log: () => undefined, fetchImpl: offlineFetch },
+      ),
     ).rejects.toThrow(/already exists/);
   });
 
   it("aborts before writing anything when one target exists", async () => {
     const target = join(dir, "partial");
-    await runInit({ dir: target, template: "hello" }, { log: () => undefined });
+    await runInit(
+      { dir: target, template: "hello" },
+      { log: () => undefined, fetchImpl: offlineFetch },
+    );
     rmSync(join(target, "package.json"));
     writeFileSync(join(target, ".gitignore"), "mine\n");
     await expect(
-      runInit({ dir: target, template: "hello" }, { log: () => undefined }),
+      runInit(
+        { dir: target, template: "hello" },
+        { log: () => undefined, fetchImpl: offlineFetch },
+      ),
     ).rejects.toThrow(/already exists/);
     expect(existsSync(join(target, "package.json"))).toBe(false);
     expect(readFileSync(join(target, ".gitignore"), "utf8")).toBe("mine\n");
+  });
+});
+
+describe("runInit (agent skills)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bw-init-skills-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("writes the agent skills into .claude/skills/ when the skills repo is reachable", async () => {
+    const target = join(dir, "with-skills");
+    const lines: string[] = [];
+    await runInit(
+      { dir: target, template: "hello" },
+      { log: (l) => lines.push(l), fetchImpl: registryFetch(SKILL_FILES), env: SKILLS_ENV },
+    );
+
+    expect(
+      readFileSync(join(target, ".claude", "skills", "boardwalk-use-cli", "SKILL.md"), "utf8"),
+    ).toContain("Use the CLI");
+    expect(
+      readFileSync(join(target, ".claude", "skills", "write-good-workflows", "SKILL.md"), "utf8"),
+    ).toContain("Write well");
+    expect(lines.join("\n")).toContain("wrote agent skills");
+  });
+
+  it("skips ALL skills when any one is missing (atomic, init still succeeds)", async () => {
+    const target = join(dir, "partial-skills");
+    const partial = { ...SKILL_FILES };
+    delete partial["/write-good-workflows/SKILL.md"];
+    const lines: string[] = [];
+    await runInit(
+      { dir: target, template: "hello" },
+      { log: (l) => lines.push(l), fetchImpl: registryFetch(partial), env: SKILLS_ENV },
+    );
+
+    expect(existsSync(join(target, ".claude"))).toBe(false);
+    expect(lines.join("\n")).toContain("skipped agent skills");
+    expect(existsSync(join(target, "index.ts"))).toBe(true);
+  });
+
+  it("writes skills after a registry template too", async () => {
+    const target = join(dir, "remote-with-skills");
+    // One mock serves both hosts — registryFetch matches on pathname only.
+    await runInit(
+      { dir: target, template: "remote-digest" },
+      {
+        log: () => undefined,
+        fetchImpl: registryFetch({ ...REMOTE_FILES, ...SKILL_FILES }),
+        env: { ...ENV, ...SKILLS_ENV },
+      },
+    );
+
+    expect(existsSync(join(target, ".claude", "skills", "boardwalk-use-cli", "SKILL.md"))).toBe(
+      true,
+    );
+    expect(existsSync(join(target, "lib", "util.ts"))).toBe(true);
   });
 });
 
