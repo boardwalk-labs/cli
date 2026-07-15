@@ -12,6 +12,25 @@ Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch release
   brew-smoke-test drops the old npm `--min-release-age` workaround (a binary has no deps).
 - Release attaches the binaries only (dropped a stray `index.js.map` sourcemap sidecar).
 
+## 0.2.1
+
+### Added
+
+- **`boardwalk workflows show <ref> --source`** — print the deployed program's source, the code that
+  is actually running. Bare for a single-file program (so `> index.ts` redirects cleanly),
+  banner-per-file (`// ==> path`) for a package. `show` also names the source files, and `--json`
+  now carries them. Previously the API sent the source and the CLI discarded it, so there was no way
+  to read your own deployed program from the terminal.
+
+### Changed
+
+- **A package now ships its whole local source tree** in the artifact (under `.bw-src/`), not just
+  its entry. Storing only the entry left a dashboard code view showing an `index.ts` importing a
+  `./plan.js` it could neither display nor round-trip — and left the platform holding no copy of the
+  sibling at all. The tree is rooted at the entry's directory so its relative imports stay
+  resolvable; build output, `node_modules`, and dotfiles stay out. The runtime is unchanged: local
+  modules are still inlined into the single bundled `index.mjs` the runner imports.
+
 ## 0.1.31
 
 ### Added
