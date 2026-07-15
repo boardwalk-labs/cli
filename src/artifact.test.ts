@@ -107,6 +107,51 @@ describe("buildArtifact — package with assets", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it("ships the package's WHOLE source tree under .bw-src/, not just the entry", async () => {
+    // Regression: only the entry was stored, so a dashboard code view showed an `index.ts` importing
+    // a `./plan.js` it could not display or round-trip — and the platform held no copy of the sibling.
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "tree-wf" }));
+    writeFileSync(join(pkg, "plan.ts"), `export const PLAN = ["a"];\n`);
+    mkdirSync(join(pkg, "lib"), { recursive: true });
+    writeFileSync(join(pkg, "lib", "util.ts"), `export const U = 1;\n`);
+    writeFileSync(
+      join(pkg, "index.ts"),
+      `import { PLAN } from "./plan.js";
+import { U } from "./lib/util.js";
+export const meta = { slug: "tree-wf", description: "d" };
+void PLAN; void U;`,
+    );
+
+    const out = extractTo((await buildArtifact(pkg)).tarball, dir);
+    expect(readFileSync(join(out, ".bw-src", "index.ts"), "utf8")).toContain(`from "./plan.js"`);
+    expect(readFileSync(join(out, ".bw-src", "plan.ts"), "utf8")).toBe(
+      `export const PLAN = ["a"];\n`,
+    );
+    // Nested sources keep their relative path, so the tree's own imports still resolve.
+    expect(readFileSync(join(out, ".bw-src", "lib", "util.ts"), "utf8")).toBe(
+      `export const U = 1;\n`,
+    );
+    // The runtime is unchanged: the runner still imports the single bundled entry.
+    expect(existsSync(join(out, "index.mjs"))).toBe(true);
+  });
+
+  it("keeps build output and node_modules out of the stored source tree", async () => {
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "clean-wf" }));
+    mkdirSync(join(pkg, "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(pkg, "node_modules", "left-pad", "index.js"), `module.exports = 1;`);
+    mkdirSync(join(pkg, "dist"), { recursive: true });
+    writeFileSync(join(pkg, "dist", "index.js"), `console.log("built");`);
+    writeFileSync(
+      join(pkg, "index.ts"),
+      `export const meta = { slug: "clean-wf", description: "d" };\nawait 0;`,
+    );
+
+    const out = extractTo((await buildArtifact(pkg)).tarball, dir);
+    expect(existsSync(join(out, ".bw-src", "index.ts"))).toBe(true);
+    expect(existsSync(join(out, ".bw-src", "node_modules"))).toBe(false);
+    expect(existsSync(join(out, ".bw-src", "dist"))).toBe(false);
+  });
+
   it("inlines local deps, ships assets at their relative paths, resolves the SDK version", async () => {
     writeFileSync(
       join(pkg, "package.json"),

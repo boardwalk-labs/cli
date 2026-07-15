@@ -487,16 +487,30 @@ function registerWorkflowsCommand(program: Command): void {
     .command("show")
     .argument("<ref>", "workflow id (a ULID) or slug")
     .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
-    .option("--json", "print the raw response as JSON", false)
+    .option("--source", "print the deployed program's source instead of the summary", false)
+    .option("--json", "print the workflow (incl. its program source) as JSON", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .description("Show one workflow's manifest projection + versions.")
-    .action(async (ref: string, options: { org?: string; json?: boolean; token?: string }) => {
-      const { runWorkflowShow } = await import("./commands/workflows.js");
-      await runWorkflowShow(
-        { ref, org: options.org, json: options.json, token: options.token },
-        { config: loadConfig() },
-      );
-    });
+    .description(
+      "Show one workflow's manifest projection + versions (--source prints the program).",
+    )
+    .action(
+      async (
+        ref: string,
+        options: { org?: string; json?: boolean; source?: boolean; token?: string },
+      ) => {
+        const { runWorkflowShow } = await import("./commands/workflows.js");
+        await runWorkflowShow(
+          {
+            ref,
+            org: options.org,
+            json: options.json,
+            source: options.source,
+            token: options.token,
+          },
+          { config: loadConfig() },
+        );
+      },
+    );
 
   workflows
     .command("disable")

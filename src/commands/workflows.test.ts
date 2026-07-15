@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatWorkflowList,
   formatWorkflowDetail,
+  formatWorkflowSource,
   runWorkflowsList,
   runWorkflowShow,
   runWorkflowDelete,
@@ -48,6 +49,7 @@ function detail(over: Partial<WorkflowDetail> = {}): WorkflowDetail {
     triggers: ["cron", "manual"],
     secrets: ["GITHUB_TOKEN"],
     entry: "index.mjs",
+    source: [{ path: "index.ts", content: "export const meta = { slug: 'nightly-summary' };\n" }],
     versions: [
       { id: "v2", number: 2, createdAt: 20 },
       { id: "v1", number: 1, createdAt: 10 },
@@ -150,6 +152,52 @@ describe("formatWorkflowDetail", () => {
     expect(formatWorkflowDetail(detail({ disabled: true })).join("\n")).toMatch(
       /Status\s+disabled/,
     );
+  });
+
+  it("names the program's source files without dumping their contents", () => {
+    const out = formatWorkflowDetail(
+      detail({
+        source: [
+          { path: "index.ts", content: "const secret_looking_code = 1;" },
+          { path: "plan.ts", content: "export const X = 1;" },
+        ],
+      }),
+    ).join("\n");
+    expect(out).toMatch(/Source\s+index\.ts, plan\.ts/);
+    expect(out).not.toContain("secret_looking_code");
+  });
+
+  it("omits the Source line when the API inlined nothing", () => {
+    expect(formatWorkflowDetail(detail({ source: null })).join("\n")).not.toContain("Source");
+  });
+});
+
+describe("formatWorkflowSource", () => {
+  it("prints a single-file program bare, so it can be redirected straight to a file", () => {
+    expect(
+      formatWorkflowSource(detail({ source: [{ path: "index.ts", content: "const a = 1;" }] })),
+    ).toEqual(["const a = 1;"]);
+  });
+
+  it("banners each file of a package so the tree is recoverable", () => {
+    const out = formatWorkflowSource(
+      detail({
+        source: [
+          { path: "index.ts", content: "import './plan.js';" },
+          { path: "plan.ts", content: "export const X = 1;" },
+        ],
+      }),
+    );
+    expect(out).toEqual([
+      "// ==> index.ts",
+      "import './plan.js';",
+      "// ==> plan.ts",
+      "export const X = 1;",
+    ]);
+  });
+
+  it("explains itself when the artifact was too large to inline", () => {
+    expect(() => formatWorkflowSource(detail({ source: null }))).toThrow(/No inlined source/);
   });
 });
 

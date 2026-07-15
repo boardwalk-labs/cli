@@ -33,12 +33,13 @@ import { isRecord } from "./guards.js";
 const SDK_PACKAGE = "@boardwalk-labs/workflow";
 /** The entry module the runner imports after extraction. The whole local graph bundles into it. */
 export const ENTRY_OUTPUT = "index.mjs";
-/** The author's ORIGINAL entry source, stored verbatim under the `.bw-src/` tree so a dashboard's
+/** Where the author's ORIGINAL sources live inside the artifact, stored verbatim so a dashboard's
  *  code view shows what the user wrote (blank lines + comments intact) and quick-edit round-trips
  *  real source — NOT the blank-line-stripped esbuild bundle. The runner never reads `.bw-src/`; it
- *  runs {@link ENTRY_OUTPUT}. (A bundled package ships only its entry source here; its local
- *  modules are inlined into {@link ENTRY_OUTPUT}.) */
-export const SOURCE_FILE = ".bw-src/index.ts";
+ *  runs {@link ENTRY_OUTPUT}. */
+export const SOURCE_DIR = ".bw-src";
+/** A single-file program's source, stored under the canonical entry name. */
+export const SOURCE_FILE = `${SOURCE_DIR}/index.ts`;
 /** `sdk_version` for a program that pins no SDK version — defer to whatever the runner ships. */
 export const UNPINNED_SDK = "*";
 
@@ -68,6 +69,12 @@ const EXCLUDE_DIRS = new Set([
   ".turbo",
   ".cache",
 ]);
+
+/** One of the author's source files, stored under `.bw-src/` at its entry-relative POSIX path. */
+export interface ArtifactSource {
+  relPath: string;
+  content: Buffer;
+}
 
 /** One non-code file shipped in the artifact, at its package-relative POSIX path. */
 export interface ArtifactAsset {
@@ -109,19 +116,28 @@ export async function buildArtifact(target: string): Promise<BuiltArtifact> {
   const assets = pkgDir === null ? [] : collectAssets(pkgDir);
   const sdkVersion = resolveSdkVersion(pkgDir);
   const lockDigest = pkgDir === null ? null : lockfileDigest(pkgDir);
+  // A package ships its WHOLE local source tree, not just the entry: the tree is what a dashboard
+  // code view has to show (an entry importing `./plan.js` is unreadable — and un-editable — without
+  // `plan.ts` beside it), and it is the copy of the program the platform can hand back. The runtime
+  // is unaffected either way: local modules are inlined into ENTRY_OUTPUT. Rooted at the ENTRY's
+  // directory so the stored paths keep the entry's own relative imports resolvable.
+  const sources: ArtifactSource[] =
+    pkgDir === null
+      ? [{ relPath: "index.ts", content: Buffer.from(originalSource, "utf8") }]
+      : collectSources(dirname(entry));
 
   // Stage every file at its target relative path, then pack the staging dir deterministically.
   const staging = mkdtempSync(join(tmpdir(), "bw-artifact-"));
   try {
     writeStaged(staging, ENTRY_OUTPUT, Buffer.from(code, "utf8"));
     writeStaged(staging, `${ENTRY_OUTPUT}.map`, Buffer.from(map, "utf8"));
-    writeStaged(staging, SOURCE_FILE, Buffer.from(originalSource, "utf8"));
+    for (const s of sources) writeStaged(staging, `${SOURCE_DIR}/${s.relPath}`, s.content);
     for (const asset of assets) writeStaged(staging, asset.relPath, readFileSync(asset.absPath));
 
     const relPaths = [
       ENTRY_OUTPUT,
       `${ENTRY_OUTPUT}.map`,
-      SOURCE_FILE,
+      ...sources.map((s) => `${SOURCE_DIR}/${s.relPath}`),
       ...assets.map((a) => a.relPath),
     ].sort();
     const tarball = await packDir(staging, relPaths);
@@ -218,9 +234,34 @@ function defaultAssetFilter(isDir: boolean, name: string): boolean {
   if (name.startsWith(".")) return false; // dotfiles + dotdirs
   if (isDir) return !EXCLUDE_DIRS.has(name);
   if (EXCLUDE_FILES.has(name)) return false;
+  return !SOURCE_EXT.has(extOf(name));
+}
+
+/** The mirror of {@link defaultAssetFilter}: the source files, which assets deliberately skip.
+ *  Sourcemaps are build output, not authored source. */
+function sourceFilter(isDir: boolean, name: string): boolean {
+  if (name.startsWith(".")) return false;
+  if (isDir) return !EXCLUDE_DIRS.has(name);
+  if (EXCLUDE_FILES.has(name)) return false;
+  const ext = extOf(name);
+  return SOURCE_EXT.has(ext) && ext !== ".map";
+}
+
+function extOf(name: string): string {
   const dot = name.lastIndexOf(".");
-  const ext = dot === -1 ? "" : name.slice(dot).toLowerCase();
-  return !SOURCE_EXT.has(ext);
+  return dot === -1 ? "" : name.slice(dot).toLowerCase();
+}
+
+/** The author's source tree under `root` (the entry's directory), for storage under `.bw-src/`. */
+export function collectSources(root: string): ArtifactSource[] {
+  const out: ArtifactSource[] = [];
+  walk(root, sourceFilter, (abs) => {
+    const rel = toPosix(relative(root, abs));
+    if (rel.length === 0 || rel.startsWith("..")) return;
+    out.push({ relPath: rel, content: readFileSync(abs) });
+  });
+  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
+  return out;
 }
 
 /** Recursively walk `dir`, calling `onFile(abs)` for each file the `accept` predicate keeps. */

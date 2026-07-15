@@ -393,6 +393,7 @@ describe("BoardwalkClient.getWorkflowDetail", () => {
       triggers: ["cron", "manual"],
       secrets: ["GITHUB_TOKEN"],
       entry: "index.mjs",
+      source: null,
       versions: [
         { id: "v2", number: 2, createdAt: 20 },
         { id: "v1", number: 1, createdAt: 10 },
@@ -400,6 +401,30 @@ describe("BoardwalkClient.getWorkflowDetail", () => {
       disabled: false,
     });
     expect(calls[0]?.url).toBe("https://api.x/v1/workflows/wf1");
+  });
+
+  it("keeps the program source the API inlined — it is the whole point of `show --source`", () => {
+    // Regression: the parser dropped `program.files` on the floor, so the deployed program was
+    // unreadable from the CLI even though the API had already sent it.
+    const { fetchImpl } = recordingFetch(200, {
+      workflow: { id: "wf1", slug: "pkg", currentVersionId: "v1" },
+      manifest: {},
+      program: {
+        entry: "index.mjs",
+        files: [
+          { path: "index.ts", content: "import './plan.js';" },
+          { path: "plan.ts", content: "export const X = 1;" },
+        ],
+      },
+      versions: [],
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    return client.getWorkflowDetail("wf1").then((detail) => {
+      expect(detail.source).toEqual([
+        { path: "index.ts", content: "import './plan.js';" },
+        { path: "plan.ts", content: "export const X = 1;" },
+      ]);
+    });
   });
 
   it("reports disabled=true when the workflow carries a disabledAt timestamp", async () => {

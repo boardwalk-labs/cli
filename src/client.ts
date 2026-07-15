@@ -150,6 +150,13 @@ export interface WorkflowVersionRef {
 }
 
 /** A workflow's full detail (GET /v1/workflows/:id): identity + the current manifest + versions. */
+/** One file of the author's ORIGINAL source, as stored with the deployed version. */
+export interface WorkflowSourceFile {
+  /** Path inside the program (POSIX, package-relative), e.g. `index.ts`. */
+  path: string;
+  content: string;
+}
+
 export interface WorkflowDetail {
   id: string;
   slug: string;
@@ -160,6 +167,10 @@ export interface WorkflowDetail {
   secrets: string[];
   /** The program entry file (e.g. `index.mjs`) when the API reports it. */
   entry: string | null;
+  /** The deployed program's ORIGINAL source, as the API inlined it — so `show` can hand back the code
+   *  that is actually running, not just its name. `null` when the API omitted it (an artifact too
+   *  large to inline is download-only). */
+  source: WorkflowSourceFile[] | null;
   versions: WorkflowVersionRef[];
   /** True when the workflow is disabled (paused): it rejects every trigger until re-enabled. */
   disabled: boolean;
@@ -1416,9 +1427,22 @@ function parseWorkflowDetail(body: unknown): WorkflowDetail {
     triggers: triggerKinds(manifest.triggers),
     secrets: secretNames(permissions.secrets),
     entry: typeof program.entry === "string" ? program.entry : null,
+    source: sourceFiles(program.files),
     versions,
     disabled: typeof workflow.disabledAt === "number",
   };
+}
+
+/** Read the API's inlined `program.files` (lenient — absent/oversized artifacts report `null`). */
+function sourceFiles(value: unknown): WorkflowSourceFile[] | null {
+  if (!Array.isArray(value)) return null;
+  const files: WorkflowSourceFile[] = [];
+  for (const f of value) {
+    if (isRecord(f) && typeof f.path === "string" && typeof f.content === "string") {
+      files.push({ path: f.path, content: f.content });
+    }
+  }
+  return files;
 }
 
 /** Map a manifest `triggers: [{ kind }]` array to its kind strings (lenient). */

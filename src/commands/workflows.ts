@@ -31,6 +31,8 @@ export interface WorkflowShowOptions {
   ref: string;
   org?: string | undefined;
   json?: boolean | undefined;
+  /** Print the deployed program's source instead of the summary — the code that is actually running. */
+  source?: boolean | undefined;
   token?: string | undefined;
 }
 
@@ -94,7 +96,28 @@ export async function runWorkflowShow(
     log(JSON.stringify(detail, null, 2));
     return;
   }
+  if (opts.source === true) {
+    for (const line of formatWorkflowSource(detail)) log(line);
+    return;
+  }
   for (const line of formatWorkflowDetail(detail)) log(line);
+}
+
+/** The deployed program's source, ready to read or redirect to a file. A single-file program prints
+ *  bare (so `> index.ts` just works); a package prints each file under a `// ==> path` banner. */
+export function formatWorkflowSource(w: WorkflowDetail): string[] {
+  if (w.source === null || w.source.length === 0) {
+    throw new CliError(
+      `No inlined source for ${w.slug}.`,
+      "The program is too large to inline — fetch the artifact from the dashboard instead.",
+    );
+  }
+  if (w.source.length === 1 && w.source[0] !== undefined) return [w.source[0].content];
+  const out: string[] = [];
+  for (const f of w.source) {
+    out.push(`// ==> ${f.path}`, f.content);
+  }
+  return out;
 }
 
 export async function runWorkflowDelete(
@@ -197,6 +220,10 @@ export function formatWorkflowDetail(w: WorkflowDetail): string[] {
   lines.push(field("Triggers", w.triggers.length > 0 ? w.triggers.join(", ") : "—"));
   lines.push(field("Secrets", w.secrets.length > 0 ? w.secrets.join(", ") : "—"));
   if (w.entry !== null) lines.push(field("Entry", w.entry));
+  // Name the source files, never dump them — `--source` prints the code on demand.
+  if (w.source !== null && w.source.length > 0) {
+    lines.push(field("Source", w.source.map((f) => f.path).join(", ")));
+  }
 
   const current = w.versions.find((v) => v.id === w.currentVersionId);
   lines.push(
