@@ -269,6 +269,62 @@ describe("BoardwalkClient.getRunEvents", () => {
     expect(calls[0]?.url).toBe("https://api.x/v1/runs/run1/events");
   });
 
+  // Forward compat: the control plane ships faster than users upgrade, so an event carrying a field
+  // this build has never heard of must still render. It didn't once — `error.hint` made the terminal
+  // frame unparseable and a failed run printed nothing at all.
+  it("keeps an event that carries fields this build doesn't know (nested and top-level)", async () => {
+    const { fetchImpl } = recordingFetch(200, {
+      events: [
+        {
+          cursor: 1,
+          event: {
+            kind: "run_status",
+            status: "failed",
+            error: { code: "VALIDATION", message: "boom", fieldFromTheFuture: "x" },
+            somethingAddedLater: true,
+            runId: "r",
+            turnId: "tt",
+            seq: 1,
+            t: 1,
+          },
+        },
+      ],
+      done: true,
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const snap = await client.getRunEvents("run1");
+    // The event survives, and the fields this build DOES know are intact.
+    expect(snap.events).toHaveLength(1);
+    const ev = snap.events[0]?.event;
+    expect(ev?.kind).toBe("run_status");
+    expect(ev?.kind === "run_status" ? ev.error?.message : null).toBe("boom");
+  });
+
+  it("still drops a genuinely broken event (tolerance is for additive fields only)", async () => {
+    const { fetchImpl } = recordingFetch(200, {
+      events: [
+        // Wrong type on a known field — not forward compat, just wrong.
+        {
+          cursor: 1,
+          event: {
+            kind: "program_output",
+            stream: 42,
+            text: "x",
+            runId: "r",
+            turnId: "tt",
+            seq: 1,
+            t: 1,
+          },
+        },
+        { cursor: 2, event: outputEvent("real", 2) },
+      ],
+      done: true,
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const snap = await client.getRunEvents("run1");
+    expect(snap.events.map((e) => e.cursor)).toEqual([2]);
+  });
+
   it("passes ?since=<cursor> when given", async () => {
     const { fetchImpl, calls } = recordingFetch(200, { events: [], done: false });
     const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });

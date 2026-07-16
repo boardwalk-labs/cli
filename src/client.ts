@@ -18,7 +18,7 @@
 // The API accepts both on the same header.
 
 import { randomUUID } from "node:crypto";
-import { type RunEvent, type RunStatus, runEventSchema } from "@boardwalk-labs/workflow";
+import { type RunEvent, type RunStatus, parseRunEventLenient } from "@boardwalk-labs/workflow";
 import { CliError } from "./errors.js";
 import { isRecord } from "./guards.js";
 import { readSseFrames } from "./sse.js";
@@ -1384,11 +1384,18 @@ function usageLines(value: unknown, labelKey: string): UsageLine[] {
   return lines;
 }
 
-/** Validate a parsed JSON value into a typed v1 `RunEvent` via the SDK's schema (no cast — the
- *  schema IS the contract). Returns null for anything that isn't a well-formed event. */
+/**
+ * Validate a parsed JSON value into a typed v1 `RunEvent` (no cast — the schema IS the contract).
+ * Returns null for anything this build genuinely cannot use.
+ *
+ * Deliberately the SDK's LENIENT parse, not `runEventSchema.safeParse`: this CLI is a consumer of a
+ * control plane that ships faster than users upgrade, so a field added after this binary was built
+ * must not cost us the whole event. It did once — `error.hint` made the terminal frame unparseable
+ * and `--logs` printed nothing for a failed run. Additive keys are ignored; a wrong type, a missing
+ * field, or an unknown kind still returns null.
+ */
 function parseRunEvent(value: unknown): RunEvent | null {
-  const parsed = runEventSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  return parseRunEventLenient(value);
 }
 
 /** Read a `{ cursor, event }` snapshot row into a `RunEventRow`, or null when malformed. */
