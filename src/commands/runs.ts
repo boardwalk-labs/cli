@@ -288,7 +288,12 @@ export function formatRunDetail(run: RunDetail, now: number): string[] {
   if (run.costUsd !== undefined && run.costUsd !== null) {
     lines.push(field("Spend", formatUsd(run.costUsd)));
   }
-  if (run.error !== null) lines.push(field("Error", `${run.error.code}: ${run.error.message}`));
+  if (run.error !== null) {
+    lines.push(field("Error", `${run.error.code}: ${run.error.message}`));
+    // The actionable pointer (which field to use, what to type). Its own row so it lines up with the
+    // other labels — this is often the only place a hosted run's fix is shown.
+    if (run.error.hint !== undefined) lines.push(field("Hint", run.error.hint));
+  }
   return lines;
 }
 

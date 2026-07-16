@@ -131,6 +131,24 @@ describe("formatRunDetail", () => {
     ).join("\n");
     expect(out).toMatch(/Status\s+failed/);
     expect(out).toMatch(/Error\s+TOOL_ERROR: merge tool exited 1/);
+    // No hint on this failure ⇒ no Hint row at all.
+    expect(out).not.toContain("Hint");
+  });
+
+  it("shows the hint on its own row when the failure carried one", () => {
+    const out = formatRunDetail(
+      detail({
+        status: "failed",
+        error: {
+          code: "VALIDATION",
+          message: 'agent() got a string ("bash") in `tools`.',
+          hint: 'Built-in tools are on by default — write `builtins: ["bash"]`.',
+        },
+      }),
+      NOW,
+    ).join("\n");
+    expect(out).toMatch(/Error\s+VALIDATION: agent\(\) got a string/);
+    expect(out).toMatch(/Hint\s+Built-in tools are on by default/);
   });
 
   it("omits started/finished/tokens when absent (in-flight run)", () => {

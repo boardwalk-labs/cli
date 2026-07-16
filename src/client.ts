@@ -99,8 +99,9 @@ export interface RunDetail extends RunListItem {
    *  above already reflects the cache discount. Null on servers that don't report it. */
   cachedTokensIn?: number | null;
   cachedWriteTokens?: number | null;
-  /** Curated failure cause for a failed run; null otherwise. */
-  error: { code: string; message: string } | null;
+  /** Curated failure cause for a failed run; null otherwise. `hint` is an optional one-line pointer
+   *  at the fix (present e.g. for an engine validation error); older servers omit it. */
+  error: { code: string; message: string; hint?: string } | null;
 }
 
 /** A human-in-the-loop gate (durable suspension) — a run paused for a person to answer. */
@@ -1355,12 +1356,18 @@ function parseRunRow(row: unknown): RunListItem | null {
   };
 }
 
-/** Read a run's curated `{ code, message }` error, or null when there's no usable message. */
-function parseRunError(value: unknown): { code: string; message: string } | null {
+/** Read a run's curated `{ code, message, hint? }` error, or null when there's no usable message.
+ *  `hint` is the one-line actionable pointer an engine error carried (e.g. which field to use);
+ *  it's optional and absent for most failures. */
+function parseRunError(value: unknown): { code: string; message: string; hint?: string } | null {
   if (!isRecord(value) || typeof value.message !== "string" || value.message.length === 0) {
     return null;
   }
-  return { code: typeof value.code === "string" ? value.code : "ERROR", message: value.message };
+  return {
+    code: typeof value.code === "string" ? value.code : "ERROR",
+    message: value.message,
+    ...(typeof value.hint === "string" && value.hint.length > 0 ? { hint: value.hint } : {}),
+  };
 }
 
 /** Read a usage breakdown array into `{ label, tokens }` lines, taking the label from `labelKey`.
