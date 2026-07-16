@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit, workflowSlugFor } from "./init.js";
@@ -72,7 +72,7 @@ describe("runInit (built-in template)", () => {
       { log: (l) => lines.push(l), fetchImpl: offlineFetch },
     );
 
-    for (const f of ["index.ts", "package.json", ".env.example", ".gitignore"]) {
+    for (const f of ["index.ts", "README.md", "package.json", ".env.example", ".gitignore"]) {
       expect(existsSync(join(target, f)), f).toBe(true);
     }
     const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
@@ -81,6 +81,27 @@ describe("runInit (built-in template)", () => {
     expect(out).toContain('scaffolded "my-digest"');
     expect(out).toContain("skipped agent skills");
     expect(existsSync(join(target, ".claude"))).toBe(false);
+  });
+
+  it("titles the README after the workflow, so it ships as the dashboard landing page", async () => {
+    const target = join(dir, "my-digest");
+    await runInit(
+      { dir: target, template: "hello" },
+      { log: () => undefined, fetchImpl: offlineFetch },
+    );
+    expect(readFileSync(join(target, "README.md"), "utf8")).toMatch(/^# My Digest\n/);
+  });
+
+  it("keeps a README you already have instead of refusing to init", async () => {
+    const target = join(dir, "has-readme");
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, "README.md"), "mine\n");
+    await runInit(
+      { dir: target, template: "hello" },
+      { log: () => undefined, fetchImpl: offlineFetch },
+    );
+    expect(readFileSync(join(target, "README.md"), "utf8")).toBe("mine\n");
+    expect(existsSync(join(target, "index.ts"))).toBe(true);
   });
 
   it("refuses to overwrite existing files", async () => {

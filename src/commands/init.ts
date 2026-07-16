@@ -62,6 +62,40 @@ const who = typeof input === "string" && input.length > 0 ? input : "world";
 output(\`Hello, \${who}!\`);
 `;
 
+// Scaffolded filled-in enough to be true on day one, and shaped so editing it is the obvious move.
+// A README is the one part of a workflow the dashboard can't derive, so the scaffold writes the
+// skeleton rather than leaving a blank page and a note in a skill nobody reads.
+const HELLO_README = `# {{title}}
+
+Says hello to whatever you pass as \`input\`. Replace this paragraph with what your workflow is
+really for: what it touches, what it costs, and what to do when it pages you. This file is the
+workflow's landing page in the Boardwalk dashboard, so write it for whoever debugs the workflow at
+3am rather than whoever wrote it. \`meta\` already states the triggers and the budget, so don't
+restate them here.
+
+## Setup
+
+No secrets required. When you add one, declare it in \`meta.permissions.secrets\` and note here how
+to get a value for it.
+
+## Run
+
+\`\`\`sh
+boardwalk dev .                    # run it locally
+boardwalk run . --org <your-org>   # deploy it, then trigger a real run
+\`\`\`
+
+## How it works
+
+\`index.ts\` is the whole workflow. It runs top to bottom like any script: it reads the trigger
+payload from \`input\` and hands its result to \`output()\`.
+
+## Make it yours
+
+Give it a brain with \`agent()\`, then swap the \`manual\` trigger in \`meta\` for a \`cron\`
+expression to run it on a schedule.
+`;
+
 const HELLO_PACKAGE_JSON = `{
   "name": "{{name}}",
   "private": true,
@@ -86,6 +120,7 @@ const HELLO_GITIGNORE = `node_modules/
 const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
   hello: {
     "index.ts": HELLO_PROGRAM,
+    "README.md": HELLO_README,
     "package.json": HELLO_PACKAGE_JSON,
     ".env.example": HELLO_ENV_EXAMPLE,
     ".gitignore": HELLO_GITIGNORE,
@@ -201,10 +236,25 @@ async function writeAgentSkills(
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────
 
-/** All-or-nothing write: refuse if ANY target exists, then write every file. */
+/**
+ * Files that yield to yours instead of blocking init. Nothing here is load-bearing for the program,
+ * and a README you already wrote beats the skeleton we would have written — refusing the whole init
+ * over one would punish `boardwalk init .` in any repo that already has a README, which is most of
+ * them.
+ */
+const KEEP_EXISTING = new Set(["README.md"]);
+
+/**
+ * All-or-nothing write: refuse if ANY target exists, then write every file. {@link KEEP_EXISTING}
+ * paths are dropped from the set first, so an existing one is kept rather than fought over. The
+ * filter runs before the existence check, so the abort-writes-nothing property still holds.
+ */
 function scaffold(dir: string, files: Record<string, string>): void {
   mkdirSync(dir, { recursive: true });
-  for (const rel of Object.keys(files)) {
+  const pending = Object.entries(files).filter(
+    ([rel]) => !(KEEP_EXISTING.has(rel) && existsSync(join(dir, rel))),
+  );
+  for (const [rel] of pending) {
     if (existsSync(join(dir, rel))) {
       throw new CliError(
         `${rel} already exists in ${dir}.`,
@@ -212,7 +262,7 @@ function scaffold(dir: string, files: Record<string, string>): void {
       );
     }
   }
-  for (const [rel, contents] of Object.entries(files)) {
+  for (const [rel, contents] of pending) {
     const target = join(dir, rel);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, contents);
