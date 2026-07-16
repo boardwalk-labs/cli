@@ -100,7 +100,10 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
     case "run_status": {
       const line = `● workflow ${event.status}`;
       if (event.error !== undefined) {
-        return `${line}\n  ${event.error.code}: ${event.error.message}\n`;
+        // The hint is the one-line pointer at the fix; indent it under the message so the live tail
+        // reads like the `boardwalk runs <id>` detail (Error, then Hint).
+        const hint = event.error.hint === undefined ? "" : `\n  ${event.error.hint}`;
+        return `${line}\n  ${event.error.code}: ${event.error.message}${hint}\n`;
       }
       return `${line}\n`;
     }

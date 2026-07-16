@@ -37,7 +37,7 @@
   "dependencies": {
     "@boardwalk-labs/engine": "^0.2.0",
     "@boardwalk-labs/runner": "^0.2.0",
-    "@boardwalk-labs/workflow": "^0.2.2",
+    "@boardwalk-labs/workflow": "^0.2.3",
     "commander": "^13.1.0",
     "env-paths": "^3.0.0",
     "esbuild": "^0.25.0",

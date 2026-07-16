@@ -128,6 +128,26 @@ describe("createRenderer", () => {
     expect(out).toContain("PROGRAM_ERROR: boom");
   });
 
+  // Regression: a hinted error used to fail the SDK's strict schema ("Unrecognized key: hint"), so
+  // the event parsed to null and the tail printed NOTHING for a failed run — the failure looked like
+  // a run that never finished. The hint must both survive the parse AND be shown.
+  it("shows the hint under the message, and still renders the failure at all", () => {
+    const out = rendered(parseChannels({ verbose: false }), [
+      event({
+        kind: "run_status",
+        status: "failed",
+        error: {
+          code: "VALIDATION",
+          message: 'agent() got a string ("bash") in `tools`.',
+          hint: 'Built-in tools are on by default — write `builtins: ["bash"]`.',
+        },
+      }),
+    ]);
+    expect(out).toContain("● workflow failed");
+    expect(out).toContain('VALIDATION: agent() got a string ("bash")');
+    expect(out).toContain('Built-in tools are on by default — write `builtins: ["bash"]`.');
+  });
+
   it("streams agent text deltas raw under --verbose", () => {
     const out = rendered(parseChannels({ verbose: true }), [
       event({ kind: "turn_started" }),
