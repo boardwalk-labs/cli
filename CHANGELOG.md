@@ -2,10 +2,23 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
-## Unreleased
+## 0.2.4
+
+### Added
+
+- **A failed run shows its engine hint** on `boardwalk runs <id>`. A curated failure error can now
+  carry an optional one-line `hint` — the actionable pointer an engine validation error attached
+  (which field to use, what to type) — printed on its own `Hint` row under `Error`. `--json` emits
+  it automatically; the live `--follow` renderer is unchanged (that path needs the SDK type first).
+- **`boardwalk init` scaffolds a README.** The built-in `hello` template — the default, and so the
+  most common `init` — now ships a `README.md` titled after the workflow, so a new workflow has the
+  landing page the dashboard renders instead of the "No README" empty state.
 
 ### Changed
 
+- **`--verbose` shows context-compaction passes** in the renderer. The two new SDK 0.2.2 event kinds
+  render on the `agent` channel (so they ride `--verbose` / `--stream agent`, not the default view),
+  reporting when compaction starts and how many tokens it freed.
 - **Homebrew now installs the native binary** (no Node). The tap formula downloads the
   platform-specific single-file executable from the GitHub Release instead of the npm tarball, so
   `brew install boardwalk-labs/tap/boardwalk` no longer depends on Node — and the release's
