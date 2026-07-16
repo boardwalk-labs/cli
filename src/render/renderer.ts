@@ -159,6 +159,27 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
       return `⏸ input needed [${event.key}]: ${event.prompt}\n`;
     case "human_input_resolved":
       return `▶ input received [${event.key}]\n`;
+    case "compaction_started": {
+      // The leaf is reducing its own context to fit the model's window. Say what tripped it, and the
+      // window when known — absent means the leaf never learned one and the budget is the fallback.
+      const win =
+        event.contextTokens !== undefined
+          ? ` for a ${event.contextTokens.toLocaleString("en-US")}-token window`
+          : "";
+      return `⊟ compacting context: ${event.tokens.toLocaleString("en-US")} tokens, past the ${event.budget.toLocaleString("en-US")} budget${win}\n`;
+    }
+    case "compaction_ended": {
+      // `none` is not a failure — the loop proceeds without reclaiming; every turn means thrashing.
+      const freed = event.reclaimed.toLocaleString("en-US");
+      const now = event.tokens.toLocaleString("en-US");
+      const what =
+        event.method === "summarized"
+          ? `summarized the oldest turns, freed ${freed} tokens`
+          : event.method === "deduped"
+            ? `dropped stale repeated reads, freed ${freed} tokens`
+            : "nothing left to reclaim";
+      return `▣ compaction done: ${what} — now ${now} tokens\n`;
+    }
     // Structural agent frames with nothing human-readable to print:
     case "text_start":
     case "tool_call_input_delta":

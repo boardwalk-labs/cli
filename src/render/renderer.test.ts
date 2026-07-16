@@ -70,6 +70,52 @@ describe("createRenderer", () => {
     expect(out).toBe("plain result\n");
   });
 
+  it("renders a compaction pass on the agent channel (verbose), with window + reclaim", () => {
+    const out = rendered(parseChannels({ verbose: true }), [
+      event({
+        kind: "compaction_started",
+        agentId: "a1",
+        tokens: 940_000,
+        budget: 936_000,
+        contextTokens: 1_000_000,
+      }),
+      event({
+        kind: "compaction_ended",
+        agentId: "a1",
+        tokens: 536_000,
+        reclaimed: 404_000,
+        method: "summarized",
+      }),
+    ]);
+    expect(out).toContain(
+      "compacting context: 940,000 tokens, past the 936,000 budget for a 1,000,000-token window",
+    );
+    expect(out).toContain("summarized the oldest turns, freed 404,000 tokens — now 536,000 tokens");
+  });
+
+  it("says so plainly when no window was reported, and reads `none` as not-a-failure", () => {
+    const out = rendered(parseChannels({ verbose: true }), [
+      event({ kind: "compaction_started", agentId: "a1", tokens: 160_000, budget: 150_000 }),
+      event({
+        kind: "compaction_ended",
+        agentId: "a1",
+        tokens: 160_000,
+        reclaimed: 0,
+        method: "none",
+      }),
+    ]);
+    expect(out).toContain("past the 150,000 budget\n"); // no window clause
+    expect(out).toContain("nothing left to reclaim");
+    expect(out).not.toContain("window");
+  });
+
+  it("keeps compaction off the default (non-verbose) view — it is an agent-channel event", () => {
+    const out = rendered(parseChannels({ verbose: false }), [
+      event({ kind: "compaction_started", agentId: "a1", tokens: 940_000, budget: 936_000 }),
+    ]);
+    expect(out).toBe("");
+  });
+
   it("includes the failure error on a failed run_status", () => {
     const out = rendered(parseChannels({ verbose: false }), [
       event({
