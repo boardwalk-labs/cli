@@ -179,6 +179,16 @@ export async function buildArtifact(target: string): Promise<BuiltArtifact> {
  * the same npm-pack model {@link defaultAssetFilter} already follows. Nothing reads a README at run
  * time, so including it can never change how a program behaves.
  *
+ * The inverse objection — "it's human docs, so shipping it adds bytes to every run for no runtime
+ * benefit" — reads the artifact backwards, and is answered here so it isn't re-litigated. The
+ * artifact is the VERSION RECORD, not a minimal runtime payload. Measured on the `hello` scaffold,
+ * 84% of it is already not read at run time: `index.mjs.map` (1231 B) and `.bw-src/` (722 B) against
+ * 567 B of executable `.mjs`, so the SOURCEMAP alone outweighs the README's 1004 B. The whole thing
+ * gzips to ~1.5 KB, fetched once per run, by a run that then spends dollars on inference — and a
+ * README is the smallest member of the not-read-at-run-time majority, not an anomaly in it. Dropping
+ * it would need somewhere else to keep it, and being content-addressed WITH the version is precisely
+ * what stops a workflow's docs drifting from the code they describe.
+ *
  * Only the file directly in `dir`: a nested `skills/README.md` is that subtree's docs, not the
  * workflow's landing prose, and rides along as an ordinary asset (or not at all).
  */
