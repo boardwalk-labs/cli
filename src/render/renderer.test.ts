@@ -175,11 +175,11 @@ describe("createRenderer", () => {
       event({
         kind: "egress_denied",
         method: "GET",
-        host: "internal.example",
+        host: "blocked-host.example.com",
         reason: "not in the allowlist",
       }),
     ]);
-    expect(out).toBe("⊘ egress denied: GET internal.example — not in the allowlist\n");
+    expect(out).toBe("⊘ egress denied: GET blocked-host.example.com — not in the allowlist\n");
   });
 
   it("terminates newline-less program output frames so console.log lines never run together", () => {
