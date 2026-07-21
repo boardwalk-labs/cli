@@ -162,6 +162,17 @@ describe("createRenderer", () => {
     expect(out).toContain("· agent turn complete (7 tokens)");
   });
 
+  it("marks a turn_reset seam between the stale and the regenerated stream (can't un-print)", () => {
+    const out = rendered(parseChannels({ verbose: true }), [
+      event({ kind: "reasoning_delta", text: "half a thou" }),
+      event({ kind: "turn_reset" }),
+      event({ kind: "reasoning_delta", text: "the real thought" }),
+    ]);
+    // The stale prefix stays (terminal can't erase it), but the marker on its own line tells the
+    // reader everything above the marker for this turn is void and the regenerated turn follows.
+    expect(out).toBe("half a thou\n↻ stream dropped — regenerating this turn\nthe real thought");
+  });
+
   it("passes program output through verbatim on the log channel", () => {
     const out = rendered(parseChannels({ verbose: false, stream: "log" }), [
       event({ kind: "program_output", stream: "stderr", text: "warn: x\n" }),

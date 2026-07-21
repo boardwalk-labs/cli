@@ -15,8 +15,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@boardwalk-labs/workflow':
-        specifier: ^0.2.4
-        version: 0.2.4
+        specifier: ^0.2.6
+        version: 0.2.6
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -98,8 +98,8 @@ packages:
     engines: {node: '>=24'}
     hasBin: true
 
-  '@boardwalk-labs/workflow@0.2.4':
-    resolution: {integrity: sha512-wdzpbJHjP7mmBIbIytTzO1vq8RFRfLl2TJ24OddxSRS/LsIQQgUjRvjpZOIqEvca0aLHn8QAjckx75LtsSeWkg==}
+  '@boardwalk-labs/workflow@0.2.6':
+    resolution: {integrity: sha512-oNoM8pR0EVBKWoj9Kwvh5yzmiGpDbXrHRZCZxaRFKJRrWKgj9Tk92E8nvAx1GSk9I8i4SN9yWTroj6d9XhWu5g==}
     engines: {node: '>=24'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1992,13 +1992,13 @@ snapshots:
 
   '@boardwalk-labs/engine@0.2.0':
     dependencies:
-      '@boardwalk-labs/workflow': 0.2.4
+      '@boardwalk-labs/workflow': 0.2.6
       zod: 4.4.3
 
   '@boardwalk-labs/runner@0.2.0':
     dependencies:
       '@boardwalk-labs/engine': 0.2.0
-      '@boardwalk-labs/workflow': 0.2.4
+      '@boardwalk-labs/workflow': 0.2.6
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
       node-gyp-build: 4.8.4
       tar: 7.5.16
@@ -2008,7 +2008,7 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  '@boardwalk-labs/workflow@0.2.4':
+  '@boardwalk-labs/workflow@0.2.6':
     dependencies:
       typescript: 5.9.3
       zod: 4.4.3

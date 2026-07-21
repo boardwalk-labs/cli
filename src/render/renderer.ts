@@ -133,6 +133,11 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
       return event.text; // stream raw — the model's words ARE the output here
     case "text_end":
       return "\n";
+    case "turn_reset":
+      // The model stream for this turn dropped mid-flight and the broker restarted it. A terminal
+      // can't un-print what already streamed, so mark the seam on its own line: everything above for
+      // this turn is stale, and the regenerated turn follows.
+      return "\n↻ stream dropped — regenerating this turn\n";
     case "tool_call_start":
       return `· tool ${event.toolName} …\n`;
     case "tool_call_result": {
