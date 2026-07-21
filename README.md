@@ -44,10 +44,9 @@ boardwalk dev ./index.ts --stream output | jq   # just the result — pipe-frien
 boardwalk dev ./index.ts --stream phase,log
 ```
 
-> `dev` today executes the program primitives (secrets, sleeps, phases, output, artifacts)
-> in-process; `agent()` and `workflows.call()` need an engine and fail with a clear pointer.
-> The embedded local engine (`@boardwalk-labs/engine`) makes them work in `dev` — it's next on the
-> [roadmap](./SPEC.md).
+> `dev` runs the workflow on the embedded local engine (`@boardwalk-labs/engine`), so `agent()`,
+> `workflows.call()`, `sleep`, secrets, phases, output, and artifacts all behave exactly as they do
+> on the platform — no account or network needed.
 
 ## Deploying
 
@@ -196,7 +195,7 @@ pnpm boardwalk -- dev ./index.ts   # run from source via tsx
 - [`boardwalk`](https://github.com/boardwalk-labs/boardwalk) — the open-source single-node engine: cron scheduling, webhooks, durable runs, run history
 - [`sdk`](https://github.com/boardwalk-labs/sdk) — `@boardwalk-labs/workflow`, the TypeScript API a workflow program imports
 - [`examples`](https://github.com/boardwalk-labs/examples) — copyable workflow templates (`boardwalk init --template`)
-- [`plugins`](https://github.com/boardwalk-labs/plugins) — skills + MCP server for Claude Code, Codex, Cursor, OpenClaw, OpenCode
+- [`plugins`](https://github.com/boardwalk-labs/plugins) — coding-agent skills (Claude Code, Codex, Cursor, OpenClaw, OpenCode) + a control-plane MCP server
 - [`runner`](https://github.com/boardwalk-labs/runner) — self-hosted runner: your machines execute hosted-scheduled runs
 
 Hosted platform and docs: [boardwalk.sh](https://boardwalk.sh).
