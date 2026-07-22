@@ -11,6 +11,7 @@ import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient } from "../client.js";
 import { resolveLog } from "../log.js";
+import { formatMachineSummary } from "../artifact.js";
 import { deployWithLink, loadProgram, planDeploy, type PreparedProgram } from "../deployment.js";
 import { projectDirFor, readLink } from "../project.js";
 import type { FetchLike } from "../auth/pkce.js";
@@ -20,6 +21,9 @@ export interface DeployOptions {
   org?: string | undefined;
   check: boolean;
   token?: string | undefined;
+  /** Pack the TypeScript types harvest (machine layer) into the artifact. Default off — today's
+   *  backend does not yet reserve the `.bw-machine/` namespace (see `MACHINE_DIR` in artifact.ts). */
+  typesHarvest?: boolean | undefined;
 }
 
 export interface DeployDeps {
@@ -31,11 +35,12 @@ export interface DeployDeps {
 export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<void> {
   const log = resolveLog(deps);
 
-  const prog = await loadProgram(opts.file);
+  const prog = await loadProgram(opts.file, { typesHarvest: opts.typesHarvest === true });
   const assets = prog.artifact.assetPaths.length;
   log(
     `  built ${prog.entry} (${String(prog.artifact.size)} bytes${assets > 0 ? `, ${String(assets)} asset${assets === 1 ? "" : "s"}` : ""})`,
   );
+  if (opts.typesHarvest === true) log(`  ${formatMachineSummary(prog.artifact)}`);
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({

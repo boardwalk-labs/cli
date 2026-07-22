@@ -79,6 +79,7 @@ interface DeployCliOptions {
   org?: string;
   dryRun?: boolean;
   token?: string;
+  typesHarvest?: boolean;
 }
 
 interface RunCliOptions {
@@ -118,10 +119,15 @@ function buildProgram(): Command {
   program
     .command("check")
     .argument("<file>", "workflow program file, or a package directory")
+    .option(
+      "--types-harvest",
+      "also pack + report the TypeScript types harvest (machine layer; experimental, needs backend support)",
+      false,
+    )
     .description("Validate a workflow locally (no auth, no network).")
-    .action(async (file: string) => {
+    .action(async (file: string, options: { typesHarvest?: boolean }) => {
       const { runCheck } = await import("./commands/check.js");
-      await runCheck({ file });
+      await runCheck({ file, typesHarvest: options.typesHarvest ?? false });
     });
 
   program
@@ -217,6 +223,11 @@ function buildProgram(): Command {
     .option("--org <slug>", "the org to deploy into (optional once the project is linked)")
     .option("--dry-run", "print the plan (create vs update) without writing", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .option(
+      "--types-harvest",
+      "pack the TypeScript types harvest (machine layer) into the artifact (experimental, needs backend support)",
+      false,
+    )
     .description("Create or update a workflow from a program file.")
     .action(async (file: string, options: DeployCliOptions) => {
       const { runDeploy } = await import("./commands/deploy.js");
@@ -226,6 +237,7 @@ function buildProgram(): Command {
           org: options.org,
           check: options.dryRun ?? false,
           token: options.token,
+          typesHarvest: options.typesHarvest ?? false,
         },
         { config: loadConfig() },
       );

@@ -13,7 +13,7 @@
 
 import { CliError } from "./errors.js";
 import { extractWorkflowSlug } from "./manifest.js";
-import { buildArtifact, type BuiltArtifact } from "./artifact.js";
+import { buildArtifact, type BuildArtifactOptions, type BuiltArtifact } from "./artifact.js";
 import { projectDirFor, readLink, writeLink } from "./project.js";
 import type { BoardwalkClient, DeployArtifactRef, WorkflowSummary } from "./client.js";
 
@@ -29,8 +29,11 @@ export interface PreparedProgram {
  * Resolve a target path to its deployable artifact: build the program (bundle + assets → tarball,
  * content-addressed) and extract `meta.slug` from the bundled entry for the deploy identity.
  */
-export async function loadProgram(file: string): Promise<PreparedProgram> {
-  const artifact = await buildArtifact(file);
+export async function loadProgram(
+  file: string,
+  build: BuildArtifactOptions = {},
+): Promise<PreparedProgram> {
+  const artifact = await buildArtifact(file, build);
   const slug = extractWorkflowSlug(artifact.entrySource, artifact.entry);
   return { slug, entry: artifact.entry, artifact };
 }

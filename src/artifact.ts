@@ -14,6 +14,7 @@
 
 import { createHash } from "node:crypto";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -29,6 +30,7 @@ import { create as tarCreate } from "tar";
 import { bundleWorkflowWithMap, isPackageDir, resolveEntry } from "./bundle.js";
 import { CliError } from "./errors.js";
 import { isRecord } from "./guards.js";
+import { harvestTypes, type TypesHarvest } from "./types_harvest.js";
 
 const SDK_PACKAGE = "@boardwalk-labs/workflow";
 /** The entry module the runner imports after extraction. The whole local graph bundles into it. */
@@ -40,6 +42,34 @@ export const ENTRY_OUTPUT = "index.mjs";
 export const SOURCE_DIR = ".bw-src";
 /** A single-file program's source, stored under the canonical entry name. */
 export const SOURCE_FILE = `${SOURCE_DIR}/index.ts`;
+/**
+ * MACHINE-LAYER root (workflow-format redesign, P1.1 — the two-layer artifact). Everything under
+ * this prefix is build-produced input for the BACKEND DERIVATION SANDBOX, never author content:
+ * it is not rendered in the Code tab, not editable, and not read by the runner.
+ *
+ * Layout contract (the backend's unpack/derivation side binds to exactly this):
+ *
+ *   .bw-machine/types/<project-relative path>
+ *
+ * i.e. the TypeScript types harvest mirrored at its on-disk relative paths under the project root:
+ *   .bw-machine/types/node_modules/<pkg>/…/*.d.ts   (+ .d.mts / .d.cts)
+ *   .bw-machine/types/node_modules/<pkg>/package.json
+ *   .bw-machine/types/package.json                   (the project's own, for type/imports)
+ *   .bw-machine/types/tsconfig.json                  (+ its in-project `extends` chain, which may
+ *                                                     land under …/types/node_modules/…)
+ * so the sandbox can chdir into `.bw-machine/types/`, drop the author sources beside it, and run
+ * the compiler's normal resolution fully offline. Python's future machine layer (`site-packages`)
+ * gets its own sibling under `.bw-machine/` — the `types/` segment is language-scoped on purpose.
+ *
+ * COMPATIBILITY: today's backend classifies any non-`.bw-src/`, non-`.mjs`/`.map` entry as a
+ * bundled ASSET and caps asset read-back at 200 files — a packed harvest would break the Code tab
+ * and web-edit carry-forward. The harvest is therefore gated behind an explicit opt-in
+ * ({@link BuildArtifactOptions.typesHarvest}, surfaced as `--types-harvest`), default OFF; the
+ * redesign's backend reserves `.bw-machine/` (as it reserves `.bw-src/`) and flips it on.
+ */
+export const MACHINE_DIR = ".bw-machine";
+/** Where the TypeScript types harvest lives inside the artifact (see {@link MACHINE_DIR}). */
+export const MACHINE_TYPES_DIR = `${MACHINE_DIR}/types`;
 /** `sdk_version` for a program that pins no SDK version — defer to whatever the runner ships. */
 export const UNPINNED_SDK = "*";
 
@@ -106,10 +136,25 @@ export interface BuiltArtifact {
   entrySource: string;
   /** Sorted POSIX relative paths of the bundled assets (for `--check` output + validation). */
   assetPaths: string[];
+  /** Sorted artifact paths of the machine layer (under {@link MACHINE_TYPES_DIR}); empty unless
+   *  the build opted in via {@link BuildArtifactOptions.typesHarvest}. */
+  machinePaths: string[];
+  /** Total pre-compression bytes of the machine-layer files (0 when not packed). */
+  machineBytes: number;
+}
+
+/** Options for {@link buildArtifact}. */
+export interface BuildArtifactOptions {
+  /** Pack the TypeScript types harvest (the machine layer) under {@link MACHINE_TYPES_DIR}.
+   *  Default OFF — today's backend asset read-back does not tolerate it (see {@link MACHINE_DIR}). */
+  typesHarvest?: boolean;
 }
 
 /** Build the deploy artifact for a file or package directory. */
-export async function buildArtifact(target: string): Promise<BuiltArtifact> {
+export async function buildArtifact(
+  target: string,
+  options: BuildArtifactOptions = {},
+): Promise<BuiltArtifact> {
   const entry = resolveEntry(target);
   const { code, map } = await bundleWorkflowWithMap(entry);
   // The author's original entry source — stored verbatim for display/quick-edit (the built `index.mjs`
@@ -132,6 +177,28 @@ export async function buildArtifact(target: string): Promise<BuiltArtifact> {
       ? [{ relPath: "index.ts", content: Buffer.from(originalSource, "utf8") }]
       : collectSources(dirname(entry));
 
+  // `.bw-machine/` is a build-reserved namespace whether or not the harvest is packed — an author
+  // file under it would collide with (or spoof) the machine layer, exactly like `.bw-src/` on the
+  // backend. Only an explicit `boardwalk.assets` entry can even reach here (the default asset rule
+  // skips dotdirs), so this is a precise authoring error, not a silent drop.
+  for (const asset of assets) {
+    if (asset.relPath === MACHINE_DIR || asset.relPath.startsWith(`${MACHINE_DIR}/`)) {
+      throw new CliError(
+        `Reserved path in boardwalk.assets: ${asset.relPath}`,
+        `The ${MACHINE_DIR}/ tree is build output (the machine layer) — rename the directory.`,
+      );
+    }
+  }
+
+  // The machine layer (opt-in): the types harvest, mirrored under `.bw-machine/types/`. Harvested
+  // from the package root; for a lone-file deploy, from the file's directory (harvesting selects
+  // only declaration files + package metadata + tsconfig, so this is not a directory sweep).
+  const harvest: TypesHarvest =
+    options.typesHarvest === true
+      ? harvestTypes(pkgDir ?? dirname(entry))
+      : { files: [], totalBytes: 0 };
+  const machinePaths = harvest.files.map((f) => `${MACHINE_TYPES_DIR}/${f.relPath}`).sort();
+
   // Stage every file at its target relative path, then pack the staging dir deterministically.
   const staging = mkdtempSync(join(tmpdir(), "bw-artifact-"));
   try {
@@ -139,12 +206,16 @@ export async function buildArtifact(target: string): Promise<BuiltArtifact> {
     writeStaged(staging, `${ENTRY_OUTPUT}.map`, Buffer.from(map, "utf8"));
     for (const s of sources) writeStaged(staging, `${SOURCE_DIR}/${s.relPath}`, s.content);
     for (const asset of assets) writeStaged(staging, asset.relPath, readFileSync(asset.absPath));
+    for (const f of harvest.files) {
+      copyStaged(staging, `${MACHINE_TYPES_DIR}/${f.relPath}`, f.absPath);
+    }
 
     const relPaths = [
       ENTRY_OUTPUT,
       `${ENTRY_OUTPUT}.map`,
       ...sources.map((s) => `${SOURCE_DIR}/${s.relPath}`),
       ...assets.map((a) => a.relPath),
+      ...machinePaths,
     ].sort();
     const tarball = await packDir(staging, relPaths);
 
@@ -157,6 +228,8 @@ export async function buildArtifact(target: string): Promise<BuiltArtifact> {
       lockfileDigest: lockDigest,
       entrySource: code,
       assetPaths: assets.map((a) => a.relPath).sort(),
+      machinePaths,
+      machineBytes: harvest.totalBytes,
     };
   } finally {
     rmSync(staging, { recursive: true, force: true });
@@ -335,6 +408,13 @@ export function resolveSdkVersion(pkgDir: string | null): string {
   return UNPINNED_SDK;
 }
 
+/** One-line machine-layer summary for build logs (file count + MB, per the harvest spec). */
+export function formatMachineSummary(artifact: BuiltArtifact): string {
+  const n = artifact.machinePaths.length;
+  const mb = (artifact.machineBytes / (1024 * 1024)).toFixed(1);
+  return `types harvest: ${String(n)} file${n === 1 ? "" : "s"}, ${mb} MB → ${MACHINE_TYPES_DIR}/`;
+}
+
 /** sha256 of the project's lockfile (first of pnpm/npm/yarn/bun found), or null when none. */
 export function lockfileDigest(pkgDir: string): string | null {
   for (const name of LOCKFILES) {
@@ -364,6 +444,13 @@ function writeStaged(root: string, relPath: string, bytes: Uint8Array): void {
   const abs = join(root, relPath.split(posix.sep).join(sep));
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, bytes);
+}
+
+/** Stage by copy (no in-memory buffering) — the machine layer can be thousands of files. */
+function copyStaged(root: string, relPath: string, srcAbs: string): void {
+  const abs = join(root, relPath.split(posix.sep).join(sep));
+  mkdirSync(dirname(abs), { recursive: true });
+  copyFileSync(srcAbs, abs);
 }
 
 function sha256Hex(bytes: Uint8Array): string {

@@ -10,13 +10,16 @@
 // Anything wrong throws a precise CliError before any deploy or run.
 
 import { readFileSync } from "node:fs";
-import { buildArtifact } from "../artifact.js";
+import { buildArtifact, formatMachineSummary } from "../artifact.js";
 import { resolveEntry } from "../bundle.js";
 import { extractValidatedManifest } from "../manifest.js";
 import { resolveLog } from "../log.js";
 
 export interface CheckOptions {
   file: string;
+  /** Also pack + report the TypeScript types harvest (machine layer). Default off — see
+   *  `MACHINE_DIR` in artifact.ts for why this is opt-in today. */
+  typesHarvest?: boolean | undefined;
 }
 
 export interface CheckDeps {
@@ -32,7 +35,7 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   const manifest = extractValidatedManifest(source, entry);
 
   // Build the artifact (esbuild bundle + assets) — proves the program compiles end-to-end.
-  const artifact = await buildArtifact(opts.file);
+  const artifact = await buildArtifact(opts.file, { typesHarvest: opts.typesHarvest === true });
   const assets = artifact.assetPaths.length;
 
   log(`✓ "${manifest.slug}" is valid`);
@@ -44,4 +47,5 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   }
   log(`  artifact: ${String(artifact.size)} bytes (sha256 ${artifact.digest.slice(0, 12)}…)`);
   if (assets > 0) log(`  assets:   ${artifact.assetPaths.join(", ")}`);
+  if (opts.typesHarvest === true) log(`  ${formatMachineSummary(artifact)}`);
 }

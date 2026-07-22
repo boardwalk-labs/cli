@@ -98,6 +98,8 @@ describe("deployWithLink", () => {
     lockfileDigest: null,
     entrySource: `export const meta = { slug: "n" };`,
     assetPaths: [],
+    machinePaths: [],
+    machineBytes: 0,
   };
   const prog: PreparedProgram = { slug: "n", entry: "index.mjs", artifact };
   const REF: DeployArtifactRef = {

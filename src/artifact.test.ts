@@ -11,6 +11,8 @@ import {
   lockfileDigest,
   resolveSdkVersion,
   ENTRY_OUTPUT,
+  MACHINE_DIR,
+  MACHINE_TYPES_DIR,
   SOURCE_FILE,
   UNPINNED_SDK,
 } from "./artifact.js";
@@ -372,5 +374,87 @@ describe("lockfileDigest", () => {
     expect(lockfileDigest(pkg)).toBeNull();
     writeFileSync(join(pkg, "pnpm-lock.yaml"), "lockfileVersion: '9.0'");
     expect(lockfileDigest(pkg)).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("buildArtifact — machine layer (types harvest)", () => {
+  let dir: string;
+  let pkg: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bw-art-machine-"));
+    pkg = join(dir, "pkg");
+    mkdirSync(pkg);
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "typed-wf" }));
+    writeFileSync(join(pkg, "tsconfig.json"), `{"compilerOptions":{"strict":true}}`);
+    mkdirSync(join(pkg, "node_modules", "foo"), { recursive: true });
+    writeFileSync(
+      join(pkg, "node_modules", "foo", "package.json"),
+      JSON.stringify({ name: "foo", types: "index.d.ts" }),
+    );
+    writeFileSync(join(pkg, "node_modules", "foo", "index.d.ts"), "export declare const x: 1;\n");
+    writeFileSync(join(pkg, "node_modules", "foo", "index.js"), "module.exports = 1;\n");
+    writeFileSync(
+      join(pkg, "index.ts"),
+      `export const meta = { slug: "typed-wf", description: "d" };\nawait 0;`,
+    );
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("is OFF by default — no .bw-machine/ entries, empty machinePaths", async () => {
+    const art = await buildArtifact(pkg);
+    expect(art.machinePaths).toEqual([]);
+    expect(art.machineBytes).toBe(0);
+    const out = extractTo(art.tarball, dir);
+    expect(existsSync(join(out, MACHINE_DIR))).toBe(false);
+  });
+
+  it("packs the harvest under .bw-machine/types/ at project-relative paths when opted in", async () => {
+    const art = await buildArtifact(pkg, { typesHarvest: true });
+    expect(art.machinePaths).toEqual([
+      `${MACHINE_TYPES_DIR}/node_modules/foo/index.d.ts`,
+      `${MACHINE_TYPES_DIR}/node_modules/foo/package.json`,
+      `${MACHINE_TYPES_DIR}/package.json`,
+      `${MACHINE_TYPES_DIR}/tsconfig.json`,
+    ]);
+    expect(art.machineBytes).toBeGreaterThan(0);
+
+    const out = extractTo(art.tarball, dir);
+    // Declarations + package metadata + tsconfig ship byte-exact; runtime JS does not.
+    expect(
+      readFileSync(join(out, MACHINE_TYPES_DIR, "node_modules", "foo", "index.d.ts"), "utf8"),
+    ).toBe("export declare const x: 1;\n");
+    expect(existsSync(join(out, MACHINE_TYPES_DIR, "node_modules", "foo", "index.js"))).toBe(false);
+    // The machine layer never leaks into the author layer.
+    expect(existsSync(join(out, ".bw-src", "node_modules"))).toBe(false);
+    expect((await buildArtifact(pkg)).assetPaths).toEqual([]);
+  });
+
+  it("is deterministic — same tree ⇒ same digest, with and without the harvest", async () => {
+    const a = await buildArtifact(pkg, { typesHarvest: true });
+    const b = await buildArtifact(pkg, { typesHarvest: true });
+    expect(a.digest).toBe(b.digest);
+    // And the harvest changes the artifact (it's real content, not metadata).
+    expect((await buildArtifact(pkg)).digest).not.toBe(a.digest);
+  });
+
+  it("a dependency-free package harvests just its tsconfig + package.json — valid, not an error", async () => {
+    rmSync(join(pkg, "node_modules"), { recursive: true, force: true });
+    const art = await buildArtifact(pkg, { typesHarvest: true });
+    expect(art.machinePaths).toEqual([
+      `${MACHINE_TYPES_DIR}/package.json`,
+      `${MACHINE_TYPES_DIR}/tsconfig.json`,
+    ]);
+  });
+
+  it("rejects an explicit boardwalk.assets entry under the reserved .bw-machine/ namespace", async () => {
+    mkdirSync(join(pkg, ".bw-machine"), { recursive: true });
+    writeFileSync(join(pkg, ".bw-machine", "spoof.txt"), "nope");
+    writeFileSync(
+      join(pkg, "package.json"),
+      JSON.stringify({ name: "typed-wf", boardwalk: { assets: [".bw-machine"] } }),
+    );
+    await expect(buildArtifact(pkg)).rejects.toThrow(/Reserved path/);
   });
 });
