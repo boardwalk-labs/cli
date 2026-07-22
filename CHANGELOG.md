@@ -2,7 +2,7 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
-## Unreleased
+## 0.2.9
 
 ### Removed
 
