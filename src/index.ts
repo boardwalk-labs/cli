@@ -11,6 +11,7 @@
 //   boardwalk whoami                    Show the current session + orgs with ids (org lines are
 //                                       best-effort network; the session line still prints offline).
 //   boardwalk status                    Show host, login (live-verified), and project link.
+//   boardwalk setup                     Install wizard: log in, detect your agent, install its plugin.
 //   boardwalk deploy <file> --org <s>   Create/update a workflow from a program file.
 //   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
@@ -212,6 +213,43 @@ function buildProgram(): Command {
       const { runStatus } = await import("./commands/status.js");
       await runStatus({ token: options.token }, { config: loadConfig(), version: VERSION });
     });
+
+  program
+    .command("setup")
+    .description("Install wizard: log in, detect your coding agent, install its plugin + MCP.")
+    .option(
+      "--harness <ids>",
+      "comma-separated agents to set up, skipping detection (claude-code,codex,cursor,opencode,openclaw)",
+    )
+    .option("-y, --yes", "non-interactive: no prompts; use --harness or the detected set", false)
+    .option("--print-only", "print the plan without running any installer", false)
+    .option(
+      "--skip-login",
+      "don't run login (for CI where BOARDWALK_API_KEY/--token is set)",
+      false,
+    )
+    .option("--token <key>", "store this API key (bwk_…) instead of the browser flow")
+    .action(
+      async (options: {
+        harness?: string;
+        yes?: boolean;
+        printOnly?: boolean;
+        skipLogin?: boolean;
+        token?: string;
+      }) => {
+        const { runSetup } = await import("./commands/setup.js");
+        await runSetup(
+          {
+            harness: options.harness,
+            yes: options.yes,
+            printOnly: options.printOnly,
+            skipLogin: options.skipLogin,
+            token: options.token,
+          },
+          { config: loadConfig() },
+        );
+      },
+    );
 
   program
     .command("deploy")

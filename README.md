@@ -3,6 +3,7 @@
 The `boardwalk` command — author, validate, run locally, and deploy [Boardwalk](https://boardwalk.sh) workflows.
 
 ```
+boardwalk setup                            # one-time: log in + wire up your coding agent
 boardwalk init my-workflow                 # scaffold a project from a template
 boardwalk dev ./index.ts                   # run it locally — no account needed
 boardwalk check ./index.ts                 # validate locally (no auth/network)
@@ -16,6 +17,25 @@ boardwalk cancel <runId>
 boardwalk logout / whoami
 boardwalk status                           # host + login (live-verified) + project link
 ```
+
+## Get set up
+
+`boardwalk setup` is the install wizard: it logs you in (browser OAuth), detects which coding agent
+you use (Claude Code, Codex, Cursor, OpenCode, OpenClaw), and installs that agent's Boardwalk plugin,
+skills, and the control-plane MCP server. It **never touches files in your project** — it wires up the
+agent, then leaves your repo alone.
+
+```
+boardwalk setup                            # interactive: detect your agent, confirm, install
+boardwalk setup --harness claude-code,codex  # skip detection; set up these agents
+boardwalk setup --yes                      # non-interactive (CI): no prompts, use the detected set
+boardwalk setup --print-only               # print the plan without running any installer
+```
+
+Detection looks for each agent's binary on `PATH` or its config directory (`~/.claude`, `~/.codex`,
+`~/.cursor`, `~/.config/opencode`). The two agents with first-class installers (Claude Code, Codex)
+are wired up for you; the rest print an exact recipe. A non-TTY run without `--yes`/`--harness`
+downgrades to `--print-only` so it can never hang waiting on stdin.
 
 ## The author loop
 
