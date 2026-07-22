@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 
-// Runtime gate for commands that run a LOCAL engine (`dev`, `runner`). Those hand the run to
-// @boardwalk-labs/engine, which spawns a child process PER RUN — something the single-file Bun
-// executable can't do yet (a child needs a runtime + the engine entry on disk; both are embedded).
-// So under Bun we fail fast with a clear pointer to the Node build instead of crashing deep in the
-// engine's child spawn. The control-plane commands (deploy, run, runs, secrets, …) are unaffected.
+// Runtime gate for commands that run a LOCAL engine (`runner`). Those hand runs to
+// @boardwalk-labs/engine (via @boardwalk-labs/runner), which spawns a child process PER RUN —
+// something the single-file Bun executable can't do yet (a child needs a runtime + the engine entry
+// on disk; both are embedded). So under Bun we fail fast with a clear pointer to the Node build
+// instead of crashing deep in the engine's child spawn. The control-plane commands (deploy, run,
+// runs, secrets, …) are unaffected.
 
 import { CliError } from "./errors.js";
 

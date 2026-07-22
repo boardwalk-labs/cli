@@ -326,13 +326,6 @@ export interface MeResult {
   }[];
 }
 
-/** A freshly-minted inference-gateway key: the plaintext token (shown once) + its expiry/id. */
-export interface MintedInferenceKey {
-  token: string;
-  expiresAt: number | null;
-  id: string | null;
-}
-
 /** A {label → token volume} line for the usage breakdowns. */
 export interface UsageLine {
   label: string;
@@ -1044,19 +1037,6 @@ export class BoardwalkClient {
     await this.request<undefined>("POST", `/v1/runs/${encodeURIComponent(runId)}/cancel`);
   }
 
-  /**
-   * Mint an inference-only key for the gateway (scope inference:invoke, a default spend cap), the
-   * credential `boardwalk dev` injects so the engine's default `boardwalk` provider works. The
-   * server fixes scopes/cap/expiry — no request body. Returns the plaintext token ONCE.
-   */
-  async mintInferenceKey(orgSlug: string): Promise<MintedInferenceKey> {
-    const body = await this.request<unknown>(
-      "POST",
-      `/v1/orgs/${encodeURIComponent(orgSlug)}/inference-keys`,
-    );
-    return this.mintedInferenceKey(body);
-  }
-
   /** Fetch the authenticated caller (GET /v1/me) — proves the token is valid and yields the
    *  identity + org memberships `boardwalk status` renders. Accepts both a session token and a
    *  `bwk_…` API key (the GET is not session-only). */
@@ -1229,18 +1209,6 @@ export class BoardwalkClient {
       updatedAt: typeof body.updatedAt === "string" ? body.updatedAt : null,
       models,
     };
-  }
-
-  private mintedInferenceKey(body: unknown): MintedInferenceKey {
-    if (isRecord(body) && typeof body.token === "string" && body.token.length > 0) {
-      const apiKey: Record<string, unknown> = isRecord(body.apiKey) ? body.apiKey : {};
-      return {
-        token: body.token,
-        expiresAt: typeof apiKey.expiresAt === "number" ? apiKey.expiresAt : null,
-        id: typeof apiKey.id === "string" ? apiKey.id : null,
-      };
-    }
-    throw new CliError("The API returned an unexpected inference-key response shape.");
   }
 
   /** Validate the `{ usage }` envelope and read the fields the CLI renders. Lenient on the newer

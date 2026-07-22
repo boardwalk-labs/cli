@@ -48,7 +48,7 @@ const HELLO_PROGRAM = `import { input, output, type WorkflowMeta } from "@boardw
 export const meta = {
   slug: "{{slug}}",
   title: "{{title}}",
-  description: "A starting point — run it locally with \`boardwalk dev\`.",
+  description: "A starting point — deploy and run it with \`boardwalk run\`.",
   triggers: [{ kind: "manual" }],
 } satisfies WorkflowMeta;
 
@@ -57,7 +57,6 @@ const who = typeof input === "string" && input.length > 0 ? input : "world";
 
 // Next step: give it a brain. agent() runs a full agent loop and resolves to its answer:
 //   const greeting = await agent(\`Write a one-line greeting for \${who}.\`);
-// (agent() runs on the local engine under \`boardwalk dev\`, or on the platform via \`boardwalk run\`.)
 
 output(\`Hello, \${who}!\`);
 `;
@@ -75,13 +74,13 @@ restate them here.
 
 ## Setup
 
-No secrets required. When you add one, declare it in \`meta.permissions.secrets\` and note here how
-to get a value for it.
+No secrets required. When you add one, declare it in \`meta.permissions.secrets\`, set its value
+with \`boardwalk secrets set\`, and note here how to get one.
 
 ## Run
 
 \`\`\`sh
-boardwalk dev .                    # run it locally
+boardwalk check .                  # validate it locally
 boardwalk run . --org <your-org>   # deploy it, then trigger a real run
 \`\`\`
 
@@ -106,15 +105,9 @@ const HELLO_PACKAGE_JSON = `{
 }
 `;
 
-const HELLO_ENV_EXAMPLE = `# Secrets for local runs — \`boardwalk dev\` resolves permissions.secrets from .env.
-# Copy to .env (gitignored) and fill in real values.
-# MY_API_KEY=…
-`;
-
 const HELLO_GITIGNORE = `node_modules/
 .env
 .boardwalk/
-.bw-runs/
 `;
 
 const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
@@ -122,7 +115,6 @@ const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
     "index.ts": HELLO_PROGRAM,
     "README.md": HELLO_README,
     "package.json": HELLO_PACKAGE_JSON,
-    ".env.example": HELLO_ENV_EXAMPLE,
     ".gitignore": HELLO_GITIGNORE,
   },
 };
@@ -274,9 +266,9 @@ function finish(log: (line: string) => void, opts: InitOptions, secrets: readonl
   log("next:");
   log(`  cd ${opts.dir === "." ? "." : opts.dir} && npm install`);
   if (secrets.length > 0) {
-    log(`  cp .env.example .env   # fill in: ${secrets.join(", ")}`);
+    log(`  boardwalk secrets set <name> --org <your-org>   # needed: ${secrets.join(", ")}`);
   }
-  log("  boardwalk dev .");
+  log("  boardwalk run . --org <your-org>");
 }
 
 async function fetchRegistry(

@@ -72,7 +72,7 @@ describe("runInit (built-in template)", () => {
       { log: (l) => lines.push(l), fetchImpl: offlineFetch },
     );
 
-    for (const f of ["index.ts", "README.md", "package.json", ".env.example", ".gitignore"]) {
+    for (const f of ["index.ts", "README.md", "package.json", ".gitignore"]) {
       expect(existsSync(join(target, f)), f).toBe(true);
     }
     const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
@@ -218,7 +218,7 @@ describe("runInit (registry template)", () => {
     const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
     expect(manifest.slug).toBe("remote-digest"); // verbatim — no {{name}} substitution
     const out = lines.join("\n");
-    expect(out).toContain("cp .env.example .env");
+    expect(out).toContain("boardwalk secrets set");
     expect(out).toContain("API_KEY");
   });
 

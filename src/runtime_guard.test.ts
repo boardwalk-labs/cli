@@ -20,7 +20,7 @@ describe("runtime_guard", () => {
   it("reports the Node runtime by default (no Bun global)", () => {
     expect(isBunRuntime()).toBe(false);
     expect(() => {
-      assertNodeRuntime("dev");
+      assertNodeRuntime("runner start");
     }).not.toThrow();
   });
 
@@ -28,7 +28,7 @@ describe("runtime_guard", () => {
     setBun(true);
     expect(isBunRuntime()).toBe(true);
     expect(() => {
-      assertNodeRuntime("dev");
+      assertNodeRuntime("runner list");
     }).toThrow(CliError);
     expect(() => {
       assertNodeRuntime("runner start");

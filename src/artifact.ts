@@ -245,45 +245,6 @@ export function collectAssets(pkgDir: string): ArtifactAsset[] {
   return out;
 }
 
-/** The deploy-time package context the engine reads alongside the program (SPEC §2.3): the author's
- *  standing `AGENTS.md` (the package-root file) + the `skills/` directory (folder-per-skill). */
-export interface PackageContext {
-  /** The package-root `AGENTS.md` content (the author's standing instructions), if present. */
-  agentsMd?: string;
-  /** Absolute path to the package's `skills/` directory (folder-per-skill: skills/<name>/SKILL.md +
-   *  bundled resources), if the package ships one. The engine copies it wholesale. */
-  skillsDir?: string;
-}
-
-/**
- * Extract the deploy-time package context (root `AGENTS.md` + the `skills/` directory) for a target.
- * `boardwalk dev` passes this to the embedded engine's `deployWorkflow` so a bundled `AGENTS.md` +
- * skills are present locally EXACTLY as they are on the hosted platform — where the same assets ride
- * in the artifact tarball and land in the extracted program dir. `AGENTS.md` is derived from the SAME
- * {@link collectAssets} the artifact uses; the `skills/` subtree is passed by directory so the engine
- * carries folder-per-skill resources verbatim (matching the hosted tarball extract). A single program
- * file (not a package directory) gets no directory sweep and so has no context, matching
- * {@link buildArtifact}. (Its README still ships in the artifact — but a README is the control
- * plane's, not the engine's: nothing reads it at run time, so it is deliberately not context here.)
- */
-export function collectPackageContext(target: string): PackageContext {
-  if (!isPackageDir(target)) return {};
-  const pkgRoot = resolve(target);
-  const ctx: PackageContext = {};
-  for (const asset of collectAssets(pkgRoot)) {
-    if (asset.relPath === "AGENTS.md") {
-      ctx.agentsMd = readFileSync(asset.absPath, "utf8");
-      break;
-    }
-  }
-  // Skills ride as a folder-per-skill subtree; the engine copies the whole skills/ dir to mirror the
-  // hosted "extract the tarball" layout. (A skill folder holds reference docs + resources, so the
-  // wholesale copy and the artifact's filtered tarball agree in practice.)
-  const skillsDir = join(pkgRoot, "skills");
-  if (existsSync(skillsDir) && statSync(skillsDir).isDirectory()) ctx.skillsDir = skillsDir;
-  return ctx;
-}
-
 /** Default include rule: keep non-source, non-config, non-dot files; prune excluded dirs. */
 function defaultAssetFilter(isDir: boolean, name: string): boolean {
   if (name.startsWith(".")) return false; // dotfiles + dotdirs

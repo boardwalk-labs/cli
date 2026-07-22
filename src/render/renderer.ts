@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 
-// The run-event renderer — one renderer for `boardwalk dev` (and, later, `run --wait` streaming),
-// driven entirely by the SDK's channel mapping so `--stream phase,output` means the same thing
-// everywhere.
+// The run-event renderer — one renderer for `boardwalk runs --logs/--follow` (and, later,
+// `run --wait` streaming), driven entirely by the SDK's channel mapping so `--stream phase,output`
+// means the same thing everywhere.
 //
 // Line-oriented and pipe-friendly: agent text/reasoning deltas stream raw (no per-delta prefix);
 // everything else renders as one prefixed line. When the subscription is EXACTLY the `output`
-// channel, the output value prints bare (no decoration) so `boardwalk dev --stream output | jq`
-// just works.
+// channel, the output value prints bare (no decoration) so `--stream output | jq` just works.
 
 import {
   CHANNELS,

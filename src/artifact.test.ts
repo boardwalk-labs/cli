@@ -8,7 +8,6 @@ import { extract as tarExtract } from "tar";
 import {
   buildArtifact,
   collectAssets,
-  collectPackageContext,
   lockfileDigest,
   resolveSdkVersion,
   ENTRY_OUTPUT,
@@ -373,57 +372,5 @@ describe("lockfileDigest", () => {
     expect(lockfileDigest(pkg)).toBeNull();
     writeFileSync(join(pkg, "pnpm-lock.yaml"), "lockfileVersion: '9.0'");
     expect(lockfileDigest(pkg)).toMatch(/^[0-9a-f]{64}$/);
-  });
-});
-
-describe("collectPackageContext", () => {
-  let dir: string;
-  let pkg: string;
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "bw-pkgctx-"));
-    pkg = join(dir, "wf");
-    mkdirSync(pkg);
-    writeFileSync(join(pkg, "index.ts"), `export const meta = { slug: "wf", description: "d" };`);
-  });
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("pulls the package-root AGENTS.md + the skills/ directory path", () => {
-    writeFileSync(join(pkg, "AGENTS.md"), "STANDING: run the linter.");
-    mkdirSync(join(pkg, "skills", "review"), { recursive: true });
-    writeFileSync(join(pkg, "skills", "review", "SKILL.md"), "# Review\nbe thorough");
-
-    const ctx = collectPackageContext(pkg);
-    expect(ctx.agentsMd).toBe("STANDING: run the linter.");
-    // The skills/ subtree is passed by directory (folder-per-skill + resources), not a flat map.
-    expect(ctx.skillsDir).toBe(join(pkg, "skills"));
-  });
-
-  it("ignores a nested AGENTS.md under the package (bundled tier is the root file only)", () => {
-    writeFileSync(join(pkg, "AGENTS.md"), "ROOT");
-    mkdirSync(join(pkg, "lib"));
-    writeFileSync(join(pkg, "lib", "AGENTS.md"), "NESTED-IGNORED");
-    const ctx = collectPackageContext(pkg);
-    expect(ctx.agentsMd).toBe("ROOT");
-  });
-
-  it("returns an empty context for a package with no AGENTS.md and no skills", () => {
-    expect(collectPackageContext(pkg)).toEqual({});
-  });
-
-  it("returns an empty context for a single program FILE (not a package dir)", () => {
-    // Matches buildArtifact: a lone file gets no directory sweep, so no AGENTS.md and no skills/ even
-    // when they sit beside it. (Its README does ship — that's the one exception, and it's not context
-    // the engine reads, so it's absent here by design.)
-    writeFileSync(join(pkg, "AGENTS.md"), "beside-the-file");
-    expect(collectPackageContext(join(pkg, "index.ts"))).toEqual({});
-  });
-
-  it("omits the skillsDir key entirely when there is no skills/ dir (only AGENTS.md present)", () => {
-    writeFileSync(join(pkg, "AGENTS.md"), "just-standing-instructions");
-    const ctx = collectPackageContext(pkg);
-    expect(ctx).toEqual({ agentsMd: "just-standing-instructions" });
-    expect("skillsDir" in ctx).toBe(false);
   });
 });

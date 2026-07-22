@@ -1,11 +1,10 @@
 # @boardwalk-labs/cli
 
-The `boardwalk` command — author, validate, run locally, and deploy [Boardwalk](https://boardwalk.sh) workflows.
+The `boardwalk` command — author, validate, deploy, and operate [Boardwalk](https://boardwalk.sh) workflows.
 
 ```
 boardwalk setup                            # one-time: log in + wire up your coding agent
 boardwalk init my-workflow                 # scaffold a project from a template
-boardwalk dev ./index.ts                   # run it locally — no account needed
 boardwalk check ./index.ts                 # validate locally (no auth/network)
 boardwalk login                            # browser OAuth (PKCE) → stores a session
 boardwalk deploy ./index.ts --org my-team  # ship it to the Boardwalk platform
@@ -39,18 +38,13 @@ downgrades to `--print-only` so it can never hang waiting on stdin.
 
 ## The author loop
 
-- **`init [dir]`** — scaffold a workflow project: program file, `package.json`, `.env.example`,
-  `.gitignore`. The default template runs green under `dev` immediately. Also drops the
-  Boardwalk agent skills into `.claude/skills/` so a coding agent in the project can drive the
-  CLI with local context (best-effort: skipped offline; `BOARDWALK_SKILLS_URL` overrides the
-  source).
-- **`dev <file|dir>`** — run the workflow locally. Derives and validates the manifest
-  (precise errors before anything runs), bundles the program, executes it in-process, and streams
-  the run-event log. Secrets resolve from `.env` (or `--env <path>`); values never print.
-  Exit code is the run's verdict: `0` completed, `1` failed, `130` cancelled (Ctrl-C).
-- **`check <file|dir>`** — everything `dev` validates, without running: full manifest-schema
-  validation (the same schema every engine enforces) + an esbuild compile proving every import
-  resolves.
+- **`init [dir]`** — scaffold a workflow project: program file, `package.json`, `.gitignore`.
+  The default template deploys green immediately. Also drops the Boardwalk agent skills into
+  `.claude/skills/` so a coding agent in the project can drive the CLI with local context
+  (best-effort: skipped offline; `BOARDWALK_SKILLS_URL` overrides the source).
+- **`check <file|dir>`** — validate without deploying: full manifest-schema validation (the same
+  schema every engine enforces) + an esbuild compile proving every import resolves — precise
+  errors before anything ships.
 
 ### Choosing what to watch
 
@@ -58,15 +52,11 @@ Every engine emits the same typed event stream, and every event belongs to one c
 `lifecycle`, `phase`, `output`, `log`, `agent`. The flags mean the same thing everywhere:
 
 ```
-boardwalk dev ./index.ts                    # default: lifecycle + phase + output (quiet, readable)
-boardwalk dev ./index.ts --verbose          # everything: agent turns, tool calls, captured logs
-boardwalk dev ./index.ts --stream output | jq   # just the result — pipe-friendly
-boardwalk dev ./index.ts --stream phase,log
+boardwalk runs <runId> --logs                   # default: lifecycle + phase + output (quiet, readable)
+boardwalk runs <runId> --logs --verbose         # everything: agent turns, tool calls, captured logs
+boardwalk runs <runId> --logs --stream output | jq   # just the result — pipe-friendly
+boardwalk runs <runId> --follow --stream phase,log
 ```
-
-> `dev` runs the workflow on the embedded local engine (`@boardwalk-labs/engine`), so `agent()`,
-> `workflows.call()`, `sleep`, secrets, phases, output, and artifacts all behave exactly as they do
-> on the platform — no account or network needed.
 
 ## Deploying
 
@@ -102,7 +92,7 @@ workflow if present, else creates one).
 boardwalk runs                              # recent runs, newest first (--status / --limit)
 boardwalk runs --workflow merge-bot         # scope the list to one workflow (id or slug)
 boardwalk runs <runId>                      # one run's summary (status, duration, tokens, error)
-boardwalk runs <runId> --logs               # its event log — same channels as `dev`
+boardwalk runs <runId> --logs               # its event log, channel by channel
 boardwalk runs <runId> --logs --verbose     # + agent turns + every tool call
 boardwalk runs <runId> --follow             # live-tail over SSE until it finishes (Ctrl-C aborts)
 
@@ -111,8 +101,8 @@ boardwalk workflows show <id|slug>          # manifest projection + version hist
 boardwalk workflows delete <id|slug> --yes  # delete (irreversible; --yes required)
 ```
 
-`--logs`/`--follow` render the same typed event stream as `dev`, so `--stream <channels>` /
-`--verbose` mean the same thing. A run id needs no `--org` (the run resolves its own org); a
+`--logs`/`--follow` render the typed event stream, so `--stream <channels>` / `--verbose` mean
+the same thing on both. A run id needs no `--org` (the run resolves its own org); a
 workflow **slug** is resolved against the org (`--org` or the project link), while a workflow **id**
 (a ULID, as in a dashboard URL) is used directly.
 
@@ -180,7 +170,7 @@ full-power API key or invite members (those stay web-session-only), so a leaked 
 is contained. Use the default login for everyday deploy/run; reach for `--scopes admin` only when you
 need to manage the org's credentials from the terminal.
 
-`init`, `dev`, and `check` need no account at all.
+`init` and `check` need no account at all.
 
 ## Configuration (env)
 
@@ -207,7 +197,7 @@ pnpm install
 pnpm test
 pnpm lint
 pnpm build      # → dist/, run via ./bin/boardwalk.js
-pnpm boardwalk -- dev ./index.ts   # run from source via tsx
+pnpm boardwalk -- check ./index.ts   # run from source via tsx
 ```
 
 ## The Boardwalk repos

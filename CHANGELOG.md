@@ -2,6 +2,19 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## Unreleased
+
+### Removed
+
+- **`boardwalk dev` is gone.** The local-run command was a third substrate to keep at parity with
+  hosted and self-hosted execution, and it was neither offline (managed inference and
+  `workflows.call` already required the platform) nor faithful (local secrets, holds, and Python
+  skew would each behave "almost" like the platform). Unit-test your workflow as a plain program,
+  validate with `boardwalk check`, run it for real with `boardwalk run`; to execute runs on your
+  own machine, use a self-hosted runner (`boardwalk runner start`) — the real runtime, not an
+  emulation. With it go the `.env.example` scaffold, the cached dev inference keys in
+  `credentials.json`, and the CLI's direct `@boardwalk-labs/engine` dependency.
+
 ## 0.2.8
 
 ### Added

@@ -80,40 +80,4 @@ describe("CredentialStore", () => {
     writeFileSync(file, JSON.stringify({ session: { refreshToken: "x" } }));
     expect(new CredentialStore(file).getSession()).toBeNull();
   });
-
-  describe("inference key cache", () => {
-    const key = { token: "bwk_inf", expiresAt: 1_900_000_000_000, id: "01H_k" };
-
-    it("round-trips an inference key by cache key", () => {
-      const store = CredentialStore.atConfigDir(dir);
-      store.putInferenceKey("host|acme", key);
-      expect(store.getInferenceKey("host|acme")).toEqual(key);
-      expect(store.getInferenceKey("host|other")).toBeNull();
-    });
-
-    it("putInferenceKey preserves the session (and vice-versa)", () => {
-      const store = CredentialStore.atConfigDir(dir);
-      const s = session();
-      store.putSession(s);
-      store.putInferenceKey("host|acme", key);
-      expect(store.getSession()).toEqual(s);
-      expect(store.getInferenceKey("host|acme")).toEqual(key);
-      // Re-writing the session must not drop the cached key.
-      store.putSession(session({ accessToken: "tok-456" }));
-      expect(store.getInferenceKey("host|acme")).toEqual(key);
-    });
-
-    it("clear removes cached inference keys too", () => {
-      const store = CredentialStore.atConfigDir(dir);
-      store.putInferenceKey("host|acme", key);
-      store.clear();
-      expect(store.getInferenceKey("host|acme")).toBeNull();
-    });
-
-    it("ignores a malformed cached key entry", () => {
-      const file = join(dir, "credentials.json");
-      writeFileSync(file, JSON.stringify({ inferenceKeys: { "host|acme": { token: 123 } } }));
-      expect(new CredentialStore(file).getInferenceKey("host|acme")).toBeNull();
-    });
-  });
 });

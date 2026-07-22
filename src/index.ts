@@ -4,7 +4,6 @@
 //
 // Commands:
 //   boardwalk init [dir]                Scaffold a new workflow project from a template.
-//   boardwalk dev <file>                Run the workflow now, locally (no account needed).
 //   boardwalk check <file>              Validate a workflow locally (no auth/network).
 //   boardwalk login                     Authenticate via browser (OAuth PKCE).
 //   boardwalk logout                    Remove local credentials.
@@ -40,14 +39,14 @@ import { loadConfig } from "./config.js";
 import { assertNodeRuntime } from "./runtime_guard.js";
 import { lazyImport } from "./lazy_import.js";
 
-// The local-engine command modules (`dev`, `runner`) are loaded by a NON-STATIC specifier so Bun's
-// `--compile` does NOT bundle them into the single-file binary: their graph pulls
-// @boardwalk-labs/engine → `node:sqlite`, which Bun lacks and eagerly resolves at startup (crashing
-// EVERY command). The `import()` type keeps them fully typed; callers `assertNodeRuntime()` first, so
+// The local-engine command module (`runner`) is loaded by a NON-STATIC specifier so Bun's
+// `--compile` does NOT bundle it into the single-file binary: its graph pulls
+// @boardwalk-labs/runner → @boardwalk-labs/engine → `node:sqlite`, which Bun lacks and eagerly
+// resolves at startup (crashing
+// EVERY command). The `import()` type keeps it fully typed; callers `assertNodeRuntime()` first, so
 // under the binary the user gets a clear pointer to the Node build. (eslint bans `import()` type
 // annotations by default — here it is deliberate and load-bearing, so scope the rule off.)
 /* eslint-disable @typescript-eslint/consistent-type-imports */
-const loadDev = () => lazyImport<typeof import("./commands/dev.js")>("./commands/dev.js");
 const loadRunner = () => lazyImport<typeof import("./commands/runner.js")>("./commands/runner.js");
 /* eslint-enable @typescript-eslint/consistent-type-imports */
 
@@ -91,15 +90,6 @@ interface RunCliOptions {
   json?: boolean;
 }
 
-interface DevCliOptions {
-  input?: string;
-  env?: string;
-  verbose?: boolean;
-  stream?: string;
-  org?: string;
-  token?: string;
-}
-
 interface BuildCliOptions {
   out?: string;
 }
@@ -123,36 +113,6 @@ function buildProgram(): Command {
     .action(async (dir: string, options: { template?: string }) => {
       const { runInit } = await import("./commands/init.js");
       await runInit({ dir, template: options.template ?? "hello" });
-    });
-
-  program
-    .command("dev")
-    .argument("<file>", "workflow program file, or a package directory")
-    .option("--input <json>", "trigger payload exposed to the program as `input`")
-    // Named --env (not --env-file): Node ≥26 claims --env-file even after the script path,
-    // so that spelling would be processed (or rejected) by node itself before we ever parse it.
-    .option("--env <path>", "env file resolving secrets for the run (default: .env)")
-    .option("--verbose", "stream every event channel (agent turns, tool calls, logs)", false)
-    .option("--stream <channels>", "comma-separated channels: lifecycle,phase,output,log,agent")
-    // agent() with no provider uses Boardwalk managed inference; --org bills it (else the project
-    // link's org, else set BOARDWALK_API_KEY / name a provider). Needs `boardwalk login`.
-    .option("--org <slug>", "org to bill managed inference to (for agent() with no provider)")
-    .option("--token <token>", "bearer to mint the inference key with, instead of stored login")
-    .description("Run the workflow now, locally (no account needed).")
-    .action(async (file: string, options: DevCliOptions) => {
-      // `dev` runs a local engine (→ @boardwalk-labs/engine → node:sqlite), which the Bun single-file
-      // binary can't host; guard first, then load via a non-static specifier so it's not bundled.
-      assertNodeRuntime("dev");
-      const { runDev } = await loadDev();
-      await runDev({
-        file,
-        input: options.input,
-        envFile: options.env,
-        verbose: options.verbose ?? false,
-        stream: options.stream,
-        org: options.org,
-        token: options.token,
-      });
     });
 
   program
