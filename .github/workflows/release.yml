@@ -128,12 +128,12 @@ jobs:
           "$BIN" init "$tmp/smoke"
           "$BIN" build "$tmp/smoke" --out "$tmp/smoke.mjs"
           "$BIN" check "$tmp/smoke"
-          # `dev` (local engine → node:sqlite) must be EXCLUDED from the binary and guarded — a clean
-          # error, never a Bun "No such built-in module" crash.
-          if "$BIN" dev "$tmp/smoke" >/tmp/dev.out 2>&1; then
-            echo "expected 'dev' to fail under the binary" >&2; exit 1
+          # `runner` (local engine → @boardwalk-labs/runner → node:sqlite) must be EXCLUDED from the
+          # binary and guarded — a clean error, never a Bun "No such built-in module" crash.
+          if "$BIN" runner list >/tmp/runner.out 2>&1; then
+            echo "expected 'runner list' to fail under the binary" >&2; exit 1
           fi
-          grep -q "needs the Node build" /tmp/dev.out || { echo "dev guard missing:"; cat /tmp/dev.out; exit 1; }
+          grep -q "needs the Node build" /tmp/runner.out || { echo "runner guard missing:"; cat /tmp/runner.out; exit 1; }
       - name: Attach binaries to the release
         uses: softprops/action-gh-release@v2
         with:

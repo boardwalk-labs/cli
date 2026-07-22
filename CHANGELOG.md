@@ -2,6 +2,14 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.2.10
+
+### Fixed
+
+- The release binaries smoke test asserted the removed `dev` command's Bun guard; it now asserts
+  the `runner` guard (the surviving Bun-excluded command family). No CLI changes — 0.2.9's binaries
+  job failed on this, so the native binaries and the Homebrew formula ship from this release.
+
 ## 0.2.9
 
 ### Removed
