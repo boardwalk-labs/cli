@@ -2,6 +2,17 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.2.8
+
+### Added
+
+- **`boardwalk setup` — a one-command install wizard.** It logs you in (browser OAuth), detects
+  which coding agent you use (Claude Code, Codex, Cursor, OpenCode, OpenClaw), and installs that
+  agent's Boardwalk plugin + skills and the control-plane MCP server. The agents with first-class
+  installers (Claude Code, Codex) are wired up for you; the rest print an exact recipe. Interactive
+  by default, with `--harness`, `--yes`, and `--print-only` for non-interactive and CI use. It never
+  touches files in your repo. This is also what the `npx @boardwalk-labs/setup` shim runs.
+
 ## 0.2.4
 
 ### Added
