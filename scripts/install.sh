@@ -9,8 +9,8 @@
 #   BOARDWALK_VERSION      release tag to install (default: latest), e.g. v0.1.31
 #   BOARDWALK_INSTALL_DIR  where to put the binary (default: ~/.boardwalk/bin)
 #
-# The binary covers the control-plane commands (deploy, run, runs, secrets, …). `boardwalk dev` and
-# `boardwalk runner start` run a local engine that needs the Node build: `npm i -g @boardwalk-labs/cli`.
+# The binary covers the control-plane commands (deploy, run, runs, secrets, …).
+# `boardwalk runner start` runs a local engine that needs the Node build: `npm i -g @boardwalk-labs/cli`.
 set -euo pipefail
 
 REPO="boardwalk-labs/cli"
