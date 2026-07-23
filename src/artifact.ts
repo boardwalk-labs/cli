@@ -233,50 +233,32 @@ export async function buildArtifact(
   // The machine layer (default ON): the types harvest, mirrored under `.bw-machine/types/`.
   const harvest: TypesHarvest =
     options.typesHarvest === false ? { files: [], totalBytes: 0 } : harvestTypes(rootDir);
-  const machinePaths = harvest.files.map((f) => `${MACHINE_TYPES_DIR}/${f.relPath}`).sort();
 
-  // Stage every file at its target relative path, then pack the staging dir deterministically.
-  const staging = mkdtempSync(join(tmpdir(), "bw-artifact-"));
-  try {
-    writeStaged(staging, ENTRY_OUTPUT, Buffer.from(code, "utf8"));
-    writeStaged(staging, `${ENTRY_OUTPUT}.map`, Buffer.from(map, "utf8"));
-    // The descriptor ships VERBATIM at the artifact root — comments intact for the author, stripped
-    // only when the control plane parses it.
-    writeStaged(staging, loaded.fileName, Buffer.from(loaded.raw, "utf8"));
-    for (const s of sources) writeStaged(staging, `${SOURCE_DIR}/${s.relPath}`, s.content);
-    for (const asset of assets) writeStaged(staging, asset.relPath, readFileSync(asset.absPath));
-    for (const f of harvest.files) {
-      copyStaged(staging, `${MACHINE_TYPES_DIR}/${f.relPath}`, f.absPath);
-    }
+  const packed = await stageAndPack({
+    // The bundle outputs live at the artifact root — the language-specific part of the layout.
+    rootFiles: [
+      { relPath: ENTRY_OUTPUT, bytes: Buffer.from(code, "utf8") },
+      { relPath: `${ENTRY_OUTPUT}.map`, bytes: Buffer.from(map, "utf8") },
+    ],
+    loaded,
+    sources,
+    assets,
+    machineDir: MACHINE_TYPES_DIR,
+    machineFiles: harvest.files,
+  });
 
-    const relPaths = [
-      ENTRY_OUTPUT,
-      `${ENTRY_OUTPUT}.map`,
-      loaded.fileName,
-      ...sources.map((s) => `${SOURCE_DIR}/${s.relPath}`),
-      ...assets.map((a) => a.relPath),
-      ...machinePaths,
-    ].sort();
-    const tarball = await packDir(staging, relPaths);
-
-    return {
-      tarball,
-      digest: sha256Hex(tarball),
-      size: tarball.length,
-      language: "typescript",
-      entry: ENTRY_OUTPUT,
-      slug: loaded.descriptor.slug,
-      descriptorFileName: loaded.fileName,
-      descriptor: loaded.descriptor,
-      sdkVersion,
-      lockfileDigest: lockDigest,
-      assetPaths: assets.map((a) => a.relPath).sort(),
-      machinePaths,
-      machineBytes: harvest.totalBytes,
-    };
-  } finally {
-    rmSync(staging, { recursive: true, force: true });
-  }
+  return {
+    ...packed,
+    language: "typescript",
+    entry: ENTRY_OUTPUT,
+    slug: loaded.descriptor.slug,
+    descriptorFileName: loaded.fileName,
+    descriptor: loaded.descriptor,
+    sdkVersion,
+    lockfileDigest: lockDigest,
+    assetPaths: assets.map((a) => a.relPath).sort(),
+    machineBytes: harvest.totalBytes,
+  };
 }
 
 /**
@@ -298,50 +280,81 @@ async function buildPythonArtifact(
   try {
     const assets = collectAssets(rootDir, loaded.descriptor.files, loaded.fileName);
     const sources = collectPythonSources(rootDir);
-    const entryRel = toPosix(relative(rootDir, entryAbs));
-    const siteFiles = site?.files ?? [];
-    const machinePaths = siteFiles
-      .map((f) => `${MACHINE_SITE_PACKAGES_DIR}/${f.relPath}`)
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
-    const staging = mkdtempSync(join(tmpdir(), "bw-artifact-"));
-    try {
-      writeStaged(staging, loaded.fileName, Buffer.from(loaded.raw, "utf8"));
-      for (const s of sources) writeStaged(staging, `${SOURCE_DIR}/${s.relPath}`, s.content);
-      for (const asset of assets) writeStaged(staging, asset.relPath, readFileSync(asset.absPath));
-      for (const f of siteFiles) {
-        copyStaged(staging, `${MACHINE_SITE_PACKAGES_DIR}/${f.relPath}`, f.absPath);
-      }
+    const packed = await stageAndPack({
+      rootFiles: [], // no bundle step — the shown source IS what runs
+      loaded,
+      sources,
+      assets,
+      machineDir: MACHINE_SITE_PACKAGES_DIR,
+      machineFiles: site?.files ?? [],
+    });
 
-      const relPaths = [
-        loaded.fileName,
-        ...sources.map((s) => `${SOURCE_DIR}/${s.relPath}`),
-        ...assets.map((a) => a.relPath),
-        ...machinePaths,
-      ].sort();
-      const tarball = await packDir(staging, relPaths);
-
-      return {
-        tarball,
-        digest: sha256Hex(tarball),
-        size: tarball.length,
-        language: "python",
-        entry: entryRel,
-        slug: loaded.descriptor.slug,
-        descriptorFileName: loaded.fileName,
-        descriptor: loaded.descriptor,
-        // The Python SDK ships in the runtime and isn't on PyPI yet — nothing to pin.
-        sdkVersion: UNPINNED_SDK,
-        lockfileDigest: pythonLockfileDigest(rootDir),
-        assetPaths: assets.map((a) => a.relPath).sort(),
-        machinePaths,
-        machineBytes: site?.totalBytes ?? 0,
-      };
-    } finally {
-      rmSync(staging, { recursive: true, force: true });
-    }
+    return {
+      ...packed,
+      language: "python",
+      entry: toPosix(relative(rootDir, entryAbs)),
+      slug: loaded.descriptor.slug,
+      descriptorFileName: loaded.fileName,
+      descriptor: loaded.descriptor,
+      // The Python SDK ships in the runtime and isn't on PyPI yet — nothing to pin.
+      sdkVersion: UNPINNED_SDK,
+      lockfileDigest: pythonLockfileDigest(rootDir),
+      assetPaths: assets.map((a) => a.relPath).sort(),
+      machineBytes: site?.totalBytes ?? 0,
+    };
   } finally {
     site?.cleanup();
+  }
+}
+
+/** What both language paths hand {@link stageAndPack} — the shared artifact shape; only the
+ *  root files (the TS bundle outputs) and the machine layer's directory + contents differ. */
+interface ArtifactParts {
+  /** Language-specific files at the artifact root (bytes already in memory). */
+  rootFiles: readonly { relPath: string; bytes: Buffer }[];
+  loaded: LoadedDescriptor;
+  sources: readonly ArtifactSource[];
+  assets: readonly ArtifactAsset[];
+  /** {@link MACHINE_TYPES_DIR} or {@link MACHINE_SITE_PACKAGES_DIR}. */
+  machineDir: string;
+  /** Machine-layer files, staged by copy at `<machineDir>/<relPath>`. */
+  machineFiles: readonly { relPath: string; absPath: string }[];
+}
+
+/**
+ * The packaging shared by both build paths: stage every file at its artifact-relative path
+ * (descriptor VERBATIM at the root — comments intact for the author, stripped only when the
+ * control plane parses it — sources under `.bw-src/`, machine layer under `.bw-machine/…`),
+ * then pack the staging dir deterministically and content-address the bytes.
+ */
+async function stageAndPack(
+  parts: ArtifactParts,
+): Promise<{ tarball: Uint8Array; digest: string; size: number; machinePaths: string[] }> {
+  const { loaded, sources, assets } = parts;
+  const machinePaths = parts.machineFiles.map((f) => `${parts.machineDir}/${f.relPath}`).sort();
+
+  const staging = mkdtempSync(join(tmpdir(), "bw-artifact-"));
+  try {
+    for (const f of parts.rootFiles) writeStaged(staging, f.relPath, f.bytes);
+    writeStaged(staging, loaded.fileName, Buffer.from(loaded.raw, "utf8"));
+    for (const s of sources) writeStaged(staging, `${SOURCE_DIR}/${s.relPath}`, s.content);
+    for (const asset of assets) writeStaged(staging, asset.relPath, readFileSync(asset.absPath));
+    for (const f of parts.machineFiles) {
+      copyStaged(staging, `${parts.machineDir}/${f.relPath}`, f.absPath);
+    }
+
+    const relPaths = [
+      ...parts.rootFiles.map((f) => f.relPath),
+      loaded.fileName,
+      ...sources.map((s) => `${SOURCE_DIR}/${s.relPath}`),
+      ...assets.map((a) => a.relPath),
+      ...machinePaths,
+    ].sort();
+    const tarball = await packDir(staging, relPaths);
+    return { tarball, digest: sha256Hex(tarball), size: tarball.length, machinePaths };
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
   }
 }
 
@@ -396,9 +409,12 @@ export function collectAssets(
     for (const m of matches) add(m);
   }
 
-  return [...picked.values()].sort((a, b) =>
-    a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0,
-  );
+  return [...picked.values()].sort(byRelPath);
+}
+
+/** The one path ordering every packed list uses (deterministic artifacts). */
+function byRelPath(a: { relPath: string }, b: { relPath: string }): number {
+  return a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0;
 }
 
 /** Hard exclusion rule for anything that ships: no dotfiles/dotdirs (covers `.env*`, `.git`,
@@ -461,14 +477,7 @@ function extOf(name: string): string {
 
 /** The author's source tree under the package root, for storage under `.bw-src/`. */
 export function collectSources(root: string): ArtifactSource[] {
-  const out: ArtifactSource[] = [];
-  walk(root, sourceFilter, (abs) => {
-    const rel = toPosix(relative(root, abs));
-    if (rel.length === 0 || rel.startsWith("..")) return;
-    out.push({ relPath: rel, content: readFileSync(abs) });
-  });
-  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
-  return out;
+  return collectTree(root, sourceFilter);
 }
 
 /** Python source extensions (the author layer; `.pyc` never matches — compiled, not authored). */
@@ -490,14 +499,21 @@ function pySourceFilter(isDir: boolean, name: string): boolean {
 
 /** The author's Python source tree under the package root, for storage under `.bw-src/`. */
 export function collectPythonSources(root: string): ArtifactSource[] {
+  return collectTree(root, pySourceFilter);
+}
+
+/** Read the package-relative tree the `accept` filter keeps, sorted for determinism. */
+function collectTree(
+  root: string,
+  accept: (isDir: boolean, name: string) => boolean,
+): ArtifactSource[] {
   const out: ArtifactSource[] = [];
-  walk(root, pySourceFilter, (abs) => {
+  walk(root, accept, (abs) => {
     const rel = toPosix(relative(root, abs));
     if (rel.length === 0 || rel.startsWith("..")) return;
     out.push({ relPath: rel, content: readFileSync(abs) });
   });
-  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
-  return out;
+  return out.sort(byRelPath);
 }
 
 /** Recursively walk `dir`, calling `onFile(abs)` for each file the `accept` predicate keeps. */
@@ -522,20 +538,28 @@ function walk(
 export function resolveSdkVersion(pkgDir: string | null): string {
   if (pkgDir === null) return UNPINNED_SDK;
 
-  const installed = join(pkgDir, "node_modules", SDK_PACKAGE, "package.json");
-  if (existsSync(installed)) {
-    const v = readJsonField(installed, "version");
-    if (v !== null) return v;
-  }
+  const installed = readJsonRecord(join(pkgDir, "node_modules", SDK_PACKAGE, "package.json"));
+  const version = nonEmptyString(installed?.version);
+  if (version !== null) return version;
 
-  const pkgPath = join(pkgDir, "package.json");
-  if (existsSync(pkgPath)) {
-    for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
-      const range = readDepRange(pkgPath, field, SDK_PACKAGE);
-      if (range !== null) return range;
-    }
+  const pkg = readJsonRecord(join(pkgDir, "package.json"));
+  for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
+    const deps = pkg?.[field];
+    const range = isRecord(deps) ? nonEmptyString(deps[SDK_PACKAGE]) : null;
+    if (range !== null) return range;
   }
   return UNPINNED_SDK;
+}
+
+/**
+ * The machine-layer log line for build/check/deploy, or null when there is nothing to report
+ * (a TypeScript build that opted out via `--no-types-harvest`). Python ALWAYS reports: its
+ * machine layer (site-packages) is load-bearing at runtime, not derivation-only, so there is
+ * no opt-out — this is the one place that rule lives for the command surfaces.
+ */
+export function machineSummaryLine(artifact: BuiltArtifact, typesHarvest: boolean): string | null {
+  if (artifact.language !== "python" && !typesHarvest) return null;
+  return formatMachineSummary(artifact);
 }
 
 /** One-line machine-layer summary for build logs (file count + MB, per the harvest spec). */
@@ -605,29 +629,16 @@ function toPosix(p: string): string {
   return p.split(sep).join(posix.sep);
 }
 
-function readJsonField(jsonPath: string, field: string): string | null {
+/** Parse a JSON file into a record; null on a missing/unreadable file or a non-object root. */
+function readJsonRecord(jsonPath: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(jsonPath, "utf8"));
-    if (isRecord(parsed)) {
-      const v = parsed[field];
-      if (typeof v === "string" && v.length > 0) return v;
-    }
+    return isRecord(parsed) ? parsed : null;
   } catch {
-    // ignore
+    return null;
   }
-  return null;
 }
 
-function readDepRange(pkgPath: string, field: string, dep: string): string | null {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    const deps = isRecord(parsed) ? parsed[field] : undefined;
-    if (isRecord(deps)) {
-      const range = deps[dep];
-      if (typeof range === "string" && range.length > 0) return range;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }

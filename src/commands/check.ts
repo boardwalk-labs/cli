@@ -14,7 +14,7 @@
 // There is NO local schema derivation: the backend derives authoritatively at deploy and returns
 // warnings — `check` says so instead of pretending.
 
-import { buildArtifact, formatMachineSummary } from "../artifact.js";
+import { buildArtifact, machineSummaryLine } from "../artifact.js";
 import { resolveLog } from "../log.js";
 
 export interface CheckOptions {
@@ -47,8 +47,8 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   }
   log(`  artifact: ${String(artifact.size)} bytes (sha256 ${artifact.digest.slice(0, 12)}…)`);
   if (assets > 0) log(`  assets:   ${artifact.assetPaths.join(", ")}`);
-  // Python always reports its machine layer (site-packages is load-bearing, no opt-out).
-  if (harvest || artifact.language === "python") log(`  ${formatMachineSummary(artifact)}`);
+  const machineSummary = machineSummaryLine(artifact, harvest);
+  if (machineSummary !== null) log(`  ${machineSummary}`);
   log("  schemas:  derive at deploy (the backend reads the run() signature and returns warnings)");
   if (artifact.language === "python") {
     log(

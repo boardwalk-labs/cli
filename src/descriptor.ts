@@ -60,7 +60,7 @@ export function resolveProjectRoot(target: string): string {
     throw new CliError(`Path not found: ${target}`);
   }
   if (isDir) return abs;
-  if ((DESCRIPTOR_NAMES as readonly string[]).includes(basename(abs))) return dirname(abs);
+  if (DESCRIPTOR_NAMES.some((name) => name === basename(abs))) return dirname(abs);
   throw new CliError(`Not a workflow package: ${target}`, FORMAT_HINT);
 }
 

@@ -20,7 +20,12 @@
 import { CliError } from "./errors.js";
 import { buildArtifact, type BuildArtifactOptions, type BuiltArtifact } from "./artifact.js";
 import { projectDirFor, readLink, writeLink } from "./project.js";
-import type { BoardwalkClient, DeployArtifactRef, WorkflowSummary } from "./client.js";
+import type {
+  BoardwalkClient,
+  DeployArtifactRef,
+  DeployResult,
+  WorkflowSummary,
+} from "./client.js";
 
 export interface PreparedProgram {
   slug: string;
@@ -200,12 +205,14 @@ export async function deployWithLink(
     }
   }
 
-  // Confirm BEFORE any write when this deploy would create a new workflow (Decision 11: the first
-  // CREATE is confirmed interactively; CI passes --yes and skips this).
-  if (workflowId === null && ctx.confirmCreate !== undefined) {
+  // The create-confirmation gate (Decision 11): asked before ANY write that would create a new
+  // workflow; absent confirmCreate means the caller already decided (`--yes`).
+  const confirmCreateOrAbort = async (): Promise<void> => {
+    if (ctx.confirmCreate === undefined) return;
     const ok = await ctx.confirmCreate({ slug: ctx.prog.slug, orgSlug });
     if (!ok) throw new CliError("Deploy cancelled.");
-  }
+  };
+  if (workflowId === null) await confirmCreateOrAbort();
 
   // Upload the artifact bytes once (presigned PUT); both create + update reference it by digest.
   const { artifact } = ctx.prog;
@@ -216,54 +223,37 @@ export async function deployWithLink(
   await client.uploadArtifact(uploadUrl, contentType, artifact.tarball);
   const ref = refOf(artifact);
 
-  let versionNumber: number;
-  // The server-side slug of the workflow we actually deployed to (immutable after create). On the
-  // linked path it may differ from the descriptor's `slug`; we report THIS so a run is never
-  // silently attributed to the wrong name.
-  let deployedSlug: string;
-  let warnings: string[];
+  let result: DeployResult;
   if (workflowId !== null) {
     try {
-      const result = await client.updateWorkflow(workflowId, ref);
-      versionNumber = result.version.number;
-      deployedSlug = result.workflow.slug;
-      warnings = result.warnings;
+      result = await client.updateWorkflow(workflowId, ref);
     } catch (err) {
-      if (err instanceof CliError && err.status === 404) {
-        // The linked workflow was deleted out from under us — recreating is a CREATE, so it goes
-        // through the same confirmation before touching the org.
-        if (ctx.confirmCreate !== undefined) {
-          const ok = await ctx.confirmCreate({ slug: ctx.prog.slug, orgSlug });
-          if (!ok) throw new CliError("Deploy cancelled.");
-        }
-        const result = await client.createWorkflow(orgSlug, ref);
-        workflowId = result.workflow.id;
-        versionNumber = result.version.number;
-        deployedSlug = result.workflow.slug;
-        warnings = result.warnings;
-        outcome = "created";
-      } else {
-        throw err;
-      }
+      if (!(err instanceof CliError && err.status === 404)) throw err;
+      // The linked workflow was deleted out from under us — recreating is a CREATE, so it goes
+      // through the same confirmation before touching the org.
+      await confirmCreateOrAbort();
+      result = await client.createWorkflow(orgSlug, ref);
+      outcome = "created";
     }
   } else {
-    const result = await client.createWorkflow(orgSlug, ref);
-    workflowId = result.workflow.id;
-    versionNumber = result.version.number;
-    deployedSlug = result.workflow.slug;
-    warnings = result.warnings;
+    result = await client.createWorkflow(orgSlug, ref);
     outcome = "created";
   }
+  // The server's workflow row is authoritative for id + slug: on the LINKED path the slug may
+  // differ from the descriptor's — we report the server's so a run is never silently attributed
+  // to the wrong name (slug is immutable after create).
+  workflowId = result.workflow.id;
+  const deployedSlug = result.workflow.slug;
 
   const { gitignoreUpdated } = writeLink(projectDir, { orgSlug, workflowId });
   return {
     workflowId,
     orgSlug,
-    versionNumber,
+    versionNumber: result.version.number,
     outcome,
     gitignoreUpdated,
     deployedSlug,
-    warnings,
+    warnings: result.warnings,
     // Surface a descriptor-slug ≠ deployed-slug mismatch (linked dir points at a different-named workflow).
     ...(deployedSlug !== ctx.prog.slug ? { ignoredFileSlug: ctx.prog.slug } : {}),
   };
