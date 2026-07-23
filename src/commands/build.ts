@@ -39,6 +39,7 @@ export async function runBuild(opts: BuildOptions, deps: BuildDeps = {}): Promis
   log(
     `built "${artifact.slug}" → ${outPath} (${String(artifact.size)} bytes, sha256 ${artifact.digest.slice(0, 12)}…)`,
   );
-  if (harvest) log(`  ${formatMachineSummary(artifact)}`);
+  // Python always reports its machine layer (site-packages is load-bearing, no opt-out).
+  if (harvest || artifact.language === "python") log(`  ${formatMachineSummary(artifact)}`);
   return outPath;
 }

@@ -15,6 +15,12 @@
 //   .bw-machine/types/**         — the TypeScript types harvest (the machine layer the backend's
 //                                  derivation sandbox resolves the run signature against, offline)
 //
+// A PYTHON package (resolved entry is `.py` — descriptor `entry`, or `main.py` at the root) packs
+// the same shape minus the bundle: no `index.mjs` (Python has no bundle step — the shown source IS
+// what runs), the `.py` source tree + `pyproject.toml`/`requirements.txt`/`uv.lock` under
+// `.bw-src/`, and the machine layer is the uv-materialized dependency tree under
+// `.bw-machine/site-packages/` (see MACHINE_SITE_PACKAGES_DIR for the binding layout contract).
+//
 // The artifact is content-addressed by the sha256 of its bytes: the same bytes the CLI uploads are
 // the bytes the runner downloads + verifies, so integrity holds regardless of determinism;
 // determinism just lets identical programs dedup.
@@ -37,18 +43,32 @@ import { dirname, join, posix, relative, sep } from "node:path";
 import { create as tarCreate } from "tar";
 import type { WorkflowDescriptor } from "@boardwalk-labs/workflow";
 import { bundleWorkflowWithMap } from "./bundle.js";
-import { loadDescriptor, resolveProjectRoot, resolveRunEntry } from "./descriptor.js";
+import {
+  loadDescriptor,
+  resolveProjectRoot,
+  resolveRunEntry,
+  type LoadedDescriptor,
+} from "./descriptor.js";
 import { CliError } from "./errors.js";
 import { isRecord } from "./guards.js";
 import { harvestTypes, type TypesHarvest } from "./types_harvest.js";
+import {
+  detectPythonDeps,
+  languageOfEntry,
+  materializeSitePackages,
+  type UvRunner,
+  type WorkflowLanguage,
+} from "./python.js";
 
 const SDK_PACKAGE = "@boardwalk-labs/workflow";
 /** The entry module the runner imports after extraction. The whole local graph bundles into it. */
 export const ENTRY_OUTPUT = "index.mjs";
 /** Where the author's ORIGINAL sources live inside the artifact, mirrored at their package-relative
  *  paths so a dashboard's code view shows what the user wrote (blank lines + comments intact) and
- *  quick-edit round-trips real source — NOT the blank-line-stripped esbuild bundle. The runner never
- *  reads `.bw-src/`; it runs {@link ENTRY_OUTPUT}. */
+ *  quick-edit round-trips real source — NOT the blank-line-stripped esbuild bundle. For TypeScript
+ *  the runner never reads `.bw-src/` (it runs {@link ENTRY_OUTPUT}); for Python the shown source
+ *  IS what runs — the runner materializes the program from this tree (entry at its
+ *  package-relative path) with `.bw-machine/site-packages/` on `sys.path`. */
 export const SOURCE_DIR = ".bw-src";
 /**
  * MACHINE-LAYER root (the two-layer artifact). Everything under this prefix is build-produced input
@@ -75,6 +95,21 @@ export const SOURCE_DIR = ".bw-src";
 export const MACHINE_DIR = ".bw-machine";
 /** Where the TypeScript types harvest lives inside the artifact (see {@link MACHINE_DIR}). */
 export const MACHINE_TYPES_DIR = `${MACHINE_DIR}/types`;
+/**
+ * Where a PYTHON package's materialized dependency layer lives — the ratified SIBLING of
+ * `types/` under `.bw-machine/` (Implementation Plan P1.1/P5.4). Layout contract the backend's
+ * derivation sandbox and the runner bind to:
+ *
+ *   .bw-machine/site-packages/<installed package tree>
+ *
+ * i.e. exactly what `uv pip install --target` produced for the frozen dependency set (module
+ * trees, `*.dist-info/` metadata), targeting the hosted runner's platform (x86_64 Linux,
+ * CPython 3.13) — so the runner can put this ONE directory on `sys.path` (and the derivation
+ * sandbox can import against it) with no install and no network. Not byte-compiled for now
+ * (`.pyc` is an open cold-start benchmark); `__pycache__` and console-script `bin/` shims are
+ * never packed. A package with no declared dependencies has no layer at all — valid.
+ */
+export const MACHINE_SITE_PACKAGES_DIR = `${MACHINE_DIR}/site-packages`;
 /** `sdk_version` for a program that pins no SDK version — defer to whatever the runner ships. */
 export const UNPINNED_SDK = "*";
 
@@ -134,7 +169,11 @@ export interface BuiltArtifact {
   digest: string;
   /** Byte length of {@link tarball}. */
   size: number;
-  /** Entry module within the extracted tree ({@link ENTRY_OUTPUT}). */
+  /** The program language, decided by the resolved entry (`.py` ⇒ python). */
+  language: WorkflowLanguage;
+  /** Entry module: {@link ENTRY_OUTPUT} for TypeScript (the bundle at the artifact root); for
+   *  Python the PACKAGE-RELATIVE source path (e.g. `main.py`) — there is no bundle, and the
+   *  file's bytes live under `.bw-src/` like the rest of the source tree. */
   entry: string;
   /** The workflow's slug, from the validated descriptor — the deploy identity. */
   slug: string;
@@ -148,8 +187,9 @@ export interface BuiltArtifact {
   lockfileDigest: string | null;
   /** Sorted POSIX relative paths of the bundled assets (for `check` output + validation). */
   assetPaths: string[];
-  /** Sorted artifact paths of the machine layer (under {@link MACHINE_TYPES_DIR}); empty when the
-   *  build opted out via {@link BuildArtifactOptions.typesHarvest}. */
+  /** Sorted artifact paths of the machine layer — under {@link MACHINE_TYPES_DIR} (TypeScript)
+   *  or {@link MACHINE_SITE_PACKAGES_DIR} (Python). Empty when a TS build opted out via
+   *  {@link BuildArtifactOptions.typesHarvest}, or a Python package declares no dependencies. */
   machinePaths: string[];
   /** Total pre-compression bytes of the machine-layer files (0 when not packed). */
   machineBytes: number;
@@ -159,8 +199,11 @@ export interface BuiltArtifact {
 export interface BuildArtifactOptions {
   /** Pack the TypeScript types harvest (the machine layer) under {@link MACHINE_TYPES_DIR}.
    *  Default ON — the backend derives the I/O schemas from it at deploy; `false` (surfaced as
-   *  `--no-types-harvest`) skips the bytes. */
+   *  `--no-types-harvest`) skips the bytes. IGNORED for Python: its machine layer
+   *  (site-packages) is load-bearing at runtime, not derivation-only, so there is no opt-out. */
   typesHarvest?: boolean;
+  /** Test seam: how `uv` is invoked for a Python package's dependency layer. */
+  uvRun?: UvRunner;
 }
 
 /** Build the deploy artifact for a workflow package (a directory with a `workflow.jsonc`). */
@@ -171,6 +214,9 @@ export async function buildArtifact(
   const rootDir = resolveProjectRoot(target);
   const loaded = loadDescriptor(rootDir);
   const entry = resolveRunEntry(rootDir, loaded.descriptor);
+  if (languageOfEntry(entry) === "python") {
+    return buildPythonArtifact(rootDir, loaded, entry, options);
+  }
   // Bundle FIRST — proves the program compiles and every non-SDK import resolves, with precise
   // esbuild errors, before any packaging work. Strip-only: the author's body is never type-checked.
   const { code, map } = await bundleWorkflowWithMap(entry);
@@ -217,6 +263,7 @@ export async function buildArtifact(
       tarball,
       digest: sha256Hex(tarball),
       size: tarball.length,
+      language: "typescript",
       entry: ENTRY_OUTPUT,
       slug: loaded.descriptor.slug,
       descriptorFileName: loaded.fileName,
@@ -229,6 +276,72 @@ export async function buildArtifact(
     };
   } finally {
     rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The Python build path (P5.4): no esbuild bundle, no types harvest. The author layer is the
+ * `.py` source tree (+ the dependency declarations, which round-trip because Python has no bundle
+ * step) under `.bw-src/`; the machine layer is the uv-materialized site-packages under
+ * {@link MACHINE_SITE_PACKAGES_DIR}. Dependencies resolve + freeze at BUILD time (`uv lock` may
+ * refresh the project's `uv.lock` — the one project write); no dependencies ⇒ no layer, no uv.
+ */
+async function buildPythonArtifact(
+  rootDir: string,
+  loaded: LoadedDescriptor,
+  entryAbs: string,
+  options: BuildArtifactOptions,
+): Promise<BuiltArtifact> {
+  const deps = detectPythonDeps(rootDir);
+  // Materialize FIRST: `uv lock` refreshes uv.lock, which then ships with the sources below.
+  const site = deps === null ? null : materializeSitePackages(rootDir, deps, options.uvRun);
+  try {
+    const assets = collectAssets(rootDir, loaded.descriptor.files, loaded.fileName);
+    const sources = collectPythonSources(rootDir);
+    const entryRel = toPosix(relative(rootDir, entryAbs));
+    const siteFiles = site?.files ?? [];
+    const machinePaths = siteFiles
+      .map((f) => `${MACHINE_SITE_PACKAGES_DIR}/${f.relPath}`)
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+
+    const staging = mkdtempSync(join(tmpdir(), "bw-artifact-"));
+    try {
+      writeStaged(staging, loaded.fileName, Buffer.from(loaded.raw, "utf8"));
+      for (const s of sources) writeStaged(staging, `${SOURCE_DIR}/${s.relPath}`, s.content);
+      for (const asset of assets) writeStaged(staging, asset.relPath, readFileSync(asset.absPath));
+      for (const f of siteFiles) {
+        copyStaged(staging, `${MACHINE_SITE_PACKAGES_DIR}/${f.relPath}`, f.absPath);
+      }
+
+      const relPaths = [
+        loaded.fileName,
+        ...sources.map((s) => `${SOURCE_DIR}/${s.relPath}`),
+        ...assets.map((a) => a.relPath),
+        ...machinePaths,
+      ].sort();
+      const tarball = await packDir(staging, relPaths);
+
+      return {
+        tarball,
+        digest: sha256Hex(tarball),
+        size: tarball.length,
+        language: "python",
+        entry: entryRel,
+        slug: loaded.descriptor.slug,
+        descriptorFileName: loaded.fileName,
+        descriptor: loaded.descriptor,
+        // The Python SDK ships in the runtime and isn't on PyPI yet — nothing to pin.
+        sdkVersion: UNPINNED_SDK,
+        lockfileDigest: pythonLockfileDigest(rootDir),
+        assetPaths: assets.map((a) => a.relPath).sort(),
+        machinePaths,
+        machineBytes: site?.totalBytes ?? 0,
+      };
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+    }
+  } finally {
+    site?.cleanup();
   }
 }
 
@@ -358,6 +471,35 @@ export function collectSources(root: string): ArtifactSource[] {
   return out;
 }
 
+/** Python source extensions (the author layer; `.pyc` never matches — compiled, not authored). */
+const PY_SOURCE_EXT = new Set([".py", ".pyi"]);
+/** Dependency declarations ship WITH the Python sources: there is no bundle step, so the artifact
+ *  must carry everything needed to rebuild/re-resolve the program (web dependency edits, P5.6). */
+const PY_INCLUDE_FILES = new Set(["pyproject.toml", "requirements.txt", "uv.lock"]);
+
+/** The Python never-ship rules: dotfiles/dotdirs (covers `.venv`, `.env*`, `.git`), the shared
+ *  excluded dirs, `__pycache__`, and `*.egg-info` build metadata. */
+function pySourceFilter(isDir: boolean, name: string): boolean {
+  if (name.startsWith(".")) return false;
+  if (isDir) {
+    return !EXCLUDE_DIRS.has(name) && name !== "__pycache__" && !name.endsWith(".egg-info");
+  }
+  if (PY_INCLUDE_FILES.has(name)) return true;
+  return PY_SOURCE_EXT.has(extOf(name));
+}
+
+/** The author's Python source tree under the package root, for storage under `.bw-src/`. */
+export function collectPythonSources(root: string): ArtifactSource[] {
+  const out: ArtifactSource[] = [];
+  walk(root, pySourceFilter, (abs) => {
+    const rel = toPosix(relative(root, abs));
+    if (rel.length === 0 || rel.startsWith("..")) return;
+    out.push({ relPath: rel, content: readFileSync(abs) });
+  });
+  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
+  return out;
+}
+
 /** Recursively walk `dir`, calling `onFile(abs)` for each file the `accept` predicate keeps. */
 function walk(
   dir: string,
@@ -400,12 +542,26 @@ export function resolveSdkVersion(pkgDir: string | null): string {
 export function formatMachineSummary(artifact: BuiltArtifact): string {
   const n = artifact.machinePaths.length;
   const mb = (artifact.machineBytes / (1024 * 1024)).toFixed(1);
+  if (artifact.language === "python") {
+    if (n === 0) return "site-packages: none (no dependencies declared)";
+    return `site-packages: ${String(n)} file${n === 1 ? "" : "s"}, ${mb} MB → ${MACHINE_SITE_PACKAGES_DIR}/`;
+  }
   return `types harvest: ${String(n)} file${n === 1 ? "" : "s"}, ${mb} MB → ${MACHINE_TYPES_DIR}/`;
 }
 
 /** sha256 of the project's lockfile (first of pnpm/npm/yarn/bun found), or null when none. */
 export function lockfileDigest(pkgDir: string): string | null {
   for (const name of LOCKFILES) {
+    const p = join(pkgDir, name);
+    if (existsSync(p)) return sha256Hex(readFileSync(p));
+  }
+  return null;
+}
+
+/** The Python reproducibility anchor: `uv.lock` (refreshed by the build) else `requirements.txt`
+ *  (its own pin surface — pip convention has no project lockfile), else null. */
+export function pythonLockfileDigest(pkgDir: string): string | null {
+  for (const name of ["uv.lock", "requirements.txt"]) {
     const p = join(pkgDir, name);
     if (existsSync(p)) return sha256Hex(readFileSync(p));
   }

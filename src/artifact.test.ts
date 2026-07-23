@@ -14,9 +14,12 @@ import {
   ENTRY_OUTPUT,
   MACHINE_DIR,
   MACHINE_TYPES_DIR,
+  MACHINE_SITE_PACKAGES_DIR,
   SOURCE_DIR,
   UNPINNED_SDK,
+  pythonLockfileDigest,
 } from "./artifact.js";
+import type { UvRunner } from "./python.js";
 
 /** Extract a `.tgz` buffer into a fresh dir and return it (for asserting artifact contents). */
 function extractTo(tarball: Uint8Array, dir: string): string {
@@ -408,5 +411,202 @@ describe("buildArtifact — machine layer (types harvest)", () => {
     const b = await buildArtifact(pkg);
     expect(a.digest).toBe(b.digest);
     expect((await buildArtifact(pkg, { typesHarvest: false })).digest).not.toBe(a.digest);
+  });
+});
+
+// ── Python (P5.4): entry `.py` ⇒ no bundle, sources in .bw-src, deps in .bw-machine/site-packages ──
+
+const PY_PROGRAM = `from pydantic import BaseModel
+
+
+class Lead(BaseModel):
+    email: str
+
+
+async def run(input: Lead) -> str:
+    return input.email
+`;
+
+/** Scaffold a minimal Python package: workflow.jsonc + main.py at the root. */
+function writePyPkg(pkg: string, opts: { slug?: string; descriptor?: string } = {}): void {
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(
+    join(pkg, "workflow.jsonc"),
+    opts.descriptor ??
+      `{
+  // python starter
+  "slug": "${opts.slug ?? "py-demo"}",
+  "triggers": [{ "kind": "manual" }],
+}`,
+  );
+  writeFileSync(join(pkg, "main.py"), PY_PROGRAM);
+}
+
+/** A fake uv that simulates lock + export + a target install of one tiny package. */
+function fakeUv(rootDir: string, calls: string[][]): UvRunner {
+  return (args) => {
+    calls.push(args);
+    if (args[0] === "lock") {
+      writeFileSync(join(rootDir, "uv.lock"), `version = 1\n# frozen by fake uv\n`);
+    }
+    if (args[0] === "pip") {
+      const target = args[args.indexOf("--target") + 1] ?? "";
+      mkdirSync(join(target, "pydantic"), { recursive: true });
+      writeFileSync(join(target, "pydantic", "__init__.py"), "VERSION = '2'\n");
+      mkdirSync(join(target, "pydantic-2.0.dist-info"), { recursive: true });
+      writeFileSync(join(target, "pydantic-2.0.dist-info", "METADATA"), "Name: pydantic\n");
+      // Never-packed noise:
+      mkdirSync(join(target, "pydantic", "__pycache__"), { recursive: true });
+      writeFileSync(join(target, "pydantic", "__pycache__", "x.pyc"), "junk");
+      mkdirSync(join(target, "bin"), { recursive: true });
+      writeFileSync(join(target, "bin", "shim"), "#!/tmp/xyz/python\n");
+    }
+    return { status: 0, stderr: "" };
+  };
+}
+
+const uvNeverCalled: UvRunner = () => {
+  throw new Error("uv must not be invoked for a package with no declared dependencies");
+};
+
+describe("buildArtifact — Python packages", () => {
+  let dir: string;
+  let pkg: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "bw-art-py-"));
+    pkg = join(dir, "pkg");
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("builds a no-dep package WITHOUT uv: no bundle, entry main.py, sources in .bw-src", async () => {
+    writePyPkg(pkg, { slug: "py-solo" });
+    writeFileSync(join(pkg, "helper.py"), "def x():\n    return 1\n");
+    writeFileSync(join(pkg, "README.md"), "# py");
+
+    const art = await buildArtifact(pkg, { uvRun: uvNeverCalled });
+
+    expect(art.language).toBe("python");
+    expect(art.slug).toBe("py-solo");
+    expect(art.entry).toBe("main.py"); // package-relative source path — there is no bundle
+    expect(art.sdkVersion).toBe(UNPINNED_SDK); // the Python SDK ships in the runtime, not PyPI
+    expect(art.lockfileDigest).toBeNull();
+    expect(art.machinePaths).toEqual([]); // no deps declared ⇒ no machine layer — valid
+    expect(art.machineBytes).toBe(0);
+
+    const out = extractTo(art.tarball, dir);
+    expect(existsSync(join(out, "index.mjs"))).toBe(false);
+    expect(existsSync(join(out, MACHINE_DIR))).toBe(false);
+    expect(readFileSync(join(out, "workflow.jsonc"), "utf8")).toContain("// python starter");
+    expect(readFileSync(join(out, SOURCE_DIR, "main.py"), "utf8")).toBe(PY_PROGRAM);
+    expect(readFileSync(join(out, SOURCE_DIR, "helper.py"), "utf8")).toContain("def x()");
+    expect(readFileSync(join(out, "README.md"), "utf8")).toBe("# py"); // conventions unchanged
+  });
+
+  it("resolves a declared .py entry, and defaults to main.py only when no TS entry exists", async () => {
+    // Declared entry in a subdirectory:
+    writePyPkg(pkg, {
+      descriptor: `{ "slug": "py-sub", "entry": "src/app.py", "triggers": [{ "kind": "manual" }] }`,
+    });
+    rmSync(join(pkg, "main.py"));
+    mkdirSync(join(pkg, "src"), { recursive: true });
+    writeFileSync(join(pkg, "src", "app.py"), PY_PROGRAM);
+    const art = await buildArtifact(pkg, { uvRun: uvNeverCalled });
+    expect(art.language).toBe("python");
+    expect(art.entry).toBe("src/app.py");
+
+    // A TS entry wins over main.py when both exist (main.py is the PYTHON default, not a global one).
+    const pkg2 = join(dir, "pkg2");
+    writePyPkg(pkg2, { slug: "ts-wins" });
+    mkdirSync(join(pkg2, "src"), { recursive: true });
+    writeFileSync(
+      join(pkg2, "src", "index.ts"),
+      `export default async function run() { return 1; }`,
+    );
+    const art2 = await buildArtifact(pkg2, { typesHarvest: false, uvRun: uvNeverCalled });
+    expect(art2.language).toBe("typescript");
+    expect(art2.entry).toBe(ENTRY_OUTPUT);
+  });
+
+  it("never ships .venv/__pycache__/.env*/dotfiles/compiled files in the author layer", async () => {
+    writePyPkg(pkg, { slug: "py-clean" });
+    mkdirSync(join(pkg, ".venv", "lib"), { recursive: true });
+    writeFileSync(join(pkg, ".venv", "lib", "big.py"), "nope");
+    mkdirSync(join(pkg, "__pycache__"), { recursive: true });
+    writeFileSync(join(pkg, "__pycache__", "main.cpython-313.pyc"), "nope");
+    writeFileSync(join(pkg, "main.pyc"), "nope");
+    writeFileSync(join(pkg, ".env"), "SECRET=1");
+    writeFileSync(join(pkg, ".envrc"), "export SECRET=1");
+    mkdirSync(join(pkg, "demo.egg-info"), { recursive: true });
+    writeFileSync(join(pkg, "demo.egg-info", "PKG-INFO"), "nope");
+    mkdirSync(join(pkg, "sub"), { recursive: true });
+    writeFileSync(join(pkg, "sub", "mod.py"), "Y = 2\n");
+    mkdirSync(join(pkg, "sub", "__pycache__"), { recursive: true });
+    writeFileSync(join(pkg, "sub", "__pycache__", "mod.pyc"), "nope");
+
+    const art = await buildArtifact(pkg, { uvRun: uvNeverCalled });
+    const out = extractTo(art.tarball, dir);
+    expect(readFileSync(join(out, SOURCE_DIR, "sub", "mod.py"), "utf8")).toBe("Y = 2\n");
+    expect(existsSync(join(out, SOURCE_DIR, ".venv"))).toBe(false);
+    expect(existsSync(join(out, SOURCE_DIR, "__pycache__"))).toBe(false);
+    expect(existsSync(join(out, SOURCE_DIR, "sub", "__pycache__"))).toBe(false);
+    expect(existsSync(join(out, SOURCE_DIR, "main.pyc"))).toBe(false);
+    expect(existsSync(join(out, SOURCE_DIR, ".env"))).toBe(false);
+    expect(existsSync(join(out, SOURCE_DIR, ".envrc"))).toBe(false);
+    expect(existsSync(join(out, SOURCE_DIR, "demo.egg-info"))).toBe(false);
+  });
+
+  it("materializes pyproject deps under .bw-machine/site-packages/ and ships the refreshed uv.lock", async () => {
+    writePyPkg(pkg, { slug: "py-deps" });
+    writeFileSync(
+      join(pkg, "pyproject.toml"),
+      `[project]\nname = "py-deps"\nversion = "0.0.0"\ndependencies = ["pydantic>=2"]\n`,
+    );
+    const calls: string[][] = [];
+    // typesHarvest:false must NOT skip the layer — site-packages is load-bearing, no opt-out.
+    const art = await buildArtifact(pkg, { typesHarvest: false, uvRun: fakeUv(pkg, calls) });
+
+    expect(calls.map((c) => c[0])).toEqual(["lock", "export", "pip"]);
+    expect(art.machinePaths).toEqual([
+      `${MACHINE_SITE_PACKAGES_DIR}/pydantic-2.0.dist-info/METADATA`,
+      `${MACHINE_SITE_PACKAGES_DIR}/pydantic/__init__.py`,
+    ]);
+    expect(art.machineBytes).toBeGreaterThan(0);
+    // uv.lock (refreshed by `uv lock` before the sources were collected) anchors reproducibility.
+    expect(art.lockfileDigest).toBe(pythonLockfileDigest(pkg));
+    expect(art.lockfileDigest).toMatch(/^[0-9a-f]{64}$/);
+
+    const out = extractTo(art.tarball, dir);
+    expect(
+      readFileSync(join(out, MACHINE_SITE_PACKAGES_DIR, "pydantic", "__init__.py"), "utf8"),
+    ).toBe("VERSION = '2'\n");
+    // The dependency declarations round-trip with the sources (Python has no bundle step).
+    expect(readFileSync(join(out, SOURCE_DIR, "pyproject.toml"), "utf8")).toContain("pydantic>=2");
+    expect(readFileSync(join(out, SOURCE_DIR, "uv.lock"), "utf8")).toContain("frozen by fake uv");
+    // Bytecode and console-script shims never land in the layer.
+    expect(existsSync(join(out, MACHINE_SITE_PACKAGES_DIR, "bin"))).toBe(false);
+    expect(existsSync(join(out, MACHINE_SITE_PACKAGES_DIR, "pydantic", "__pycache__"))).toBe(false);
+  });
+
+  it("uv missing + deps declared → a clear install-command error; requirements.txt also triggers resolution", async () => {
+    writePyPkg(pkg, { slug: "py-nouv" });
+    writeFileSync(join(pkg, "requirements.txt"), "httpx==0.27.0\n");
+    const enoent: UvRunner = () => ({
+      status: null,
+      stderr: "",
+      error: Object.assign(new Error("spawn uv ENOENT"), { code: "ENOENT" }),
+    });
+    await expect(buildArtifact(pkg, { uvRun: enoent })).rejects.toThrow(/needs `uv`/);
+  });
+
+  it("is deterministic — same tree ⇒ same digest", async () => {
+    writePyPkg(pkg, { slug: "py-stable" });
+    const a = await buildArtifact(pkg, { uvRun: uvNeverCalled });
+    const b = await buildArtifact(pkg, { uvRun: uvNeverCalled });
+    expect(a.digest).toBe(b.digest);
+    writeFileSync(join(pkg, "main.py"), PY_PROGRAM + "\nX = 1\n");
+    const c = await buildArtifact(pkg, { uvRun: uvNeverCalled });
+    expect(c.digest).not.toBe(a.digest);
   });
 });

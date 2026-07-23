@@ -112,13 +112,14 @@ function buildProgram(): Command {
     .argument("[dir]", "directory to scaffold into (created if missing)", ".")
     .option(
       "--template <name>",
-      "template: the built-in `hello`, or any name from the examples registry",
+      "template: the built-in `hello` / `hello-python`, or any name from the examples registry",
       "hello",
     )
+    .option("--python", "scaffold a Python workflow (main.py + pyproject.toml)", false)
     .description("Scaffold a new workflow project from a template.")
-    .action(async (dir: string, options: { template?: string }) => {
+    .action(async (dir: string, options: { template?: string; python?: boolean }) => {
       const { runInit } = await import("./commands/init.js");
-      await runInit({ dir, template: options.template ?? "hello" });
+      await runInit({ dir, template: options.template ?? "hello", python: options.python });
     });
 
   program

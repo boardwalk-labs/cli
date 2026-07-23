@@ -90,4 +90,25 @@ describe("runCheck", () => {
       /Bundling failed/,
     );
   });
+
+  it("checks a Python package: entry + layer summary + the backend-rejects-py-today note", async () => {
+    writeFileSync(
+      join(dir, "workflow.jsonc"),
+      `{ "slug": "py-wf", "triggers": [{ "kind": "manual" }] }`,
+    );
+    writeFileSync(join(dir, "main.py"), "async def run(input):\n    return input\n");
+
+    const lines: string[] = [];
+    await runCheck({ file: dir }, { log: (l) => lines.push(l) });
+    const out = lines.join("\n");
+    expect(out).toContain('"py-wf" is valid');
+    expect(out).toContain("entry:    main.py (python)");
+    // The machine-layer summary line — the Python sibling of the TS harvest line.
+    expect(out).toContain("site-packages: none (no dependencies declared)");
+    expect(out).not.toContain("types harvest:");
+    // Honest about today's backend: .py entries are rejected at deploy until derivation lands,
+    // but the local build itself is valid.
+    expect(out).toContain("don't accept Python entries yet");
+    expect(out).toContain("derive at deploy");
+  });
 });

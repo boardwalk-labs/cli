@@ -102,6 +102,61 @@ describe("runInit (built-in template)", () => {
     expect(existsSync(join(target, ".claude"))).toBe(false);
   });
 
+  it("scaffolds --python: main.py entry, pydantic models, pyproject with no boardwalk dep", async () => {
+    const target = join(dir, "lead-scorer");
+    const lines: string[] = [];
+    await runInit(
+      { dir: target, template: "hello", python: true },
+      { log: (l) => lines.push(l), fetchImpl: offlineFetch },
+    );
+
+    for (const f of ["workflow.jsonc", "main.py", "pyproject.toml", "README.md", ".gitignore"]) {
+      expect(existsSync(join(target, f)), f).toBe(true);
+    }
+    // No TS scaffolding in a Python project.
+    expect(existsSync(join(target, "package.json"))).toBe(false);
+    expect(existsSync(join(target, "tsconfig.json"))).toBe(false);
+
+    // The descriptor is schema-valid and names the Python entry.
+    const { descriptor } = loadDescriptor(target);
+    expect(descriptor.slug).toBe("lead-scorer");
+    expect(descriptor.entry).toBe("main.py");
+    expect(descriptor.triggers).toEqual([{ kind: "manual" }]);
+
+    // The program mirrors the package-format spec's §10 shape: pydantic in/out, async def run.
+    const program = readFileSync(join(target, "main.py"), "utf8");
+    expect(program).toContain("from boardwalk import agent");
+    expect(program).toContain("from pydantic import BaseModel");
+    expect(program).toContain("class Lead(BaseModel)");
+    expect(program).toContain("class Score(BaseModel)");
+    expect(program).toContain("async def run(input: Lead) -> Score:");
+
+    // pyproject: pydantic declared; the boardwalk SDK ships in the runtime and is NOT a dep
+    // (the PyPI package is unpublished until the flip) — only a commented note.
+    const pyproject = readFileSync(join(target, "pyproject.toml"), "utf8");
+    expect(pyproject).toContain(`name = "lead-scorer"`);
+    expect(pyproject).toMatch(/dependencies = \[\s*\n\s*"pydantic>=2"/);
+    expect(pyproject).toMatch(/#\s*"boardwalk"/);
+    expect(pyproject).not.toMatch(/^\s*"boardwalk"/m);
+
+    const gitignore = readFileSync(join(target, ".gitignore"), "utf8");
+    expect(gitignore).toContain(".venv/");
+    expect(gitignore).toContain("__pycache__/");
+
+    const out = lines.join("\n");
+    expect(out).toContain('scaffolded "lead-scorer" (template: hello-python)');
+    expect(out).not.toContain("npm install");
+  });
+
+  it("--python with a conflicting --template is an error", async () => {
+    await expect(
+      runInit(
+        { dir: join(dir, "x"), template: "code-review", python: true },
+        { log: () => undefined, fetchImpl: offlineFetch },
+      ),
+    ).rejects.toThrow(/mutually exclusive/);
+  });
+
   it("titles the README after the workflow, so it ships as the dashboard landing page", async () => {
     const target = join(dir, "my-digest");
     await runInit(
@@ -253,7 +308,7 @@ describe("runInit (registry template)", () => {
     }
     expect(caught).toMatchObject({
       message: expect.stringContaining("Unknown template"),
-      hint: expect.stringContaining("hello, remote-digest"),
+      hint: expect.stringContaining("hello, hello-python, remote-digest"),
     });
   });
 

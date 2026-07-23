@@ -203,6 +203,7 @@ describe("deployWithLink", () => {
     tarball: new Uint8Array([1, 2, 3]),
     digest: "a".repeat(64),
     size: 3,
+    language: "typescript",
     entry: "index.mjs",
     slug: "n",
     descriptorFileName: "workflow.jsonc",

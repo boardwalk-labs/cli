@@ -23,6 +23,8 @@ import { resolveLog } from "../log.js";
 export interface InitOptions {
   dir: string;
   template: string;
+  /** `--python`: scaffold the built-in Python template (main.py + pyproject.toml). */
+  python?: boolean | undefined;
 }
 
 export interface InitDeps {
@@ -156,6 +158,113 @@ const HELLO_GITIGNORE = `node_modules/
 .boardwalk/
 `;
 
+// ── The built-in Python template (`init --python`, offline like `hello`) ────────────────
+//
+// The same two-file shape in Python: a `run` function (main.py) + the descriptor. Mirrors the
+// package-format spec's §10 example — pydantic models in/out, `async def run` — because native
+// types ARE the I/O contract in both languages. Dependencies resolve at build time with uv; the
+// `boardwalk` SDK ships in the runtime, so the scaffold deliberately does NOT depend on the (not
+// yet published) PyPI package.
+
+const HELLO_PY_DESCRIPTOR = `{
+  // The deployment descriptor — what the control plane must know WITHOUT running your code.
+  // Your behavior and I/O contract live in main.py; this file is policy, read as data.
+  "$schema": "https://boardwalk.sh/schemas/workflow.json",
+  "slug": "{{slug}}",
+  "title": "{{title}}",
+  "entry": "main.py",
+  "triggers": [
+    { "kind": "manual" },
+    // Run on a schedule, or on an authenticated webhook:
+    //   { "kind": "cron", "expr": "0 9 * * 1-5", "timezone": "America/New_York" },
+    //   { "kind": "webhook", "auth": "token" },
+  ],
+  // Secrets the run may read (set values with \`boardwalk secrets set\`):
+  //   "permissions": { "secrets": [{ "name": "STRIPE_API_KEY" }] },
+  // Cost caps — a breach pauses the run for approval, never a hard kill:
+  //   "budget": { "max_usd": 5 },
+}
+`;
+
+const HELLO_PY_PROGRAM = `from typing import Literal
+
+from boardwalk import agent  # a capability - imported, like boto3
+from pydantic import BaseModel
+
+
+# Your native types ARE the I/O contract: the deploy derives their schemas, so the
+# dashboard's run form and other callers know the shape. No annotation is fine too -
+# a bare \`def run(input)\` receives the raw JSON untouched.
+class Lead(BaseModel):
+    email: str
+    company: str
+
+
+class Score(BaseModel):
+    score: int
+    tier: Literal["hot", "warm", "cold"]
+
+
+# The platform calls this function with the trigger's payload; whatever you return is
+# the run's output. Add \`, context\` only if you need run metadata.
+async def run(input: Lead) -> Score:
+    signals = await agent(f"Find buying signals for {input.company}")
+    score = int(await agent(f"Score 0-100, reply with digits only:\\n{signals}"))
+    return Score(score=score, tier="hot" if score > 70 else "warm" if score > 40 else "cold")
+`;
+
+const HELLO_PY_PYPROJECT = `[project]
+name = "{{slug}}"
+version = "0.0.0"
+requires-python = ">=3.13"
+dependencies = [
+  "pydantic>=2",
+  # The \`boardwalk\` SDK ships in the Boardwalk runtime — a deploy needs no install here.
+  # It publishes to PyPI when Python workflows go GA; add it then for editor type-checking:
+  # "boardwalk",
+]
+`;
+
+const HELLO_PY_README = `# {{title}}
+
+Scores an inbound lead. Replace this paragraph with what your workflow is really for:
+what it touches, what it costs, and what to do when it pages you. This file is the workflow's
+landing page in the Boardwalk dashboard, so write it for whoever debugs the workflow at 3am rather
+than whoever wrote it. \`workflow.jsonc\` already states the triggers and the budget, so don't
+restate them here.
+
+## Setup
+
+No secrets required. When you add one, declare it under \`permissions.secrets\` in
+\`workflow.jsonc\`, set its value with \`boardwalk secrets set\`, and note here how to get one.
+
+## Run
+
+\`\`\`sh
+boardwalk check .                                        # validate it locally (resolves deps with uv)
+boardwalk run . --org <your-org> --input '{"email":"ada@example.com","company":"Acme"}'
+\`\`\`
+
+## How it works
+
+\`main.py\` exports the workflow: an \`async def run(input)\` function the platform calls with the
+trigger's payload. Its return value is the run's output. \`workflow.jsonc\` is the deployment
+descriptor — the triggers, permissions, and budget the control plane enforces around the run.
+Dependencies declared in \`pyproject.toml\` are resolved and frozen with \`uv\` at build time and
+ship inside the artifact — nothing installs when a run starts.
+
+## Make it yours
+
+Grow the \`Lead\` and \`Score\` models — the deploy derives their schemas so the dashboard's run
+form never lies. Then swap the \`manual\` trigger for a \`cron\` expression to run it on a schedule.
+`;
+
+const HELLO_PY_GITIGNORE = `.venv/
+__pycache__/
+.env
+.boardwalk/
+`;
+
 const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
   hello: {
     "workflow.jsonc": HELLO_DESCRIPTOR,
@@ -164,6 +273,13 @@ const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
     "package.json": HELLO_PACKAGE_JSON,
     "tsconfig.json": HELLO_TSCONFIG,
     ".gitignore": HELLO_GITIGNORE,
+  },
+  "hello-python": {
+    "workflow.jsonc": HELLO_PY_DESCRIPTOR,
+    "main.py": HELLO_PY_PROGRAM,
+    "pyproject.toml": HELLO_PY_PYPROJECT,
+    "README.md": HELLO_PY_README,
+    ".gitignore": HELLO_PY_GITIGNORE,
   },
 };
 
@@ -179,7 +295,18 @@ interface RegistryTemplate {
 export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<void> {
   const log = resolveLog(deps);
 
-  const builtin = BUILTIN_TEMPLATES[opts.template];
+  let templateName = opts.template;
+  if (opts.python === true) {
+    if (opts.template !== "hello" && opts.template !== "hello-python") {
+      throw new CliError(
+        "--python and --template are mutually exclusive.",
+        "`--python` selects the built-in Python template; drop one of the flags.",
+      );
+    }
+    templateName = "hello-python";
+  }
+
+  const builtin = BUILTIN_TEMPLATES[templateName];
   if (builtin !== undefined) {
     const dir = resolve(opts.dir);
     const slug = workflowSlugFor(dir);
@@ -194,9 +321,9 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
       ]),
     );
     scaffold(dir, files);
-    log(`✓ scaffolded "${slug}" (template: ${opts.template})`);
+    log(`✓ scaffolded "${slug}" (template: ${templateName})`);
     await writeAgentSkills(dir, deps, log);
-    finish(log, opts, []);
+    finish(log, opts, [], templateName === "hello-python" ? "python" : "typescript");
     return;
   }
 
@@ -309,10 +436,20 @@ function scaffold(dir: string, files: Record<string, string>): void {
   }
 }
 
-function finish(log: (line: string) => void, opts: InitOptions, secrets: readonly string[]): void {
+function finish(
+  log: (line: string) => void,
+  opts: InitOptions,
+  secrets: readonly string[],
+  language: "typescript" | "python" = "typescript",
+): void {
   log("");
   log("next:");
-  log(`  cd ${opts.dir === "." ? "." : opts.dir} && npm install`);
+  if (language === "python") {
+    // No install step: deps resolve at build/deploy time with uv. A local venv is editor comfort.
+    log(`  cd ${opts.dir === "." ? "." : opts.dir}   # optional: \`uv sync\` for editor support`);
+  } else {
+    log(`  cd ${opts.dir === "." ? "." : opts.dir} && npm install`);
+  }
   if (secrets.length > 0) {
     log(`  boardwalk secrets set <name> --org <your-org>   # needed: ${secrets.join(", ")}`);
   }

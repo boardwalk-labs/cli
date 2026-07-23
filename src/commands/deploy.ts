@@ -91,7 +91,9 @@ export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<
   log(
     `  built ${prog.entry} (${String(prog.artifact.size)} bytes${assets > 0 ? `, ${String(assets)} asset${assets === 1 ? "" : "s"}` : ""})`,
   );
-  if (opts.typesHarvest !== false) log(`  ${formatMachineSummary(prog.artifact)}`);
+  if (opts.typesHarvest !== false || prog.artifact.language === "python") {
+    log(`  ${formatMachineSummary(prog.artifact)}`);
+  }
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({

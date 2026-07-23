@@ -25,8 +25,11 @@ import { CliError } from "./errors.js";
 /** The two accepted descriptor filenames — comments allowed vs. strict JSON. Having both is an error. */
 export const DESCRIPTOR_NAMES = ["workflow.jsonc", "workflow.json"] as const;
 
-/** Default entry candidates when the descriptor names no `entry` (the `src/index.ts` convention). */
+/** Default entry candidates when the descriptor names no `entry` (the `src/index.ts` convention).
+ *  Python's default, `main.py` at the package root, is tried after these — a `.py` resolved entry
+ *  is what routes the build down the Python path (no bundle, no types harvest). */
 const DEFAULT_ENTRIES = ["src/index.ts", "src/index.mts", "src/index.js", "src/index.mjs"] as const;
+const DEFAULT_PYTHON_ENTRY = "main.py";
 
 const FORMAT_HINT =
   "A workflow package is a directory with a `workflow.jsonc` descriptor at its root and a " +
@@ -116,12 +119,12 @@ export function resolveRunEntry(rootDir: string, descriptor: WorkflowDescriptor)
     }
     return abs;
   }
-  for (const candidate of DEFAULT_ENTRIES) {
+  for (const candidate of [...DEFAULT_ENTRIES, DEFAULT_PYTHON_ENTRY]) {
     const abs = join(rootDir, candidate);
     if (existsSync(abs)) return abs;
   }
   throw new CliError(
     `No entry found in ${rootDir}.`,
-    `Add a src/index.ts exporting a default run function, or set "entry" in workflow.jsonc.`,
+    `Add a src/index.ts exporting a default run function (or a main.py for Python), or set "entry" in workflow.jsonc.`,
   );
 }

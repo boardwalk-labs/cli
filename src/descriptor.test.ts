@@ -135,6 +135,23 @@ describe("resolveRunEntry", () => {
     expect(resolveRunEntry(dir, descriptorWith("main.ts"))).toBe(join(dir, "main.ts"));
   });
 
+  it("falls back to main.py (the Python default) when no TS entry exists", () => {
+    writeFileSync(join(dir, "main.py"), "async def run(input):\n    return input\n");
+    expect(resolveRunEntry(dir, descriptorWith())).toBe(join(dir, "main.py"));
+  });
+
+  it("prefers the TS default over main.py when both exist", () => {
+    writeFileSync(join(dir, "main.py"), "async def run(input):\n    return input\n");
+    mkdirSync(join(dir, "src"));
+    writeFileSync(join(dir, "src", "index.ts"), "export default async function run() {}");
+    expect(resolveRunEntry(dir, descriptorWith())).toBe(join(dir, "src", "index.ts"));
+  });
+
+  it("honors a declared .py entry", () => {
+    writeFileSync(join(dir, "app.py"), "async def run(input):\n    return input\n");
+    expect(resolveRunEntry(dir, descriptorWith("app.py"))).toBe(join(dir, "app.py"));
+  });
+
   it("errors when the declared entry is missing", () => {
     expect(() => resolveRunEntry(dir, descriptorWith("nope.ts"))).toThrow(/does not exist/);
   });

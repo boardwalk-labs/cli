@@ -2,6 +2,31 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## Unreleased
+
+### Added
+
+- **Python workflow packages build end-to-end** (`init --python`, `check`, `build`, `deploy`). A
+  package whose resolved entry is a `.py` file — the descriptor's `entry`, or `main.py` at the
+  package root when no TS entry exists — builds down the Python path: no esbuild bundle and no
+  types harvest. The author layer is the `.py` source tree under `.bw-src/` (never `.venv`,
+  `__pycache__`, `.env*`, or dotfiles) with `pyproject.toml`/`requirements.txt`/`uv.lock` riding
+  along (Python has no bundle step, so the dependency declarations are part of the program), plus
+  the descriptor verbatim and the unchanged `skills/**` + README + `files` conventions. Declared
+  dependencies (`[project].dependencies` in `pyproject.toml`, preferred, or `requirements.txt`)
+  are resolved + frozen at build time with `uv` — lockfile-pinned (`uv lock` → `uv export
+--frozen`), installed into a temp target, and packed as the machine layer at
+  `.bw-machine/site-packages/` (the ratified sibling of `.bw-machine/types/`), cross-targeted to
+  the hosted runner's platform (x86_64 Linux, CPython 3.13). Nothing installs on the run hot path
+  or into the author's environment; a package with no dependencies builds without uv at all, and
+  a missing uv errors with the install command only when resolution is actually needed.
+  Byte-compiling (.pyc) is deliberately skipped until the microVM cold-start benchmark decides
+  it. `boardwalk init --python` scaffolds the descriptor (`entry: "main.py"`), a pydantic-typed
+  `main.py`, a `pyproject.toml` (no dependency on the not-yet-published `boardwalk` PyPI package
+  — the SDK ships in the runtime), and a Python `.gitignore`. `check` prints the site-packages
+  layer summary and notes that hosted deploys don't accept Python entries until the backend's
+  `.py` schema derivation lands.
+
 ## 0.2.10
 
 ### Fixed
