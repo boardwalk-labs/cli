@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: MIT
 
-// `boardwalk build <file|dir> [--out <path>]` — bundle a workflow to a single deployable file.
+// `boardwalk build <dir> [--out <path>]` — build a workflow package into its deploy artifact.
 //
-// Emits one ESM file with `@boardwalk-labs/workflow` left EXTERNAL (the engine resolves its own
-// copy at run time) and the pure-literal `meta` intact — exactly what a self-hosted server's
-// workflows directory loads (BOARDWALK_WORKFLOWS_DIR). The manifest is validated first so authoring
-// mistakes surface here, not at deploy. Default output: `<workflow-name>.mjs` in the cwd.
+// Produces the EXACT content-addressed `.tgz` a deploy uploads: the bundled entry (`index.mjs` +
+// sourcemap, `@boardwalk-labs/workflow` left external), the descriptor verbatim at the artifact
+// root, the author's source tree under `.bw-src/`, `skills/**` + README + the descriptor's `files`
+// assets, and the TypeScript types harvest under `.bw-machine/types/` (on by default — the backend
+// derives the I/O schemas from it at deploy). Default output: `<slug>.tgz` in the cwd.
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { bundleWorkflow, resolveEntry } from "../bundle.js";
-import { extractValidatedManifest } from "../manifest.js";
+import { buildArtifact, formatMachineSummary } from "../artifact.js";
 import { resolveLog } from "../log.js";
 
 export interface BuildOptions {
   file: string;
   out?: string | undefined;
+  /** Pack the types harvest (default ON; `--no-types-harvest` opts out). */
+  typesHarvest?: boolean | undefined;
 }
 
 export interface BuildDeps {
@@ -23,20 +25,20 @@ export interface BuildDeps {
   log?: (line: string) => void;
 }
 
-/** Build the workflow and return the absolute path it was written to. */
+/** Build the workflow artifact and return the absolute path it was written to. */
 export async function runBuild(opts: BuildOptions, deps: BuildDeps = {}): Promise<string> {
   const log = resolveLog(deps);
 
-  const entry = resolveEntry(opts.file);
-  // Validate before bundling: precise manifest errors here, and the name seeds the default output.
-  const source = readFileSync(entry, "utf8");
-  const manifest = extractValidatedManifest(source, entry);
-  const program = await bundleWorkflow(entry);
+  const harvest = opts.typesHarvest !== false;
+  const artifact = await buildArtifact(opts.file, { typesHarvest: harvest });
 
-  const outPath = resolve(opts.out ?? `${manifest.slug}.mjs`);
+  const outPath = resolve(opts.out ?? `${artifact.slug}.tgz`);
   mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, program, "utf8");
+  writeFileSync(outPath, artifact.tarball);
 
-  log(`built "${manifest.slug}" → ${outPath}`);
+  log(
+    `built "${artifact.slug}" → ${outPath} (${String(artifact.size)} bytes, sha256 ${artifact.digest.slice(0, 12)}…)`,
+  );
+  if (harvest) log(`  ${formatMachineSummary(artifact)}`);
   return outPath;
 }

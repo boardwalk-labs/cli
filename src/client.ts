@@ -46,6 +46,9 @@ export interface WorkflowSummary {
 export interface DeployResult {
   workflow: WorkflowSummary;
   version: { id: string; number: number };
+  /** Schema-derivation warnings from the server (an ADDITIVE field — older backends omit it, so
+   *  it's read leniently and defaults to []). Each entry is a human-readable line. */
+  warnings: string[];
 }
 
 /** The verified-artifact reference the finalize call records on the new version. */
@@ -1122,7 +1125,11 @@ export class BoardwalkClient {
 
   private deployResult(body: unknown): DeployResult {
     if (isRecord(body) && isWorkflowSummary(body.workflow) && isVersion(body.version)) {
-      return { workflow: body.workflow, version: body.version };
+      return {
+        workflow: body.workflow,
+        version: body.version,
+        warnings: parseWarnings(body.warnings),
+      };
     }
     throw new CliError("The API returned an unexpected workflow response shape.");
   }
@@ -1596,6 +1603,21 @@ function isWorkflowSummary(value: unknown): value is WorkflowSummary {
 function isVersion(value: unknown): value is { id: string; number: number } {
   if (!isRecord(value)) return false;
   return typeof value.id === "string" && typeof value.number === "number";
+}
+
+/** Read the deploy response's `warnings` LENIENTLY: absent/malformed → []; entries may be plain
+ *  strings or `{ message }` records (whichever shape the server settles on); anything else is
+ *  skipped rather than failing an otherwise-successful deploy. */
+function parseWarnings(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string" && entry.length > 0) out.push(entry);
+    else if (isRecord(entry) && typeof entry.message === "string" && entry.message.length > 0) {
+      out.push(entry.message);
+    }
+  }
+  return out;
 }
 
 function isRunSummary(value: unknown): value is RunSummary {

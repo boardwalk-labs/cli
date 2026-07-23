@@ -4,15 +4,16 @@
 //
 // Commands:
 //   boardwalk init [dir]                Scaffold a new workflow project from a template.
-//   boardwalk check <file>              Validate a workflow locally (no auth/network).
+//   boardwalk check <dir>               Validate a workflow package locally (no auth/network).
+//   boardwalk build <dir>               Build the deployable artifact (.tgz).
 //   boardwalk login                     Authenticate via browser (OAuth PKCE).
 //   boardwalk logout                    Remove local credentials.
 //   boardwalk whoami                    Show the current session + orgs with ids (org lines are
 //                                       best-effort network; the session line still prints offline).
 //   boardwalk status                    Show host, login (live-verified), and project link.
 //   boardwalk setup                     Install wizard: log in, detect your agent, install its plugin.
-//   boardwalk deploy <file> --org <s>   Create/update a workflow from a program file.
-//   boardwalk run <file> --org <s>      Deploy + trigger a real run, wait for the result.
+//   boardwalk deploy <dir> [--org <s>]  Create/update a workflow from its package.
+//   boardwalk run <dir> [--org <s>]     Deploy + trigger a real run, wait for the result.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
 //   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
 //   boardwalk runs [runId] [--logs|--follow]  List recent runs, show one, or stream its logs.
@@ -30,7 +31,7 @@
 // else the stored session's own origin (so a dev/self-host login just works), else the prod default.
 //
 // Every command body is lazy-imported inside its action — `boardwalk --help` must stay fast, so
-// nothing heavy (esbuild, the SDK extractor, the API client) loads until its command actually runs.
+// nothing heavy (esbuild, the SDK, the API client) loads until its command actually runs.
 
 import { readFileSync } from "node:fs";
 import { Command } from "commander";
@@ -79,6 +80,8 @@ interface DeployCliOptions {
   org?: string;
   dryRun?: boolean;
   token?: string;
+  yes?: boolean;
+  /** Commander `--no-types-harvest`: defaults true, false when the flag is passed. */
   typesHarvest?: boolean;
 }
 
@@ -88,11 +91,13 @@ interface RunCliOptions {
   environment?: string;
   token?: string;
   wait?: boolean;
+  yes?: boolean;
   json?: boolean;
 }
 
 interface BuildCliOptions {
   out?: string;
+  typesHarvest?: boolean;
 }
 
 function buildProgram(): Command {
@@ -118,28 +123,28 @@ function buildProgram(): Command {
 
   program
     .command("check")
-    .argument("<file>", "workflow program file, or a package directory")
+    .argument("<dir>", "workflow package directory (holding workflow.jsonc)")
     .option(
-      "--types-harvest",
-      "also pack + report the TypeScript types harvest (machine layer; experimental, needs backend support)",
-      false,
+      "--no-types-harvest",
+      "skip packing the TypeScript types harvest (the machine layer the backend derives I/O schemas from)",
     )
-    .description("Validate a workflow locally (no auth, no network).")
+    .description(
+      "Validate a workflow package locally (no auth, no network; schemas derive at deploy).",
+    )
     .action(async (file: string, options: { typesHarvest?: boolean }) => {
       const { runCheck } = await import("./commands/check.js");
-      await runCheck({ file, typesHarvest: options.typesHarvest ?? false });
+      await runCheck({ file, typesHarvest: options.typesHarvest });
     });
 
   program
     .command("build")
-    .argument("<file>", "workflow program file, or a package directory")
-    .option("--out <path>", "output file (default: <workflow-name>.mjs in the cwd)")
-    .description(
-      "Bundle a workflow to one deployable .mjs (for a self-hosted server's workflows dir).",
-    )
+    .argument("<dir>", "workflow package directory (holding workflow.jsonc)")
+    .option("--out <path>", "output file (default: <slug>.tgz in the cwd)")
+    .option("--no-types-harvest", "skip packing the TypeScript types harvest (machine layer)")
+    .description("Build a workflow package into its deployable artifact (.tgz).")
     .action(async (file: string, options: BuildCliOptions) => {
       const { runBuild } = await import("./commands/build.js");
-      await runBuild({ file, out: options.out });
+      await runBuild({ file, out: options.out, typesHarvest: options.typesHarvest });
     });
 
   program
@@ -219,16 +224,16 @@ function buildProgram(): Command {
 
   program
     .command("deploy")
-    .argument("<file>", "workflow program file, or a package directory")
-    .option("--org <slug>", "the org to deploy into (optional once the project is linked)")
+    .argument("<dir>", "workflow package directory (holding workflow.jsonc)")
+    .option(
+      "--org <slug>",
+      "the org to deploy into (else: a single-org credential's scope, then the project link)",
+    )
     .option("--dry-run", "print the plan (create vs update) without writing", false)
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .option(
-      "--types-harvest",
-      "pack the TypeScript types harvest (machine layer) into the artifact (experimental, needs backend support)",
-      false,
-    )
-    .description("Create or update a workflow from a program file.")
+    .option("-y, --yes", "skip the confirmation when the deploy would CREATE a new workflow", false)
+    .option("--no-types-harvest", "skip packing the TypeScript types harvest (machine layer)")
+    .description("Create or update a workflow from its package.")
     .action(async (file: string, options: DeployCliOptions) => {
       const { runDeploy } = await import("./commands/deploy.js");
       await runDeploy(
@@ -237,7 +242,8 @@ function buildProgram(): Command {
           org: options.org,
           check: options.dryRun ?? false,
           token: options.token,
-          typesHarvest: options.typesHarvest ?? false,
+          yes: options.yes ?? false,
+          typesHarvest: options.typesHarvest,
         },
         { config: loadConfig() },
       );
@@ -245,21 +251,22 @@ function buildProgram(): Command {
 
   program
     .command("run")
-    .argument("<file>", "workflow program file, or a package directory")
+    .argument("<dir>", "workflow package directory (holding workflow.jsonc)")
     .option("--org <slug>", "the org to run in (optional once the project is linked)")
-    .option("--input <json>", "trigger payload exposed to the program as `input`")
+    .option("--input <json>", "trigger payload passed to run(input)")
     .option(
       "--environment <name>",
       "environment to run in (its secrets + variables; default: org base)",
     )
     .option("--no-wait", "trigger and exit without waiting for the run to finish")
+    .option("-y, --yes", "skip the confirmation when the deploy would CREATE a new workflow", false)
     .option(
       "--json",
       "print a JSON object ({ runId, status, ... }) on stdout; progress to stderr",
       false,
     )
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .description("Deploy the program, trigger a real run, and wait for the result.")
+    .description("Deploy the workflow, trigger a real run, and wait for the result.")
     .action(async (file: string, options: RunCliOptions) => {
       const { runRun } = await import("./commands/run.js");
       await runRun(
@@ -269,6 +276,7 @@ function buildProgram(): Command {
           input: options.input,
           environment: options.environment,
           noWait: options.wait === false,
+          yes: options.yes ?? false,
           json: options.json,
           token: options.token,
         },

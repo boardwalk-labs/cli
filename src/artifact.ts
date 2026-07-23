@@ -2,13 +2,22 @@
 
 // Build a deploy ARTIFACT — the frozen, content-addressed program the runner executes.
 //
-// The packaging model: a workflow is built into a JS artifact AT DEPLOY (never at runtime).
-// `buildArtifact` esbuild-bundles the entry into one `index.mjs` (+ external sourcemap,
-// `@boardwalk-labs/workflow` left external — the host layer), collects the package's non-code assets
-// (markdown skills, prompt templates) at their relative paths, and packs the lot into a
-// DETERMINISTIC `tar.gz`. The artifact is content-addressed by the sha256 of its bytes: the same
-// bytes the CLI uploads are the bytes the runner downloads + verifies, so integrity holds
-// regardless of determinism; determinism just lets identical programs dedup.
+// The packaging model (workflow-format redesign): a workflow package is a `run` function plus a
+// `workflow.jsonc` descriptor. `buildArtifact` validates the descriptor, esbuild-bundles the entry
+// into one `index.mjs` (+ external sourcemap, `@boardwalk-labs/workflow` left external — the host
+// layer), and packs a DETERMINISTIC `tar.gz` of:
+//
+//   index.mjs / index.mjs.map    — what the runner executes
+//   workflow.jsonc|.json         — the descriptor, VERBATIM at the artifact root (the control-plane
+//                                  contract; the backend reads it as data, comments stripped on parse)
+//   .bw-src/**                   — the author's original source tree (Code tab display + editing)
+//   skills/** + README.md        — always ship by convention, plus the descriptor's `files` globs
+//   .bw-machine/types/**         — the TypeScript types harvest (the machine layer the backend's
+//                                  derivation sandbox resolves the run signature against, offline)
+//
+// The artifact is content-addressed by the sha256 of its bytes: the same bytes the CLI uploads are
+// the bytes the runner downloads + verifies, so integrity holds regardless of determinism;
+// determinism just lets identical programs dedup.
 //
 // Pure logic + filesystem reads; no program execution, no network.
 
@@ -21,13 +30,14 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, posix, relative, resolve, sep } from "node:path";
+import { dirname, join, posix, relative, sep } from "node:path";
 import { create as tarCreate } from "tar";
-import { bundleWorkflowWithMap, isPackageDir, resolveEntry } from "./bundle.js";
+import type { WorkflowDescriptor } from "@boardwalk-labs/workflow";
+import { bundleWorkflowWithMap } from "./bundle.js";
+import { loadDescriptor, resolveProjectRoot, resolveRunEntry } from "./descriptor.js";
 import { CliError } from "./errors.js";
 import { isRecord } from "./guards.js";
 import { harvestTypes, type TypesHarvest } from "./types_harvest.js";
@@ -35,17 +45,15 @@ import { harvestTypes, type TypesHarvest } from "./types_harvest.js";
 const SDK_PACKAGE = "@boardwalk-labs/workflow";
 /** The entry module the runner imports after extraction. The whole local graph bundles into it. */
 export const ENTRY_OUTPUT = "index.mjs";
-/** Where the author's ORIGINAL sources live inside the artifact, stored verbatim so a dashboard's
- *  code view shows what the user wrote (blank lines + comments intact) and quick-edit round-trips
- *  real source — NOT the blank-line-stripped esbuild bundle. The runner never reads `.bw-src/`; it
- *  runs {@link ENTRY_OUTPUT}. */
+/** Where the author's ORIGINAL sources live inside the artifact, mirrored at their package-relative
+ *  paths so a dashboard's code view shows what the user wrote (blank lines + comments intact) and
+ *  quick-edit round-trips real source — NOT the blank-line-stripped esbuild bundle. The runner never
+ *  reads `.bw-src/`; it runs {@link ENTRY_OUTPUT}. */
 export const SOURCE_DIR = ".bw-src";
-/** A single-file program's source, stored under the canonical entry name. */
-export const SOURCE_FILE = `${SOURCE_DIR}/index.ts`;
 /**
- * MACHINE-LAYER root (workflow-format redesign, P1.1 — the two-layer artifact). Everything under
- * this prefix is build-produced input for the BACKEND DERIVATION SANDBOX, never author content:
- * it is not rendered in the Code tab, not editable, and not read by the runner.
+ * MACHINE-LAYER root (the two-layer artifact). Everything under this prefix is build-produced input
+ * for the BACKEND DERIVATION SANDBOX, never author content: it is not rendered in the Code tab, not
+ * editable, and not read by the runner.
  *
  * Layout contract (the backend's unpack/derivation side binds to exactly this):
  *
@@ -61,11 +69,8 @@ export const SOURCE_FILE = `${SOURCE_DIR}/index.ts`;
  * the compiler's normal resolution fully offline. Python's future machine layer (`site-packages`)
  * gets its own sibling under `.bw-machine/` — the `types/` segment is language-scoped on purpose.
  *
- * COMPATIBILITY: today's backend classifies any non-`.bw-src/`, non-`.mjs`/`.map` entry as a
- * bundled ASSET and caps asset read-back at 200 files — a packed harvest would break the Code tab
- * and web-edit carry-forward. The harvest is therefore gated behind an explicit opt-in
- * ({@link BuildArtifactOptions.typesHarvest}, surfaced as `--types-harvest`), default OFF; the
- * redesign's backend reserves `.bw-machine/` (as it reserves `.bw-src/`) and flips it on.
+ * The harvest is ON BY DEFAULT for the new format (the backend reserves `.bw-machine/` alongside
+ * `.bw-src/`); `--no-types-harvest` is the escape hatch for a build that doesn't want the bytes.
  */
 export const MACHINE_DIR = ".bw-machine";
 /** Where the TypeScript types harvest lives inside the artifact (see {@link MACHINE_DIR}). */
@@ -75,9 +80,10 @@ export const UNPINNED_SDK = "*";
 
 const LOCKFILES = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock"] as const;
 
-// Source the esbuild bundle already inlines (or emits) — never shipped raw as a runtime asset.
+// Source the esbuild bundle already inlines (or emits) — stored under `.bw-src/`, never shipped
+// raw as a runtime asset.
 const SOURCE_EXT = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".map"]);
-// Build/config files that are not runtime assets.
+// Build/config files that are not authored source.
 const EXCLUDE_FILES = new Set<string>([
   "package.json",
   "tsconfig.json",
@@ -99,12 +105,14 @@ const EXCLUDE_DIRS = new Set([
   ".turbo",
   ".cache",
 ]);
+/** The `files` conventions: `skills/**` and the root README always ship (§8 of the format spec). */
+const SKILLS_DIR = "skills";
 /** The workflow's landing-page filename, matched case-insensitively (README.md and readme.md are both
  *  common). ONE documented name, so a file either renders on the workflow's page or plainly doesn't,
  *  with no near-misses to guess at. Kept in lockstep with the dashboard's own lookup. */
 const README_NAME = "readme.md";
 
-/** One of the author's source files, stored under `.bw-src/` at its entry-relative POSIX path. */
+/** One of the author's source files, stored under `.bw-src/` at its package-relative POSIX path. */
 export interface ArtifactSource {
   relPath: string;
   content: Buffer;
@@ -128,16 +136,20 @@ export interface BuiltArtifact {
   size: number;
   /** Entry module within the extracted tree ({@link ENTRY_OUTPUT}). */
   entry: string;
+  /** The workflow's slug, from the validated descriptor — the deploy identity. */
+  slug: string;
+  /** The descriptor's artifact-root filename (`workflow.jsonc` or `workflow.json`). */
+  descriptorFileName: string;
+  /** The parsed, fully-defaulted descriptor (for `check`/plan output — the artifact carries the raw text). */
+  descriptor: WorkflowDescriptor;
   /** Resolved `@boardwalk-labs/workflow` version the program was built against, or {@link UNPINNED_SDK}. */
   sdkVersion: string;
   /** sha256 of the project's lockfile (reproducibility anchor), or null when there is none. */
   lockfileDigest: string | null;
-  /** The bundled entry source — lets the CLI extract `meta`/`name` without cracking the tarball. */
-  entrySource: string;
-  /** Sorted POSIX relative paths of the bundled assets (for `--check` output + validation). */
+  /** Sorted POSIX relative paths of the bundled assets (for `check` output + validation). */
   assetPaths: string[];
-  /** Sorted artifact paths of the machine layer (under {@link MACHINE_TYPES_DIR}); empty unless
-   *  the build opted in via {@link BuildArtifactOptions.typesHarvest}. */
+  /** Sorted artifact paths of the machine layer (under {@link MACHINE_TYPES_DIR}); empty when the
+   *  build opted out via {@link BuildArtifactOptions.typesHarvest}. */
   machinePaths: string[];
   /** Total pre-compression bytes of the machine-layer files (0 when not packed). */
   machineBytes: number;
@@ -146,57 +158,35 @@ export interface BuiltArtifact {
 /** Options for {@link buildArtifact}. */
 export interface BuildArtifactOptions {
   /** Pack the TypeScript types harvest (the machine layer) under {@link MACHINE_TYPES_DIR}.
-   *  Default OFF — today's backend asset read-back does not tolerate it (see {@link MACHINE_DIR}). */
+   *  Default ON — the backend derives the I/O schemas from it at deploy; `false` (surfaced as
+   *  `--no-types-harvest`) skips the bytes. */
   typesHarvest?: boolean;
 }
 
-/** Build the deploy artifact for a file or package directory. */
+/** Build the deploy artifact for a workflow package (a directory with a `workflow.jsonc`). */
 export async function buildArtifact(
   target: string,
   options: BuildArtifactOptions = {},
 ): Promise<BuiltArtifact> {
-  const entry = resolveEntry(target);
+  const rootDir = resolveProjectRoot(target);
+  const loaded = loadDescriptor(rootDir);
+  const entry = resolveRunEntry(rootDir, loaded.descriptor);
+  // Bundle FIRST — proves the program compiles and every non-SDK import resolves, with precise
+  // esbuild errors, before any packaging work. Strip-only: the author's body is never type-checked.
   const { code, map } = await bundleWorkflowWithMap(entry);
-  // The author's original entry source — stored verbatim for display/quick-edit (the built `index.mjs`
-  // has its blank lines + comments stripped by esbuild).
-  const originalSource = readFileSync(entry, "utf8");
 
-  const pkgDir = isPackageDir(target) ? resolve(target) : null;
-  // A lone file ships no directory sweep — deploying `~/scratch/index.ts` must not publish all of
-  // `~/scratch` — but its README still rides along, because the README always ships (readmeAsset).
-  const assets = pkgDir === null ? readmeAsset(dirname(entry)) : collectAssets(pkgDir);
-  const sdkVersion = resolveSdkVersion(pkgDir);
-  const lockDigest = pkgDir === null ? null : lockfileDigest(pkgDir);
-  // A package ships its WHOLE local source tree, not just the entry: the tree is what a dashboard
-  // code view has to show (an entry importing `./plan.js` is unreadable — and un-editable — without
-  // `plan.ts` beside it), and it is the copy of the program the platform can hand back. The runtime
-  // is unaffected either way: local modules are inlined into ENTRY_OUTPUT. Rooted at the ENTRY's
-  // directory so the stored paths keep the entry's own relative imports resolvable.
-  const sources: ArtifactSource[] =
-    pkgDir === null
-      ? [{ relPath: "index.ts", content: Buffer.from(originalSource, "utf8") }]
-      : collectSources(dirname(entry));
+  const assets = collectAssets(rootDir, loaded.descriptor.files, loaded.fileName);
+  const sdkVersion = resolveSdkVersion(rootDir);
+  const lockDigest = lockfileDigest(rootDir);
+  // The package ships its WHOLE local source tree, rooted at the PACKAGE root (so `src/index.ts`
+  // keeps its path): the tree is what a dashboard code view has to show, and it is the copy of the
+  // program the platform can hand back. The runtime is unaffected: local modules are inlined into
+  // ENTRY_OUTPUT.
+  const sources = collectSources(rootDir);
 
-  // `.bw-machine/` is a build-reserved namespace whether or not the harvest is packed — an author
-  // file under it would collide with (or spoof) the machine layer, exactly like `.bw-src/` on the
-  // backend. Only an explicit `boardwalk.assets` entry can even reach here (the default asset rule
-  // skips dotdirs), so this is a precise authoring error, not a silent drop.
-  for (const asset of assets) {
-    if (asset.relPath === MACHINE_DIR || asset.relPath.startsWith(`${MACHINE_DIR}/`)) {
-      throw new CliError(
-        `Reserved path in boardwalk.assets: ${asset.relPath}`,
-        `The ${MACHINE_DIR}/ tree is build output (the machine layer) — rename the directory.`,
-      );
-    }
-  }
-
-  // The machine layer (opt-in): the types harvest, mirrored under `.bw-machine/types/`. Harvested
-  // from the package root; for a lone-file deploy, from the file's directory (harvesting selects
-  // only declaration files + package metadata + tsconfig, so this is not a directory sweep).
+  // The machine layer (default ON): the types harvest, mirrored under `.bw-machine/types/`.
   const harvest: TypesHarvest =
-    options.typesHarvest === true
-      ? harvestTypes(pkgDir ?? dirname(entry))
-      : { files: [], totalBytes: 0 };
+    options.typesHarvest === false ? { files: [], totalBytes: 0 } : harvestTypes(rootDir);
   const machinePaths = harvest.files.map((f) => `${MACHINE_TYPES_DIR}/${f.relPath}`).sort();
 
   // Stage every file at its target relative path, then pack the staging dir deterministically.
@@ -204,6 +194,9 @@ export async function buildArtifact(
   try {
     writeStaged(staging, ENTRY_OUTPUT, Buffer.from(code, "utf8"));
     writeStaged(staging, `${ENTRY_OUTPUT}.map`, Buffer.from(map, "utf8"));
+    // The descriptor ships VERBATIM at the artifact root — comments intact for the author, stripped
+    // only when the control plane parses it.
+    writeStaged(staging, loaded.fileName, Buffer.from(loaded.raw, "utf8"));
     for (const s of sources) writeStaged(staging, `${SOURCE_DIR}/${s.relPath}`, s.content);
     for (const asset of assets) writeStaged(staging, asset.relPath, readFileSync(asset.absPath));
     for (const f of harvest.files) {
@@ -213,6 +206,7 @@ export async function buildArtifact(
     const relPaths = [
       ENTRY_OUTPUT,
       `${ENTRY_OUTPUT}.map`,
+      loaded.fileName,
       ...sources.map((s) => `${SOURCE_DIR}/${s.relPath}`),
       ...assets.map((a) => a.relPath),
       ...machinePaths,
@@ -224,9 +218,11 @@ export async function buildArtifact(
       digest: sha256Hex(tarball),
       size: tarball.length,
       entry: ENTRY_OUTPUT,
+      slug: loaded.descriptor.slug,
+      descriptorFileName: loaded.fileName,
+      descriptor: loaded.descriptor,
       sdkVersion,
       lockfileDigest: lockDigest,
-      entrySource: code,
       assetPaths: assets.map((a) => a.relPath).sort(),
       machinePaths,
       machineBytes: harvest.totalBytes,
@@ -237,97 +233,106 @@ export async function buildArtifact(
 }
 
 /**
- * The README in `dir`, matched case-insensitively, as a 0-or-1 asset list.
+ * Collect the package's non-code assets: `skills/**` and the root README ship by CONVENTION (most
+ * workflows declare nothing), plus whatever the descriptor's `files` allowlist globs match. An
+ * allowlist, never an ignore-list — packaged files are stored on the control plane and shown to the
+ * whole org, and a denylist leaks credentials the day someone drops a `.env` next to the entry.
  *
- * **The README always ships**, by every path into an artifact. It is documentation the CONTROL PLANE
- * renders — the workflow's landing page in the dashboard — not a runtime asset the program reads, so
- * neither rule that scopes RUNTIME assets has any business dropping it:
- *
- * - A lone-file deploy ships no directory sweep (`boardwalk deploy ~/scratch/index.ts` must not
- *   publish all of `~/scratch`), but one known filename is not a sweep.
- * - An explicit `boardwalk.assets` list scopes what the PROGRAM can read; it doesn't decide what
- *   documents the workflow. Without this, `assets: ["skills"]` silently blanked the landing page.
- *
- * This mirrors `npm pack`, which always includes README/LICENSE/package.json whatever `files` says —
- * the same npm-pack model {@link defaultAssetFilter} already follows. Nothing reads a README at run
- * time, so including it can never change how a program behaves.
- *
- * The inverse objection — "it's human docs, so shipping it adds bytes to every run for no runtime
- * benefit" — reads the artifact backwards, and is answered here so it isn't re-litigated. The
- * artifact is the VERSION RECORD, not a minimal runtime payload. Measured on the `hello` scaffold,
- * 84% of it is already not read at run time: `index.mjs.map` (1231 B) and `.bw-src/` (722 B) against
- * 567 B of executable `.mjs`, so the SOURCEMAP alone outweighs the README's 1004 B. The whole thing
- * gzips to ~1.5 KB, fetched once per run, by a run that then spends dollars on inference — and a
- * README is the smallest member of the not-read-at-run-time majority, not an anomaly in it. Dropping
- * it would need somewhere else to keep it, and being content-addressed WITH the version is precisely
- * what stops a workflow's docs drifting from the code they describe.
- *
- * Only the file directly in `dir`: a nested `skills/README.md` is that subtree's docs, not the
- * workflow's landing prose, and rides along as an ordinary asset (or not at all).
+ * Regardless of any glob, `node_modules`, `.git`, `.env*`, and dotfiles are NEVER packaged (which
+ * also protects the reserved `.bw-src/` / `.bw-machine/` namespaces). A `files` entry that matches
+ * nothing is a precise authoring error. Returns a deterministic, path-sorted list with POSIX
+ * relative paths.
  */
-function readmeAsset(dir: string): ArtifactAsset[] {
-  let names: string[];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return [];
+export function collectAssets(
+  rootDir: string,
+  filesGlobs: readonly string[] | undefined,
+  descriptorFileName: string,
+): ArtifactAsset[] {
+  // Reserved staging paths a glob must never shadow: the bundle outputs and the descriptor slot
+  // (the descriptor itself ships verbatim already; dotpaths are excluded by the walk filter).
+  const reserved = new Set([ENTRY_OUTPUT, `${ENTRY_OUTPUT}.map`, descriptorFileName]);
+
+  // One sweep of the packageable tree (never node_modules/.git/.env*/dotfiles).
+  const candidates: ArtifactAsset[] = [];
+  walk(rootDir, packageableFilter, (abs) => {
+    const rel = toPosix(relative(rootDir, abs));
+    if (rel.length === 0 || rel.startsWith("..") || reserved.has(rel)) return;
+    candidates.push({ relPath: rel, absPath: abs });
+  });
+
+  const picked = new Map<string, ArtifactAsset>();
+  const add = (a: ArtifactAsset): void => {
+    if (!picked.has(a.relPath)) picked.set(a.relPath, a);
+  };
+
+  // Conventions: skills/** and the root README (case-insensitive, on-disk casing kept).
+  for (const c of candidates) {
+    if (c.relPath.startsWith(`${SKILLS_DIR}/`)) add(c);
+    if (!c.relPath.includes("/") && c.relPath.toLowerCase() === README_NAME) add(c);
   }
-  const name = names.find((n) => n.toLowerCase() === README_NAME);
-  if (name === undefined) return [];
-  const absPath = join(dir, name);
-  // Keep the on-disk casing in the artifact; the dashboard matches case-insensitively.
-  return statSync(absPath).isFile() ? [{ relPath: name, absPath }] : [];
+
+  // The descriptor's allowlist: a glob (`prompts/**`), a file, or a directory (included recursively).
+  for (const glob of filesGlobs ?? []) {
+    const matches = candidates.filter((c) => matchesFilesEntry(glob, c.relPath));
+    if (matches.length === 0) {
+      throw new CliError(
+        `The descriptor's files entry matched nothing: ${glob}`,
+        "`files` is an allowlist of non-code assets to ship — check the path/glob (note: dotfiles, .env*, node_modules, and .git are never packaged).",
+      );
+    }
+    for (const m of matches) add(m);
+  }
+
+  return [...picked.values()].sort((a, b) =>
+    a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0,
+  );
+}
+
+/** Hard exclusion rule for anything that ships: no dotfiles/dotdirs (covers `.env*`, `.git`,
+ *  `.bw-*`, `.boardwalk`), no `node_modules`. */
+function packageableFilter(isDir: boolean, name: string): boolean {
+  if (name.startsWith(".")) return false;
+  if (isDir) return name !== "node_modules";
+  return true;
+}
+
+/** True when the descriptor `files` entry covers `relPath`: glob match, exact file, or dir prefix. */
+function matchesFilesEntry(entry: string, relPath: string): boolean {
+  const normalized = entry.replace(/^\.\//, "").replace(/\/+$/, "");
+  if (normalized.length === 0) return false;
+  if (normalized.includes("*") || normalized.includes("?")) {
+    return globToRegExp(normalized).test(relPath);
+  }
+  return relPath === normalized || relPath.startsWith(`${normalized}/`);
 }
 
 /**
- * Collect the package's runtime assets. With an explicit `boardwalk.assets` list in package.json,
- * exactly those paths are shipped (a file, or a directory included recursively) — plus the README,
- * which always ships (see {@link readmeAsset}). Otherwise the default is npm-pack-style: every file
- * under the package root EXCEPT source the bundle already inlines, build/config files, dotfiles, and
- * excluded dirs (`node_modules`, `.git`, …). Returns a deterministic, path-sorted list with POSIX
- * relative paths.
+ * Minimal glob → RegExp for `files` entries: `**` crosses directories, `*`/`?` stay within one path
+ * segment. Deliberately tiny (no braces/extglobs) — the npm-`files` subset authors actually write.
  */
-export function collectAssets(pkgDir: string): ArtifactAsset[] {
-  const explicit = readAssetGlobs(pkgDir);
-  const out: ArtifactAsset[] = [];
-  const seen = new Set<string>();
-  const add = (absPath: string): void => {
-    const rel = toPosix(relative(pkgDir, absPath));
-    if (rel.length === 0 || rel.startsWith("..") || seen.has(rel)) return;
-    seen.add(rel);
-    out.push({ relPath: rel, absPath });
-  };
-
-  if (explicit !== null) {
-    for (const entry of explicit) {
-      const abs = resolve(pkgDir, entry);
-      if (!existsSync(abs)) {
-        throw new CliError(`boardwalk.assets entry not found: ${entry}`);
+export function globToRegExp(glob: string): RegExp {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i];
+    if (ch === "*") {
+      if (glob[i + 1] === "*") {
+        // `**` (optionally followed by `/`) matches any depth, including none.
+        i++;
+        if (glob[i + 1] === "/") i++;
+        out += "(?:.*)";
+      } else {
+        out += "[^/]*";
       }
-      if (statSync(abs).isDirectory()) walk(abs, () => true, add);
-      else add(abs);
+    } else if (ch === "?") {
+      out += "[^/]";
+    } else {
+      out += (ch ?? "").replace(/[.+^${}()|[\]\\]/g, "\\$&");
     }
-    // The README rides along even when the explicit list omits it (`add` dedups if it named it).
-    for (const readme of readmeAsset(pkgDir)) add(readme.absPath);
-  } else {
-    // The default rule already keeps it — a README is a non-source, non-config file.
-    walk(pkgDir, defaultAssetFilter, add);
   }
-
-  out.sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0));
-  return out;
+  return new RegExp(`^${out}$`);
 }
 
-/** Default include rule: keep non-source, non-config, non-dot files; prune excluded dirs. */
-function defaultAssetFilter(isDir: boolean, name: string): boolean {
-  if (name.startsWith(".")) return false; // dotfiles + dotdirs
-  if (isDir) return !EXCLUDE_DIRS.has(name);
-  if (EXCLUDE_FILES.has(name)) return false;
-  return !SOURCE_EXT.has(extOf(name));
-}
-
-/** The mirror of {@link defaultAssetFilter}: the source files, which assets deliberately skip.
- *  Sourcemaps are build output, not authored source. */
+/** Keep authored source files; skip build output, config, dotfiles, and excluded dirs. */
 function sourceFilter(isDir: boolean, name: string): boolean {
   if (name.startsWith(".")) return false;
   if (isDir) return !EXCLUDE_DIRS.has(name);
@@ -341,7 +346,7 @@ function extOf(name: string): string {
   return dot === -1 ? "" : name.slice(dot).toLowerCase();
 }
 
-/** The author's source tree under `root` (the entry's directory), for storage under `.bw-src/`. */
+/** The author's source tree under the package root, for storage under `.bw-src/`. */
 export function collectSources(root: string): ArtifactSource[] {
   const out: ArtifactSource[] = [];
   walk(root, sourceFilter, (abs) => {
@@ -366,23 +371,6 @@ function walk(
     if (isDir) walk(abs, accept, onFile);
     else if (ent.isFile()) onFile(abs);
   }
-}
-
-/** Read `boardwalk.assets: string[]` from package.json, or null when unset/invalid. */
-function readAssetGlobs(pkgDir: string): string[] | null {
-  const pkgPath = join(pkgDir, "package.json");
-  if (!existsSync(pkgPath)) return null;
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
-    const boardwalk = isRecord(parsed) ? parsed.boardwalk : undefined;
-    const assets = isRecord(boardwalk) ? boardwalk.assets : undefined;
-    if (Array.isArray(assets) && assets.every((a): a is string => typeof a === "string")) {
-      return assets;
-    }
-  } catch {
-    // Unreadable package.json → fall back to the default asset rule.
-  }
-  return null;
 }
 
 /**

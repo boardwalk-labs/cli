@@ -69,7 +69,7 @@ export async function runWebhook(opts: WebhookOptions, deps: WebhookDeps): Promi
 function noWebhookError(ref: string): CliError {
   return new CliError(
     `Workflow "${ref}" has no webhook trigger.`,
-    'Add { kind: "webhook", auth: "token" } to meta.triggers and redeploy.',
+    'Add { "kind": "webhook", "auth": "token" } to the descriptor\'s triggers and redeploy.',
   );
 }
 

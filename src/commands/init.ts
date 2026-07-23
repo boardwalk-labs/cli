@@ -42,23 +42,52 @@ const DEFAULT_SKILLS_URL =
 const INIT_SKILLS = ["boardwalk-use-cli", "write-good-workflows"] as const;
 
 // ── The built-in `hello` template (offline floor) ───────────────────────────────────────
+//
+// The two-file shape: a `run` function (src/index.ts) + a `workflow.jsonc` deployment descriptor.
+// The scaffold defaults to TYPED — an interface in, a typed return out — because the deploy derives
+// those types into the dashboard's input form and the callers' contract. A bare `run(input)` is the
+// untyped floor, and the tsconfig relaxes `noImplicitAny` so it stays squiggle-free.
 
-const HELLO_PROGRAM = `import { input, output, type WorkflowMeta } from "@boardwalk-labs/workflow";
+const HELLO_DESCRIPTOR = `{
+  // The deployment descriptor — what the control plane must know WITHOUT running your code.
+  // Your behavior and I/O contract live in src/index.ts; this file is policy, read as data.
+  "slug": "{{slug}}",
+  "title": "{{title}}",
+  "triggers": [
+    { "kind": "manual" },
+    // Run on a schedule, or on an authenticated webhook:
+    //   { "kind": "cron", "expr": "0 9 * * 1-5", "timezone": "America/New_York" },
+    //   { "kind": "webhook", "auth": "token" },
+  ],
+  // Secrets the run may read (set values with \`boardwalk secrets set\`):
+  //   "permissions": { "secrets": [{ "name": "STRIPE_API_KEY" }] },
+  // Cost caps — a breach pauses the run for approval, never a hard kill:
+  //   "budget": { "max_usd": 5 },
+}
+`;
 
-export const meta = {
-  slug: "{{slug}}",
-  title: "{{title}}",
-  description: "A starting point — deploy and run it with \`boardwalk run\`.",
-  triggers: [{ kind: "manual" }],
-} satisfies WorkflowMeta;
+const HELLO_PROGRAM = `import { agent } from "@boardwalk-labs/workflow";
 
-// A workflow is a script: it runs top to bottom, and top-level await just works.
-const who = typeof input === "string" && input.length > 0 ? input : "world";
+// Your native types ARE the I/O contract: the deploy derives their schemas, so the
+// dashboard's run form and other callers know the shape. No annotation is fine too —
+// a bare \`run(input)\` receives the raw JSON untouched.
+interface Input {
+  /** Who to greet (defaults to "world"). */
+  name?: string;
+}
 
-// Next step: give it a brain. agent() runs a full agent loop and resolves to its answer:
-//   const greeting = await agent(\`Write a one-line greeting for \${who}.\`);
+interface Greeting {
+  greeting: string;
+}
 
-output(\`Hello, \${who}!\`);
+// The platform calls this function with the trigger's payload; whatever you return is
+// the run's output, persisted and handed to whoever called it.
+export default async function run(input: Input): Promise<Greeting> {
+  const who = input.name ?? "world";
+  // agent() runs a full agent loop and resolves to its answer.
+  const greeting = await agent(\`Write a one-line greeting for \${who}.\`);
+  return { greeting };
+}
 `;
 
 // Scaffolded filled-in enough to be true on day one, and shaped so editing it is the obvious move.
@@ -66,33 +95,34 @@ output(\`Hello, \${who}!\`);
 // skeleton rather than leaving a blank page and a note in a skill nobody reads.
 const HELLO_README = `# {{title}}
 
-Says hello to whatever you pass as \`input\`. Replace this paragraph with what your workflow is
-really for: what it touches, what it costs, and what to do when it pages you. This file is the
-workflow's landing page in the Boardwalk dashboard, so write it for whoever debugs the workflow at
-3am rather than whoever wrote it. \`meta\` already states the triggers and the budget, so don't
+Greets whoever you pass as input. Replace this paragraph with what your workflow is really for:
+what it touches, what it costs, and what to do when it pages you. This file is the workflow's
+landing page in the Boardwalk dashboard, so write it for whoever debugs the workflow at 3am rather
+than whoever wrote it. \`workflow.jsonc\` already states the triggers and the budget, so don't
 restate them here.
 
 ## Setup
 
-No secrets required. When you add one, declare it in \`meta.permissions.secrets\`, set its value
-with \`boardwalk secrets set\`, and note here how to get one.
+No secrets required. When you add one, declare it under \`permissions.secrets\` in
+\`workflow.jsonc\`, set its value with \`boardwalk secrets set\`, and note here how to get one.
 
 ## Run
 
 \`\`\`sh
-boardwalk check .                  # validate it locally
-boardwalk run . --org <your-org>   # deploy it, then trigger a real run
+boardwalk check .                                        # validate it locally
+boardwalk run . --org <your-org> --input '{"name":"Ada"}'  # deploy, then trigger a real run
 \`\`\`
 
 ## How it works
 
-\`index.ts\` is the whole workflow. It runs top to bottom like any script: it reads the trigger
-payload from \`input\` and hands its result to \`output()\`.
+\`src/index.ts\` exports the workflow: a \`run(input)\` function the platform calls with the
+trigger's payload. Its return value is the run's output. \`workflow.jsonc\` is the deployment
+descriptor — the triggers, permissions, and budget the control plane enforces around the run.
 
 ## Make it yours
 
-Give it a brain with \`agent()\`, then swap the \`manual\` trigger in \`meta\` for a \`cron\`
-expression to run it on a schedule.
+Grow the \`Input\` and return types — the deploy derives their schemas so the dashboard's run form
+never lies. Then swap the \`manual\` trigger for a \`cron\` expression to run it on a schedule.
 `;
 
 const HELLO_PACKAGE_JSON = `{
@@ -100,8 +130,23 @@ const HELLO_PACKAGE_JSON = `{
   "private": true,
   "type": "module",
   "dependencies": {
-    "@boardwalk-labs/workflow": "^0.1.0"
+    "@boardwalk-labs/workflow": "^0.3.0-alpha.4"
   }
+}
+`;
+
+const HELLO_TSCONFIG = `{
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    // Relaxed so the untyped floor — a bare \`run(input)\` with no annotation — stays
+    // squiggle-free. Annotate the parameter to opt into the typed contract.
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
 }
 `;
 
@@ -112,9 +157,11 @@ const HELLO_GITIGNORE = `node_modules/
 
 const BUILTIN_TEMPLATES: Record<string, Record<string, string>> = {
   hello: {
-    "index.ts": HELLO_PROGRAM,
+    "workflow.jsonc": HELLO_DESCRIPTOR,
+    "src/index.ts": HELLO_PROGRAM,
     "README.md": HELLO_README,
     "package.json": HELLO_PACKAGE_JSON,
+    "tsconfig.json": HELLO_TSCONFIG,
     ".gitignore": HELLO_GITIGNORE,
   },
 };

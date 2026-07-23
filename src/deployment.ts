@@ -2,17 +2,22 @@
 
 // Shared deploy logic for `boardwalk deploy` and `boardwalk run`.
 //
-// Deploy is artifact-based: build the program into a content-addressed tarball, upload it straight
-// to object storage via a presigned PUT (the CLI holds no storage credentials), then finalize the
-// version with a reference the server re-reads + verifies. Identity is the project LINK
-// (.boardwalk/project.json), not the program name. Both commands:
-//   1. build the program artifact (name from its `meta`),
-//   2. resolve the org (--org, else the link's orgSlug),
-//   3. upload the artifact, then update the linked workflow BY ID (rename-safe) — or, when unlinked,
-//      adopt an existing same-name workflow / create a new one — then (re)write the link.
+// Deploy is artifact-based: build the workflow package into a content-addressed tarball (descriptor
+// validated, entry bundled, types harvest packed), upload it straight to object storage via a
+// presigned PUT (the CLI holds no storage credentials), then finalize the version with a reference
+// the server re-reads + verifies. The server derives the I/O schemas from the harvest and may
+// return derivation WARNINGS, surfaced to the author.
+//
+// Identity is `(org from the deploy context, slug from the descriptor)` — the descriptor commits no
+// org, so a template deploys to whoever runs it. Org resolution is DETERMINISTIC, never guessed
+// (gap-closure Decision 11):
+//   1. `--org <slug>` wins (it must be within the credential's reach when that's known);
+//   2. else a single-org credential's scope is unambiguous;
+//   3. else the CLI's active-org context (the project link written by a previous deploy);
+//   4. else — a multi-org credential with no selection — a HARD ERROR listing the orgs.
+// A deploy that would CREATE a new workflow confirms interactively (skippable with `--yes` for CI).
 
 import { CliError } from "./errors.js";
-import { extractWorkflowSlug } from "./manifest.js";
 import { buildArtifact, type BuildArtifactOptions, type BuiltArtifact } from "./artifact.js";
 import { projectDirFor, readLink, writeLink } from "./project.js";
 import type { BoardwalkClient, DeployArtifactRef, WorkflowSummary } from "./client.js";
@@ -26,16 +31,16 @@ export interface PreparedProgram {
 }
 
 /**
- * Resolve a target path to its deployable artifact: build the program (bundle + assets → tarball,
- * content-addressed) and extract `meta.slug` from the bundled entry for the deploy identity.
+ * Resolve a target path to its deployable artifact: build the package (descriptor + bundle +
+ * assets + types harvest → tarball, content-addressed). The slug — the deploy identity — comes
+ * from the validated descriptor.
  */
 export async function loadProgram(
   file: string,
   build: BuildArtifactOptions = {},
 ): Promise<PreparedProgram> {
   const artifact = await buildArtifact(file, build);
-  const slug = extractWorkflowSlug(artifact.entrySource, artifact.entry);
-  return { slug, entry: artifact.entry, artifact };
+  return { slug: artifact.slug, entry: artifact.entry, artifact };
 }
 
 export interface DeployPlan {
@@ -53,6 +58,70 @@ export function planDeploy(existing: readonly WorkflowSummary[], slug: string): 
     : { action: "create", slug };
 }
 
+// ── Org resolution (Decision 11) ────────────────────────────────────────────────────────
+
+export interface OrgResolutionInput {
+  /** `--org <slug>`, when given. */
+  orgFlag?: string | undefined;
+  /** Org slugs the credential can act in, or null when unknown (older backend / lookup failed). */
+  credentialOrgs: readonly string[] | null;
+  /** The project link's org — the CLI's active-org context for this directory — or null. */
+  linkOrg: string | null;
+}
+
+/**
+ * Deterministic org resolution — `--org` > a single-org credential's scope > the active-org
+ * context > a hard error. Never guesses: a multi-org credential with no selection is an error
+ * listing the orgs, and a given `--org` outside the credential's known scope is an error too
+ * (for a single-org credential that IS the mismatch rule).
+ */
+export function resolveDeployOrg(input: OrgResolutionInput): string {
+  const scope = input.credentialOrgs;
+
+  if (input.orgFlag !== undefined && input.orgFlag.length > 0) {
+    if (scope !== null && !scope.includes(input.orgFlag)) {
+      throw new CliError(
+        `--org "${input.orgFlag}" doesn't match your credential's org${scope.length === 1 ? ` ("${scope[0] ?? ""}")` : `s`}.`,
+        scope.length > 0
+          ? `This credential can deploy to: ${scope.join(", ")}.`
+          : "This credential belongs to no orgs.",
+      );
+    }
+    return input.orgFlag;
+  }
+
+  if (scope !== null && scope.length === 1 && scope[0] !== undefined) return scope[0];
+
+  // Active-org context: only trusted when it's within the credential's known scope.
+  if (input.linkOrg !== null && (scope === null || scope.includes(input.linkOrg))) {
+    return input.linkOrg;
+  }
+
+  throw new CliError(
+    "No org selected.",
+    scope !== null && scope.length > 1
+      ? `Your credential can deploy to: ${scope.join(", ")}. Pass --org <slug>.`
+      : "Pass --org <slug>.",
+  );
+}
+
+/** The org slugs the credential can act in, via GET /v1/me — or null when that can't be read
+ *  (an older backend, an org-scoped API key without /v1/me, a transient failure). Null means
+ *  "scope unknown": resolution then relies on --org / the project link, never a guess. */
+export async function fetchCredentialOrgs(client: BoardwalkClient): Promise<string[] | null> {
+  try {
+    const me = await client.getMe();
+    const slugs = me.memberships
+      .map((m) => m.slug)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
+    return [...new Set(slugs)];
+  } catch {
+    return null;
+  }
+}
+
+// ── Deploy ──────────────────────────────────────────────────────────────────────────────
+
 export interface DeployResultSummary {
   workflowId: string;
   orgSlug: string;
@@ -62,22 +131,28 @@ export interface DeployResultSummary {
   /** True when this deploy wrote a `.gitignore` entry for `.boardwalk/`. */
   gitignoreUpdated: boolean;
   /** The slug of the workflow this actually deployed to (server-side; immutable after create). On the
-   *  LINKED path this is the linked workflow's slug, which may differ from the file's `meta.slug` —
+   *  LINKED path this is the linked workflow's slug, which may differ from the descriptor's `slug` —
    *  the directory link is keyed by workflow id, not slug (so a rename keeps the same workflow). The
-   *  caller logs THIS (not the file's slug) so a run is never silently attributed to the wrong name. */
+   *  caller logs THIS (not the descriptor's slug) so a run is never silently attributed to the wrong
+   *  name. */
   deployedSlug: string;
-  /** The file's `meta.slug`, when it differs from {@link deployedSlug} (else undefined). A mismatch
+  /** The descriptor's `slug`, when it differs from {@link deployedSlug} (else undefined). A mismatch
    *  means the linked directory points at a different-named workflow — the caller warns so the user
    *  isn't surprised that the run shows up under `deployedSlug`. */
   ignoredFileSlug?: string;
+  /** Schema-derivation warnings from the deploy response (additive server field; [] when absent). */
+  warnings: string[];
 }
 
 export interface DeployContext {
-  /** Org slug from `--org`; falls back to the link's orgSlug. */
+  /** Org slug from `--org` (resolution: --org > single-org credential > link > hard error). */
   orgSlug?: string | undefined;
   /** The original target path (used to locate the project dir for the link). */
   target: string;
   prog: PreparedProgram;
+  /** Asked before a deploy that would CREATE a new workflow; return false to abort. Omitted =
+   *  no confirmation (the caller already decided, e.g. `--yes`). */
+  confirmCreate?: ((info: { slug: string; orgSlug: string }) => Promise<boolean>) | undefined;
 }
 
 /** The artifact reference recorded on the version (everything but the bytes, which go to storage). */
@@ -92,9 +167,10 @@ function refOf(artifact: BuiltArtifact): DeployArtifactRef {
 }
 
 /**
- * Deploy the program, honoring the project link: upload the artifact, then update the linked workflow
- * by id (rename-safe); when unlinked, adopt an existing same-name workflow or create a new one. Always
- * (re)writes the link so the next deploy/run is pinned.
+ * Deploy the program: resolve the org (Decision 11), honor the project link (update the linked
+ * workflow by id — rename-safe), adopt an existing same-slug workflow when unlinked, or — after
+ * the create confirmation — create a new one. Always (re)writes the link so the next deploy/run
+ * is pinned.
  */
 export async function deployWithLink(
   client: BoardwalkClient,
@@ -102,18 +178,19 @@ export async function deployWithLink(
 ): Promise<DeployResultSummary> {
   const projectDir = projectDirFor(ctx.target);
   const link = readLink(projectDir);
-  const orgSlug = ctx.orgSlug ?? link?.orgSlug;
-  if (orgSlug === undefined || orgSlug.length === 0) {
-    throw new CliError(
-      "No org to deploy into.",
-      "Pass --org <slug> (it'll be linked in .boardwalk/project.json for next time).",
-    );
-  }
+  const credentialOrgs = await fetchCredentialOrgs(client);
+  const orgSlug = resolveDeployOrg({
+    orgFlag: ctx.orgSlug,
+    credentialOrgs,
+    linkOrg: link?.orgSlug ?? null,
+  });
 
-  let workflowId = link?.workflowId ?? null;
+  // The link's workflow id is only meaningful in the link's own org: when the resolved org differs
+  // (a stale link, or an explicit --org elsewhere), fall back to slug matching in the resolved org.
+  let workflowId = link !== null && link.orgSlug === orgSlug ? link.workflowId : null;
   let outcome: DeployResultSummary["outcome"] = "updated";
 
-  // Unlinked: adopt an existing workflow with the same name, if any (so a second machine re-links
+  // Unlinked: adopt an existing workflow with the same slug, if any (so a second machine re-links
   // instead of creating a duplicate). Otherwise we'll create below.
   if (workflowId === null) {
     const match = (await client.listWorkflows(orgSlug)).find((w) => w.slug === ctx.prog.slug);
@@ -121,6 +198,13 @@ export async function deployWithLink(
       workflowId = match.id;
       outcome = "adopted";
     }
+  }
+
+  // Confirm BEFORE any write when this deploy would create a new workflow (Decision 11: the first
+  // CREATE is confirmed interactively; CI passes --yes and skips this).
+  if (workflowId === null && ctx.confirmCreate !== undefined) {
+    const ok = await ctx.confirmCreate({ slug: ctx.prog.slug, orgSlug });
+    if (!ok) throw new CliError("Deploy cancelled.");
   }
 
   // Upload the artifact bytes once (presigned PUT); both create + update reference it by digest.
@@ -134,21 +218,29 @@ export async function deployWithLink(
 
   let versionNumber: number;
   // The server-side slug of the workflow we actually deployed to (immutable after create). On the
-  // linked path it may differ from the file's `meta.slug`; we report THIS so a run is never silently
-  // attributed to the wrong name.
+  // linked path it may differ from the descriptor's `slug`; we report THIS so a run is never
+  // silently attributed to the wrong name.
   let deployedSlug: string;
+  let warnings: string[];
   if (workflowId !== null) {
     try {
       const result = await client.updateWorkflow(workflowId, ref);
       versionNumber = result.version.number;
       deployedSlug = result.workflow.slug;
+      warnings = result.warnings;
     } catch (err) {
       if (err instanceof CliError && err.status === 404) {
-        // The linked workflow was deleted out from under us — recreate + relink.
+        // The linked workflow was deleted out from under us — recreating is a CREATE, so it goes
+        // through the same confirmation before touching the org.
+        if (ctx.confirmCreate !== undefined) {
+          const ok = await ctx.confirmCreate({ slug: ctx.prog.slug, orgSlug });
+          if (!ok) throw new CliError("Deploy cancelled.");
+        }
         const result = await client.createWorkflow(orgSlug, ref);
         workflowId = result.workflow.id;
         versionNumber = result.version.number;
         deployedSlug = result.workflow.slug;
+        warnings = result.warnings;
         outcome = "created";
       } else {
         throw err;
@@ -159,6 +251,7 @@ export async function deployWithLink(
     workflowId = result.workflow.id;
     versionNumber = result.version.number;
     deployedSlug = result.workflow.slug;
+    warnings = result.warnings;
     outcome = "created";
   }
 
@@ -170,7 +263,8 @@ export async function deployWithLink(
     outcome,
     gitignoreUpdated,
     deployedSlug,
-    // Surface a file-slug ≠ deployed-slug mismatch (linked dir points at a different-named workflow).
+    warnings,
+    // Surface a descriptor-slug ≠ deployed-slug mismatch (linked dir points at a different-named workflow).
     ...(deployedSlug !== ctx.prog.slug ? { ignoredFileSlug: ctx.prog.slug } : {}),
   };
 }

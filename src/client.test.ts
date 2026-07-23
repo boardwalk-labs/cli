@@ -82,10 +82,36 @@ describe("BoardwalkClient.createWorkflow", () => {
     };
     const res = await client.createWorkflow("my-org", ref);
     expect(res.version.number).toBe(1);
+    expect(res.warnings).toEqual([]); // additive field — absent on this backend, defaults to []
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url).toBe("https://api.x/v1/orgs/my-org/workflows");
     expect(calls[0]?.headers["Idempotency-Key"]).toBeDefined();
     expect(JSON.parse(calls[0]?.body ?? "{}")).toEqual({ artifact: ref });
+  });
+
+  it("reads derivation warnings LENIENTLY: strings and {message} kept, junk skipped", async () => {
+    const { fetchImpl } = recordingFetch(201, {
+      workflow: { id: "wf9", slug: "demo", currentVersionId: "v1" },
+      version: { id: "v1", number: 1 },
+      warnings: [
+        "input field `when` degraded to raw JSON",
+        { message: "output field `blob` degraded to raw JSON" },
+        { unexpected: true },
+        7,
+      ],
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const res = await client.createWorkflow("my-org", {
+      digest: "a".repeat(64),
+      size: 10,
+      entry: "index.mjs",
+      sdkVersion: "*",
+      lockfileDigest: null,
+    });
+    expect(res.warnings).toEqual([
+      "input field `when` degraded to raw JSON",
+      "output field `blob` degraded to raw JSON",
+    ]);
   });
 });
 

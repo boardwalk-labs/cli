@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit, workflowSlugFor } from "./init.js";
-import { extractValidatedManifest } from "../manifest.js";
+import { loadDescriptor } from "../descriptor.js";
 
 /** A fetch serving an in-memory registry + template files (no network). */
 function registryFetch(files: Record<string, string>): typeof fetch {
@@ -27,15 +27,17 @@ const REGISTRY = JSON.stringify({
       name: "remote-digest",
       description: "A registry template.",
       secrets: ["API_KEY"],
-      files: ["index.ts", "package.json", ".env.example", "lib/util.ts"],
+      files: ["workflow.jsonc", "src/index.ts", "package.json", ".env.example", "lib/util.ts"],
     },
   ],
 });
 
 const REMOTE_FILES: Record<string, string> = {
   "/registry.json": REGISTRY,
-  "/templates/remote-digest/index.ts": `export const meta = { slug: "remote-digest", triggers: [{ kind: "manual" }] };
-console.log("remote-digest ran");`,
+  "/templates/remote-digest/workflow.jsonc": `{ "slug": "remote-digest", "triggers": [{ "kind": "manual" }] }`,
+  "/templates/remote-digest/src/index.ts": `export default async function run() {
+  console.log("remote-digest ran");
+}`,
   "/templates/remote-digest/package.json": `{ "name": "remote-digest", "private": true }`,
   "/templates/remote-digest/.env.example": "API_KEY=…\n",
   "/templates/remote-digest/lib/util.ts": "export const x = 1;\n",
@@ -64,7 +66,7 @@ describe("runInit (built-in template)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("scaffolds hello with a manifest-valid program, offline (skills skipped with a note)", async () => {
+  it("scaffolds hello: the two-file shape (descriptor + typed run), offline (skills skipped with a note)", async () => {
     const target = join(dir, "my-digest");
     const lines: string[] = [];
     await runInit(
@@ -72,11 +74,28 @@ describe("runInit (built-in template)", () => {
       { log: (l) => lines.push(l), fetchImpl: offlineFetch },
     );
 
-    for (const f of ["index.ts", "README.md", "package.json", ".gitignore"]) {
+    for (const f of [
+      "workflow.jsonc",
+      join("src", "index.ts"),
+      "README.md",
+      "package.json",
+      "tsconfig.json",
+      ".gitignore",
+    ]) {
       expect(existsSync(join(target, f)), f).toBe(true);
     }
-    const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
-    expect(manifest.slug).toBe("my-digest");
+    // The descriptor is schema-valid as scaffolded (slug from the directory name).
+    const { descriptor } = loadDescriptor(target);
+    expect(descriptor.slug).toBe("my-digest");
+    expect(descriptor.triggers).toEqual([{ kind: "manual" }]);
+    // The program is the function model: a typed default-export run + one agent() call.
+    const program = readFileSync(join(target, "src", "index.ts"), "utf8");
+    expect(program).toContain("export default async function run");
+    expect(program).toContain("agent(");
+    expect(program).not.toContain("output(");
+    expect(program).not.toContain("meta");
+    // The tsconfig relaxes noImplicitAny so the bare-param untyped floor is squiggle-free.
+    expect(readFileSync(join(target, "tsconfig.json"), "utf8")).toContain('"noImplicitAny": false');
     const out = lines.join("\n");
     expect(out).toContain('scaffolded "my-digest"');
     expect(out).toContain("skipped agent skills");
@@ -101,7 +120,7 @@ describe("runInit (built-in template)", () => {
       { log: () => undefined, fetchImpl: offlineFetch },
     );
     expect(readFileSync(join(target, "README.md"), "utf8")).toBe("mine\n");
-    expect(existsSync(join(target, "index.ts"))).toBe(true);
+    expect(existsSync(join(target, "src", "index.ts"))).toBe(true);
   });
 
   it("refuses to overwrite existing files", async () => {
@@ -175,7 +194,7 @@ describe("runInit (agent skills)", () => {
 
     expect(existsSync(join(target, ".claude"))).toBe(false);
     expect(lines.join("\n")).toContain("skipped agent skills");
-    expect(existsSync(join(target, "index.ts"))).toBe(true);
+    expect(existsSync(join(target, "src", "index.ts"))).toBe(true);
   });
 
   it("writes skills after a registry template too", async () => {
@@ -215,8 +234,8 @@ describe("runInit (registry template)", () => {
     );
 
     expect(readFileSync(join(target, "lib", "util.ts"), "utf8")).toBe("export const x = 1;\n");
-    const manifest = extractValidatedManifest(readFileSync(join(target, "index.ts"), "utf8"));
-    expect(manifest.slug).toBe("remote-digest"); // verbatim — no {{name}} substitution
+    const { descriptor } = loadDescriptor(target);
+    expect(descriptor.slug).toBe("remote-digest"); // verbatim — no {{name}} substitution
     const out = lines.join("\n");
     expect(out).toContain("boardwalk secrets set");
     expect(out).toContain("API_KEY");
