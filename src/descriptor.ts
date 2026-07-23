@@ -19,17 +19,21 @@ import {
   DescriptorValidationError,
   parseWorkflowDescriptor,
   type WorkflowDescriptor,
+  DEFAULT_ENTRY_SOURCES,
+  PYTHON_DEFAULT_ENTRY,
 } from "@boardwalk-labs/workflow";
 import { CliError } from "./errors.js";
 
 /** The two accepted descriptor filenames — comments allowed vs. strict JSON. Having both is an error. */
 export const DESCRIPTOR_NAMES = ["workflow.jsonc", "workflow.json"] as const;
 
-/** Default entry candidates when the descriptor names no `entry` (the `src/index.ts` convention).
- *  Python's default, `main.py` at the package root, is tried after these — a `.py` resolved entry
- *  is what routes the build down the Python path (no bundle, no types harvest). */
-const DEFAULT_ENTRIES = ["src/index.ts", "src/index.mts", "src/index.js", "src/index.mjs"] as const;
-const DEFAULT_PYTHON_ENTRY = "main.py";
+/** Default entry candidates when the descriptor names no `entry` — THE canonical list, imported
+ *  from the SDK so the CLI and the backend's deploy-time derivation can never drift (a drifted
+ *  pair could derive schemas from a different file than the one that runs). Python's default,
+ *  `main.py` at the package root, is tried after these — a `.py` resolved entry is what routes
+ *  the build down the Python path (no bundle, no types harvest). */
+const DEFAULT_ENTRIES = DEFAULT_ENTRY_SOURCES;
+const DEFAULT_PYTHON_ENTRY = PYTHON_DEFAULT_ENTRY;
 
 const FORMAT_HINT =
   "A workflow package is a directory with a `workflow.jsonc` descriptor at its root and a " +

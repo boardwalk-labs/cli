@@ -328,10 +328,29 @@ interface ArtifactParts {
  * control plane parses it — sources under `.bw-src/`, machine layer under `.bw-machine/…`),
  * then pack the staging dir deterministically and content-address the bytes.
  */
+/** The control plane refuses to READ more than this many source / asset files (its unpack
+ *  caps). Enforcing the same limits at build time turns an obscure post-upload 400 into a
+ *  clear local error naming the limit. The machine layer has its own, far larger server cap. */
+const MAX_SOURCE_FILES = 200;
+const MAX_ASSET_FILES = 200;
+
 async function stageAndPack(
   parts: ArtifactParts,
 ): Promise<{ tarball: Uint8Array; digest: string; size: number; machinePaths: string[] }> {
   const { loaded, sources, assets } = parts;
+  if (sources.length > MAX_SOURCE_FILES) {
+    throw new CliError(
+      `This package has ${String(sources.length)} source files — the platform accepts at most ` +
+        `${String(MAX_SOURCE_FILES)}. Move non-code files out of the source tree (ship them via ` +
+        `the descriptor's "files" allowlist) or split the workflow.`,
+    );
+  }
+  if (assets.length > MAX_ASSET_FILES) {
+    throw new CliError(
+      `This package bundles ${String(assets.length)} asset files — the platform accepts at most ` +
+        `${String(MAX_ASSET_FILES)}. Narrow the descriptor's "files" globs.`,
+    );
+  }
   const machinePaths = parts.machineFiles.map((f) => `${parts.machineDir}/${f.relPath}`).sort();
 
   const staging = mkdtempSync(join(tmpdir(), "bw-artifact-"));

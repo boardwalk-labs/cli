@@ -133,7 +133,7 @@ const HELLO_PACKAGE_JSON = `{
   "private": true,
   "type": "module",
   "dependencies": {
-    "@boardwalk-labs/workflow": "^0.3.0-alpha.4"
+    "@boardwalk-labs/workflow": "^0.3.0-alpha.7"
   }
 }
 `;
