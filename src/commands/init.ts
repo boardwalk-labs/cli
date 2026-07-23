@@ -51,6 +51,7 @@ const INIT_SKILLS = ["boardwalk-use-cli", "write-good-workflows"] as const;
 const HELLO_DESCRIPTOR = `{
   // The deployment descriptor — what the control plane must know WITHOUT running your code.
   // Your behavior and I/O contract live in src/index.ts; this file is policy, read as data.
+  "$schema": "https://boardwalk.sh/schemas/workflow.json",
   "slug": "{{slug}}",
   "title": "{{title}}",
   "triggers": [
