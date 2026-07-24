@@ -52,7 +52,7 @@ export async function runCheck(opts: CheckOptions, deps: CheckDeps = {}): Promis
   log("  schemas:  derive at deploy (the backend reads the run() signature and returns warnings)");
   if (artifact.language === "python") {
     log(
-      "  note:     hosted deploys don't accept Python entries yet (the backend's .py schema derivation is still landing) — the package builds and validates locally either way",
+      "  note:     typed input/output forms need `pydantic` in the package's dependencies — without it the schemas honestly degrade to raw JSON",
     );
   }
 }

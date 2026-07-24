@@ -108,7 +108,7 @@ describe("runCheck", () => {
     expect(out).not.toContain("types harvest:");
     // Honest about today's backend: .py entries are rejected at deploy until derivation lands,
     // but the local build itself is valid.
-    expect(out).toContain("don't accept Python entries yet");
+    expect(out).toContain("need `pydantic` in the package's dependencies");
     expect(out).toContain("derive at deploy");
   });
 });
