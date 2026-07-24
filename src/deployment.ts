@@ -177,6 +177,38 @@ function refOf(artifact: BuiltArtifact): DeployArtifactRef {
  * the create confirmation — create a new one. Always (re)writes the link so the next deploy/run
  * is pinned.
  */
+/** Backoff schedule for a cold schema sandbox (server 503 DERIVATION_WARMING): the first deploy
+ *  after the fleet goes idle boots a host (~6 min); each retry RE-ATTACHES to the same derivation
+ *  run server-side, so waiting + retrying always converges. Delays sum to ~4 min of sleep on top
+ *  of ~20s server-held attempts — comfortably past the measured cold boot. */
+const WARMING_RETRY_DELAYS_MS = [15_000, 20_000, 30_000, 30_000, 45_000, 45_000, 60_000];
+
+const sleepMs = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Run a deploy-finalize call, absorbing retryable 503s (the sandbox warming). Finalize is
+ *  idempotent by artifact digest, so re-issuing the same call is safe. Notices go to stderr so
+ *  `--json` stdout stays clean. */
+export async function withSandboxWarmupRetry<T>(
+  call: () => Promise<T>,
+  delays: readonly number[] = WARMING_RETRY_DELAYS_MS,
+): Promise<T> {
+  for (const [i, delay] of delays.entries()) {
+    try {
+      return await call();
+    } catch (err) {
+      if (!(err instanceof CliError && err.status === 503)) throw err;
+      if (i === 0) {
+        process.stderr.write(
+          "  the schema sandbox is starting (first deploy after idle boots a host, ~a few " +
+            "minutes) — retrying until it's warm…\n",
+        );
+      }
+      await sleepMs(delay);
+    }
+  }
+  return await call();
+}
+
 export async function deployWithLink(
   client: BoardwalkClient,
   ctx: DeployContext,
@@ -225,18 +257,19 @@ export async function deployWithLink(
 
   let result: DeployResult;
   if (workflowId !== null) {
+    const idToUpdate = workflowId;
     try {
-      result = await client.updateWorkflow(workflowId, ref);
+      result = await withSandboxWarmupRetry(() => client.updateWorkflow(idToUpdate, ref));
     } catch (err) {
       if (!(err instanceof CliError && err.status === 404)) throw err;
       // The linked workflow was deleted out from under us — recreating is a CREATE, so it goes
       // through the same confirmation before touching the org.
       await confirmCreateOrAbort();
-      result = await client.createWorkflow(orgSlug, ref);
+      result = await withSandboxWarmupRetry(() => client.createWorkflow(orgSlug, ref));
       outcome = "created";
     }
   } else {
-    result = await client.createWorkflow(orgSlug, ref);
+    result = await withSandboxWarmupRetry(() => client.createWorkflow(orgSlug, ref));
     outcome = "created";
   }
   // The server's workflow row is authoritative for id + slug: on the LINKED path the slug may

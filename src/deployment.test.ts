@@ -14,6 +14,7 @@ import {
   resolveDeployOrg,
   type PreparedProgram,
 } from "./deployment.js";
+import { withSandboxWarmupRetry } from "./deployment.js";
 import { readLink, writeLink } from "./project.js";
 import type { BuiltArtifact } from "./artifact.js";
 import type {
@@ -434,5 +435,40 @@ describe("deployWithLink", () => {
     });
     const res = await deployWithLink(client, { orgSlug: undefined, target: dir, prog });
     expect(res.orgSlug).toBe("linked");
+  });
+});
+
+describe("withSandboxWarmupRetry", () => {
+  it("retries 503s (the sandbox warming) and returns the eventual success", async () => {
+    let calls = 0;
+    const result = await withSandboxWarmupRetry(() => {
+      calls++;
+      if (calls < 3) return Promise.reject(new CliError("warming", undefined, 503));
+      return Promise.resolve("done");
+    }, [1, 1, 1]);
+    expect(result).toBe("done");
+    expect(calls).toBe(3);
+  });
+
+  it("does not retry non-503 errors", async () => {
+    let calls = 0;
+    await expect(
+      withSandboxWarmupRetry(() => {
+        calls++;
+        return Promise.reject(new CliError("nope", undefined, 404));
+      }, [1, 1]),
+    ).rejects.toThrow("nope");
+    expect(calls).toBe(1);
+  });
+
+  it("surfaces the final 503 after the delays are exhausted", async () => {
+    let calls = 0;
+    await expect(
+      withSandboxWarmupRetry(() => {
+        calls++;
+        return Promise.reject(new CliError("still warming", undefined, 503));
+      }, [1, 1]),
+    ).rejects.toThrow("still warming");
+    expect(calls).toBe(3);
   });
 });
