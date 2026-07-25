@@ -193,6 +193,32 @@ describe("createRenderer", () => {
     expect(out).toBe("⊘ egress denied: GET internal.example — not in the allowlist\n");
   });
 
+  it("renders a dropped workspace snapshot with the size, the limit, and the remedy", () => {
+    const out = rendered(parseChannels({ verbose: true }), [
+      event({
+        kind: "workspace_persist_skipped",
+        reason: "too_large",
+        bytes: 700 * 1024 * 1024,
+        maxBytes: 512 * 1024 * 1024,
+      }),
+    ]);
+    expect(out).toBe(
+      "⊘ workspace not saved (700 MiB): over the 512 MiB limit — narrow workspace.persist\n",
+    );
+  });
+
+  it("renders the storage-limit and error reasons for a dropped snapshot", () => {
+    const limit = rendered(parseChannels({ verbose: true }), [
+      event({ kind: "workspace_persist_skipped", reason: "storage_limit", bytes: 4096 }),
+    ]);
+    expect(limit).toContain("org storage limit reached");
+
+    const failed = rendered(parseChannels({ verbose: true }), [
+      event({ kind: "workspace_persist_skipped", reason: "error", detail: "tar exited 2" }),
+    ]);
+    expect(failed).toBe("⊘ workspace not saved: tar exited 2\n");
+  });
+
   it("terminates newline-less program output frames so console.log lines never run together", () => {
     // The hosted runner emits one frame per console call with NO trailing newline; without
     // normalization consecutive lines concatenate ("diff chars=25729repo-two: 1 commit(s)").

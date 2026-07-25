@@ -162,6 +162,18 @@ function formatEvent(event: RunEvent, outputOnly: boolean): string | null {
       // The platform egress proxy blocked an outbound request — surface WHY the fetch failed so
       // the author isn't staring at an opaque network error.
       return `⊘ egress denied: ${event.method !== undefined ? `${event.method} ` : ""}${event.host} — ${event.reason}\n`;
+    case "workspace_persist_skipped": {
+      // The run produced a /workspace snapshot and it was dropped, so state did not carry forward.
+      // Silent before this frame existed — the symptom was an agent that quietly got worse.
+      const size = event.bytes === undefined ? "" : ` (${mib(event.bytes)})`;
+      const why =
+        event.reason === "too_large"
+          ? `over the ${event.maxBytes === undefined ? "size" : mib(event.maxBytes)} limit — narrow workspace.persist`
+          : event.reason === "storage_limit"
+            ? "org storage limit reached"
+            : (event.detail ?? "error");
+      return `⊘ workspace not saved${size}: ${why}\n`;
+    }
     case "human_input_requested":
       return `⏸ input needed [${event.key}]: ${event.prompt}\n`;
     case "human_input_resolved":
@@ -203,4 +215,10 @@ export function formatOutputValue(value: unknown): string {
   // JSON.stringify returns undefined at runtime for undefined/functions (its types lie).
   if (value === undefined) return "null";
   return JSON.stringify(value, null, 2);
+}
+
+/** Bytes as MiB, for size limits an author has to act on (the workspace snapshot ceiling). */
+function mib(bytes: number): string {
+  const m = bytes / (1024 * 1024);
+  return `${m < 10 ? m.toFixed(1) : Math.round(m)} MiB`;
 }
