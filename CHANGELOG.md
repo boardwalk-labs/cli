@@ -2,6 +2,23 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.5
+
+### Fixed
+
+- **`check` and `deploy` rejected `workspace.key`.** The CLI validates a descriptor locally against
+  its own pinned `@boardwalk-labs/workflow`, which was still 0.3.1 — so the field the control plane
+  had just learned to accept was refused at the authoring surface, making the feature unusable from
+  the CLI. Pinned to 0.3.2. Found by deploying a keyed workflow end-to-end rather than trusting the
+  unit tests.
+
+- **`runner start` launched a daemon below the control plane's floor.** The bundled
+  `@boardwalk-labs/runner` was pinned `^0.2.0`, which cannot resolve past 0.2.x, while
+  `MIN_RUNNER_VERSION` is 0.3.10 — so a CLI-started self-hosted runner was refused at claim with
+  nothing to upgrade to. This predates the current release (the floor was already 0.2.1), but the
+  workspace-storage rewrite widened the gap: a 0.2.x daemon speaks a storage format the control plane
+  no longer serves endpoints for. Pinned to `^0.3.10`.
+
 ## 0.3.4
 
 ### Changed

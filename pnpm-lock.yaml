@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@boardwalk-labs/runner':
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.3.10
+        version: 0.3.10
       '@boardwalk-labs/workflow':
-        specifier: 0.3.1
-        version: 0.3.1
+        specifier: 0.3.2
+        version: 0.3.2
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -85,22 +85,18 @@ packages:
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
 
-  '@boardwalk-labs/engine@0.2.0':
-    resolution: {integrity: sha512-JnSEIM8ws4YXVwb6OA54xv/aiMiAfNYps/e/30mO00N7iTmQINN4oGdirsWA/sg5aj6ZgvbXjfDfFTOZ0ZGqYA==}
+  '@boardwalk-labs/engine@0.3.0':
+    resolution: {integrity: sha512-uMU6/Q6TQT1B0JHSre31i9nQuiRP+OINP9ueUWMVNtx7sNjE/3s/Sy2FdFtrydEDJmpMhmeR2BrpO5JTvE54DQ==}
     engines: {node: '>=24.0.0'}
     hasBin: true
 
-  '@boardwalk-labs/runner@0.2.0':
-    resolution: {integrity: sha512-dFLhbEyGRun+pSHo9y5Vutnxosf9RjIBzf+VFtH+cn1SPjL9Y5wRNhU05Baobob/131Gqg1/5c930rkoeLXU+Q==}
+  '@boardwalk-labs/runner@0.3.10':
+    resolution: {integrity: sha512-/5o1ffdwC4znVisEvvW0Rg6CvVSiXXZD6TdsDczZP8akldXIFYuEecKO0bpfsdG7bbyXgyGkhOC3gdsUWNAhhw==}
     engines: {node: '>=24'}
     hasBin: true
 
-  '@boardwalk-labs/workflow@0.2.6':
-    resolution: {integrity: sha512-oNoM8pR0EVBKWoj9Kwvh5yzmiGpDbXrHRZCZxaRFKJRrWKgj9Tk92E8nvAx1GSk9I8i4SN9yWTroj6d9XhWu5g==}
-    engines: {node: '>=24'}
-
-  '@boardwalk-labs/workflow@0.3.1':
-    resolution: {integrity: sha512-fWeibFwnpHR8o+9szQx56pgVjPyUhP+GgWj5AKF+ig0WH7wnpUk//VUSq7Bg46bYaSQYMHP3AZTr7f50voriog==}
+  '@boardwalk-labs/workflow@0.3.2':
+    resolution: {integrity: sha512-LCWebfCRyASJlfL7VZhAkI/O6cNWRFY+sOmON+YIoe6JGZwCFAxY3NqymUFaVbhXf7edJB/KbFzrhKrW2z28Wg==}
     engines: {node: '>=24'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1991,16 +1987,17 @@ snapshots:
 
   '@bcoe/v8-coverage@1.0.2': {}
 
-  '@boardwalk-labs/engine@0.2.0':
+  '@boardwalk-labs/engine@0.3.0':
     dependencies:
-      '@boardwalk-labs/workflow': 0.2.6
+      '@boardwalk-labs/workflow': 0.3.2
       zod: 4.4.3
 
-  '@boardwalk-labs/runner@0.2.0':
+  '@boardwalk-labs/runner@0.3.10':
     dependencies:
-      '@boardwalk-labs/engine': 0.2.0
-      '@boardwalk-labs/workflow': 0.2.6
+      '@boardwalk-labs/engine': 0.3.0
+      '@boardwalk-labs/workflow': 0.3.2
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.4.3)
+      ajv: 8.20.0
       node-gyp-build: 4.8.4
       tar: 7.5.16
       undici: 6.27.0
@@ -2009,12 +2006,7 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  '@boardwalk-labs/workflow@0.2.6':
-    dependencies:
-      typescript: 5.9.3
-      zod: 4.4.3
-
-  '@boardwalk-labs/workflow@0.3.1':
+  '@boardwalk-labs/workflow@0.3.2':
     dependencies:
       zod: 4.4.3
 
