@@ -13,6 +13,7 @@ import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { resolveOrgClient, requireOrg } from "../org_client.js";
 import { resolveLog } from "../log.js";
+import { age } from "../age.js";
 import type { NotificationItem } from "../client.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -127,7 +128,7 @@ export function formatNotifications(org: string, items: NotificationItem[], now:
   for (const n of items) {
     const dot = n.readAt === null ? "●" : " ";
     lines.push(
-      `  ${col(dot, 2)}${col(n.title, TITLE_W)}${col(n.kind, KIND_W)}${age(n.createdAt, now)}`,
+      `  ${col(dot, 2)}${col(n.title, TITLE_W)}${col(n.kind, KIND_W)}${age(n.createdAt, now)} ago`,
     );
   }
   return lines;
@@ -138,14 +139,4 @@ const KIND_W = 24;
 
 function col(s: string, width: number): string {
   return (s.length > width - 1 ? `${s.slice(0, width - 2)}…` : s).padEnd(width);
-}
-
-function age(ts: number, now: number): string {
-  const s = Math.max(0, Math.round((now - ts) / 1000));
-  if (s < 60) return `${String(s)}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${String(m)}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${String(h)}h ago`;
-  return `${String(Math.round(h / 24))}d ago`;
 }

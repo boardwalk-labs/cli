@@ -16,6 +16,7 @@ import type { CliConfig } from "../config.js";
 import type { WorkflowListItem, WorkflowDetail } from "../client.js";
 import { resolveOrgClient } from "../org_client.js";
 import { resolveLog } from "../log.js";
+import { age } from "../age.js";
 import { resolveWorkflowId } from "../workflow_ref.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -285,15 +286,4 @@ function field(label: string, value: string): string {
 function lastRun(run: { status: string; at: number } | null, now: number): string {
   if (run === null) return "never run";
   return `${run.status} · ${age(run.at, now)} ago`;
-}
-
-/** Coarse "time since" label: 45s / 12m / 3h / 5d. */
-function age(ts: number, now: number): string {
-  const s = Math.max(0, Math.round((now - ts) / 1000));
-  if (s < 60) return `${String(s)}s`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${String(m)}m`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${String(h)}h`;
-  return `${String(Math.round(h / 24))}d`;
 }

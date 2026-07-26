@@ -13,7 +13,7 @@
 //   boardwalk status                    Show host, login (live-verified), and project link.
 //   boardwalk setup                     Install wizard: log in, detect your agent, install its plugin.
 //   boardwalk deploy <dir> [--org <s>]  Create/update a workflow from its package.
-//   boardwalk run <dir> [--org <s>]     Deploy + trigger a real run, wait for the result.
+//   boardwalk run <workflow> [--org <s>]  Run a DEPLOYED workflow (slug or id) and wait for it.
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
 //   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
 //   boardwalk runs [runId] [--logs|--follow]  List recent runs, show one, or stream its logs.
@@ -83,6 +83,11 @@ interface DeployCliOptions {
   yes?: boolean;
   /** Commander `--no-types-harvest`: defaults true, false when the flag is passed. */
   typesHarvest?: boolean;
+  run?: boolean;
+  input?: string;
+  environment?: string;
+  /** Commander `--no-wait`: defaults true, false when the flag is passed. */
+  wait?: boolean;
 }
 
 interface RunCliOptions {
@@ -91,7 +96,6 @@ interface RunCliOptions {
   environment?: string;
   token?: string;
   wait?: boolean;
-  yes?: boolean;
   json?: boolean;
 }
 
@@ -234,6 +238,10 @@ function buildProgram(): Command {
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .option("-y, --yes", "skip the confirmation when the deploy would CREATE a new workflow", false)
     .option("--no-types-harvest", "skip packing the TypeScript types harvest (machine layer)")
+    .option("--run", "after deploying, trigger the version just shipped and wait for it", false)
+    .option("--input <json>", "trigger payload for --run, passed to run(input)")
+    .option("--environment <name>", "environment for --run (its secrets + variables)")
+    .option("--no-wait", "with --run, trigger and exit without waiting")
     .description("Create or update a workflow from its package.")
     .action(async (file: string, options: DeployCliOptions) => {
       const { runDeploy } = await import("./commands/deploy.js");
@@ -245,6 +253,10 @@ function buildProgram(): Command {
           token: options.token,
           yes: options.yes ?? false,
           typesHarvest: options.typesHarvest,
+          run: options.run ?? false,
+          input: options.input,
+          environment: options.environment,
+          noWait: options.wait === false,
         },
         { config: loadConfig() },
       );
@@ -252,32 +264,30 @@ function buildProgram(): Command {
 
   program
     .command("run")
-    .argument("<dir>", "workflow package directory (holding workflow.jsonc)")
-    .option("--org <slug>", "the org to run in (optional once the project is linked)")
+    .argument("<workflow>", "a DEPLOYED workflow: its slug, or its id (as in a dashboard URL)")
+    .option("--org <slug>", "the org the workflow lives in (only needed for a multi-org login)")
     .option("--input <json>", "trigger payload passed to run(input)")
     .option(
       "--environment <name>",
       "environment to run in (its secrets + variables; default: org base)",
     )
     .option("--no-wait", "trigger and exit without waiting for the run to finish")
-    .option("-y, --yes", "skip the confirmation when the deploy would CREATE a new workflow", false)
     .option(
       "--json",
       "print a JSON object ({ runId, status, ... }) on stdout; progress to stderr",
       false,
     )
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .description("Deploy the workflow, trigger a real run, and wait for the result.")
-    .action(async (file: string, options: RunCliOptions) => {
+    .description("Run a deployed workflow and wait for the result. Needs no local copy.")
+    .action(async (workflow: string, options: RunCliOptions) => {
       const { runRun } = await import("./commands/run.js");
       await runRun(
         {
-          file,
+          workflow,
           org: options.org,
           input: options.input,
           environment: options.environment,
           noWait: options.wait === false,
-          yes: options.yes ?? false,
           json: options.json,
           token: options.token,
         },

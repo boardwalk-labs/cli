@@ -113,7 +113,7 @@ No secrets required. When you add one, declare it under \`permissions.secrets\` 
 
 \`\`\`sh
 boardwalk check .                                        # validate it locally
-boardwalk run . --org <your-org> --input '{"name":"Ada"}'  # deploy, then trigger a real run
+boardwalk deploy . --org <your-org> --run --input '{"name":"Ada"}'  # deploy, then trigger a real run
 \`\`\`
 
 ## How it works
@@ -242,7 +242,7 @@ No secrets required. When you add one, declare it under \`permissions.secrets\` 
 
 \`\`\`sh
 boardwalk check .                                        # validate it locally (resolves deps with uv)
-boardwalk run . --org <your-org> --input '{"email":"ada@example.com","company":"Acme"}'
+boardwalk deploy . --org <your-org> --run --input '{"email":"ada@example.com","company":"Acme"}'
 \`\`\`
 
 ## How it works
@@ -453,7 +453,7 @@ function finish(
   if (secrets.length > 0) {
     log(`  boardwalk secrets set <name> --org <your-org>   # needed: ${secrets.join(", ")}`);
   }
-  log("  boardwalk run . --org <your-org>");
+  log("  boardwalk deploy . --org <your-org> --run");
 }
 
 async function fetchRegistry(

@@ -2,6 +2,33 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.7
+
+### Changed — `run` and `deploy` split (BREAKING)
+
+- **`boardwalk run <workflow>` runs a DEPLOYED workflow, named by slug or id.** It reads nothing
+  from disk: no package, no build, no deploy, no project link. Running is a control-plane
+  operation, so it now works from any directory on any machine that has a login — you no longer
+  need a local copy of a workflow to run it, which was previously impossible from the CLI at all.
+  Re-running with a different `--input` no longer redeploys unchanged code.
+
+  ```sh
+  boardwalk run nightly-summary --input '{"since":"2026-01-01"}'
+  boardwalk run 01KV4SMQ0JFCNH9X4VQVW10STZ        # by id, as in a dashboard URL
+  ```
+
+  It prints the version it is firing and how long ago that was deployed, so local edits you forgot
+  to ship are visible rather than silent. `--org` is needed only when your login covers more than
+  one org.
+
+- **`boardwalk run <dir>` is gone.** It used to deploy the directory and then trigger it, which
+  meant every run cut a new version and paid a full server-side schema derivation. A path-shaped
+  argument now fails with a pointer to the replacement instead of doing something surprising.
+
+- **`boardwalk deploy <dir> --run` is the authoring loop** — deploy, then fire the version just
+  shipped, reporting exactly as `run` does. It takes `--input`, `--environment`, and `--no-wait`.
+  Without `--run`, `deploy` only deploys.
+
 ## 0.3.6
 
 ### Changed

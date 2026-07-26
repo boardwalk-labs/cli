@@ -12,6 +12,7 @@ import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { resolveLog } from "../log.js";
+import { age } from "../age.js";
 import { BoardwalkClient, isTerminalStatus, type RunListItem, type RunDetail } from "../client.js";
 import { readLink } from "../project.js";
 import { resolveWorkflowId } from "../workflow_ref.js";
@@ -330,17 +331,6 @@ function compact(n: number): string {
   if (Math.abs(n) < 1_000_000) return `${(n / 1_000).toFixed(1)}K`;
   if (Math.abs(n) < 1_000_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   return `${(n / 1_000_000_000).toFixed(1)}B`;
-}
-
-/** Coarse "time since" label: 45s / 12m / 3h / 5d. */
-function age(ts: number, now: number): string {
-  const s = Math.max(0, Math.round((now - ts) / 1000));
-  if (s < 60) return `${String(s)}s`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${String(m)}m`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${String(h)}h`;
-  return `${String(Math.round(h / 24))}d`;
 }
 
 /** Billed runtime as "45s" / "1m 23s" / "2h 3m"; "—" while a run is still in flight (0s). */

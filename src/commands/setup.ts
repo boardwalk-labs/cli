@@ -386,7 +386,7 @@ function printNextSteps(log: (line: string) => void): void {
   log("");
   log("Next");
   log("  boardwalk init my-workflow   # scaffold a workflow");
-  log("  boardwalk run . --org <org>  # deploy it, then trigger a real run");
+  log("  boardwalk deploy . --org <org> --run  # ship it, then run it once");
   log("  Then ask your agent to build one; it now knows the CLI.");
 }
 

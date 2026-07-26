@@ -39,6 +39,14 @@ export interface DeployOptions {
   /** Pack the TypeScript types harvest (machine layer). Default ON; `--no-types-harvest` opts out —
    *  the backend then has nothing to derive I/O schemas from. */
   typesHarvest?: boolean | undefined;
+  /** `--run`: trigger the version this deploy just shipped, then report it like `run` does. */
+  run?: boolean | undefined;
+  /** Trigger payload for `--run` (ignored otherwise). */
+  input?: string | undefined;
+  /** Environment NAME for `--run` (ignored otherwise; omit = the org base). */
+  environment?: string | undefined;
+  /** `--no-wait` with `--run`: trigger and exit without polling. */
+  noWait?: boolean | undefined;
 }
 
 export interface DeployDeps {
@@ -132,6 +140,21 @@ export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<
     `✓ ${dep.outcome} "${dep.deployedSlug}" version ${String(dep.versionNumber)} (${dep.workflowId})`,
   );
   logDeployWarnings(log, dep.warnings);
+
+  if (opts.run !== true) return;
+  // The authoring loop in one command. `run` itself stays purely control-plane (it reads nothing
+  // local), so "deploy this, then fire it" lives here — under the verb that already owns the code.
+  const { triggerAndReport, parseInput } = await import("./run.js");
+  await triggerAndReport(client, {
+    orgSlug: dep.orgSlug,
+    workflowId: dep.workflowId,
+    input: parseInput(opts.input),
+    environment: opts.environment,
+    noWait: opts.noWait === true,
+    jsonMode: false,
+    log,
+    emit: log,
+  });
 }
 
 /** Read-only preview of what `deploy` would do (no writes, no prompts). */

@@ -7,8 +7,9 @@ boardwalk setup                            # one-time: log in + wire up your cod
 boardwalk init my-workflow                 # scaffold a project from a template
 boardwalk check ./index.ts                 # validate locally (no auth/network)
 boardwalk login                            # browser OAuth (PKCE) → stores a session
-boardwalk deploy ./index.ts --org my-team  # ship it to the Boardwalk platform
-boardwalk run ./index.ts --org my-team --input '{"who":"world"}'   # deploy + trigger a real run
+boardwalk deploy . --org my-team           # ship it to the Boardwalk platform
+boardwalk run my-workflow --input '{"who":"world"}'   # run the DEPLOYED workflow, from anywhere
+boardwalk deploy . --run                   # while iterating: ship it and run it once
 boardwalk runs                             # recent runs (or --workflow <id|slug> to scope)
 boardwalk runs <runId> --logs              # what a run did; --follow to live-tail
 boardwalk workflows                        # the org's workflows (show <id|slug>, delete <id|slug>)
@@ -62,8 +63,11 @@ boardwalk runs <runId> --follow --stream phase,log
 
 - **`deploy <file|dir> --org <slug>`** — create/update the workflow (idempotent by `meta.slug`).
   `--dry-run` prints the plan only.
-- **`run <file|dir> --org <slug>`** — deploy the current source, trigger a **real run on the
-  platform**, and wait for it to finish. `--no-wait` triggers and exits.
+- **`deploy <dir> --org <slug> --run`** — ship it, then trigger a **real run on the platform** and
+  wait for it to finish. The authoring loop in one command.
+- **`run <workflow> --org <slug>`** — run an ALREADY-DEPLOYED workflow, named by slug or id. It
+  reads nothing from disk — no package, no build, no deploy — so it works from any machine that has
+  a login, on a workflow you have no local copy of. `--no-wait` triggers and exits.
 
 `deploy` builds the program into a content-addressed artifact: esbuild bundles your entry (deps
 pinned at deploy, `@boardwalk-labs/workflow` stays external), package assets (markdown skills, prompt
@@ -137,7 +141,7 @@ boardwalk variables set POSTHOG_PROJECT_ID 394895 --environment Production
 boardwalk variables list --environment Production
 boardwalk variables delete REGION --yes
 
-boardwalk run ./index.ts --org my-team --environment Production   # run against an environment
+boardwalk run my-workflow --org my-team --environment Production   # run against an environment
 ```
 
 Use **secrets** (above) for credentials — never store a secret as a variable.

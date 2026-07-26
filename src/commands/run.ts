@@ -1,24 +1,28 @@
 // SPDX-License-Identifier: MIT
 
-// `boardwalk run <file|dir> --org <slug>` — actually run a workflow, for real.
+// `boardwalk run <workflow>` — run a DEPLOYED workflow. `<workflow>` is a slug or a workflow id.
 //
-// Runs on the PLATFORM (where the real worker + real inference live — no mocks): it deploys the
-// current source (via the project link), triggers a run, polls it to a terminal state, and prints
-// the captured `output(...)` values — fetched from the run's stored event log (the same source
-// `boardwalk runs <id> --logs` reads), so the happy path shows the result without a detour to the
-// dashboard.
+// This command never touches the filesystem: no build, no deploy, no project link. Running is a
+// control-plane operation, so it works from any directory on any machine with only a login — you do
+// not need the source to run what's already deployed. Shipping code is `boardwalk deploy` (and
+// `deploy --run` when you want both in one step).
+//
+// It triggers the run, polls to a terminal state, and prints the captured `output(...)` values from
+// the run's stored event log (the same source `boardwalk runs <id> --logs` reads), so the happy path
+// shows the result without a detour to the dashboard.
 
+import { statSync } from "node:fs";
 import { CliError } from "../errors.js";
 import type { CliConfig } from "../config.js";
 import { CredentialStore } from "../credentials.js";
 import { resolveApiTarget } from "../auth/resolve.js";
 import { BoardwalkClient, type RunSummary, type RunEventSnapshot } from "../client.js";
 import { resolveErrLog, resolveLog } from "../log.js";
-import { deployWithLink, loadProgram } from "../deployment.js";
-import { logDeployWarnings, makeCreateConfirmer } from "./deploy.js";
+import { fetchCredentialOrgs, resolveDeployOrg } from "../deployment.js";
+import { resolveWorkflowId } from "../workflow_ref.js";
 import { formatOutputValue } from "../render/renderer.js";
+import { age } from "../age.js";
 import type { FetchLike } from "../auth/pkce.js";
-import type { Prompter } from "../prompt.js";
 
 const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
@@ -79,15 +83,14 @@ export async function pollToTerminal(
 }
 
 export interface RunOptions {
-  file: string;
+  /** The DEPLOYED workflow to run: its slug, or its id (a ULID, as in a dashboard URL). */
+  workflow: string;
   org?: string | undefined;
   input?: string | undefined;
   /** Environment NAME to run in (omit = the org base). Selected here, not in the manifest. */
   environment?: string | undefined;
   token?: string | undefined;
   noWait?: boolean;
-  /** Skip the interactive create confirmation when the deploy would CREATE a new workflow (CI). */
-  yes?: boolean | undefined;
   /** Emit a single JSON object ({ runId, status, ... }) on stdout; route progress to stderr. */
   json?: boolean | undefined;
 }
@@ -96,10 +99,7 @@ export interface RunDeps {
   config: CliConfig;
   fetchImpl?: FetchLike;
   log?: (line: string) => void;
-  /** Injected in tests; defaults to the real terminal prompter. */
-  prompter?: Prompter;
-  /** Whether stdin can prompt (defaults to the real TTY state). */
-  interactive?: boolean;
+  now?: number;
 }
 
 export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
@@ -110,11 +110,7 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
   const emit = resolveLog(deps);
   const log = jsonMode ? resolveErrLog(deps) : emit;
 
-  const prog = await loadProgram(opts.file);
-  const assets = prog.artifact.assetPaths.length;
-  log(
-    `  built ${prog.entry} (${String(prog.artifact.size)} bytes${assets > 0 ? `, ${String(assets)} asset${assets === 1 ? "" : "s"}` : ""})`,
-  );
+  assertNotAPath(opts.workflow);
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({
@@ -129,33 +125,99 @@ export async function runRun(opts: RunOptions, deps: RunDeps): Promise<void> {
     ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
   });
 
-  const dep = await deployWithLink(client, {
-    orgSlug: opts.org,
-    target: opts.file,
-    prog,
-    confirmCreate: makeCreateConfirmer({
-      yes: opts.yes === true,
-      interactive: deps.interactive ?? process.stdin.isTTY,
-      prompter: deps.prompter,
-    }),
+  // The trigger endpoint is org-scoped, so an org is always required — resolved by the same
+  // deterministic rule `deploy` uses, MINUS the project link: `run` reads nothing local, so where
+  // you happen to be standing can never change which workflow you fire.
+  const orgSlug = resolveDeployOrg({
+    orgFlag: (opts.org ?? "").trim() || undefined,
+    credentialOrgs: await fetchCredentialOrgs(client),
+    linkOrg: null,
   });
-  if (dep.gitignoreUpdated)
-    log("  linked → .boardwalk/project.json (added .boardwalk/ to .gitignore)");
-  // Log the slug we ACTUALLY deployed to (not the descriptor's), so the run is never mislabeled.
-  if (dep.ignoredFileSlug !== undefined)
-    log(
-      `⚠ this directory is linked to workflow "${dep.deployedSlug}" — the descriptor's slug "${dep.ignoredFileSlug}" was ignored (deployed as a new version of "${dep.deployedSlug}"). Run a different workflow from its own directory, or delete .boardwalk/ to re-link.`,
-    );
-  log(`✓ ${dep.outcome} "${dep.deployedSlug}" version ${String(dep.versionNumber)}`);
-  logDeployWarnings(log, dep.warnings);
+  const workflowId = await resolveWorkflowId(client, orgSlug, opts.workflow);
 
-  const input = parseInput(opts.input);
-  const run = await client.triggerRun(dep.orgSlug, dep.workflowId, input, opts.environment);
+  // Name the exact version being fired. Nothing here builds, so when you edited locally and forgot
+  // to deploy, "deployed 2h ago" is the tell.
+  const detail = await client.getWorkflowDetail(workflowId);
+  log(`▶ ${detail.slug} · ${describeVersion(detail, deps.now ?? Date.now())}`);
+
+  await triggerAndReport(client, {
+    orgSlug,
+    workflowId,
+    input: parseInput(opts.input),
+    environment: opts.environment,
+    noWait: opts.noWait === true,
+    jsonMode,
+    log,
+    emit,
+  });
+}
+
+/**
+ * `run` takes a DEPLOYED workflow, but `boardwalk run .` is the muscle memory (and what every older
+ * doc says), so a path-shaped argument gets a redirect instead of "no workflow named '.'".
+ */
+function assertNotAPath(ref: string): void {
+  const trimmed = ref.trim();
+  const pathShaped =
+    trimmed === "." ||
+    trimmed === ".." ||
+    trimmed.includes("/") ||
+    trimmed.includes("\\") ||
+    existsOnDisk(trimmed);
+  if (!pathShaped) return;
+  throw new CliError(
+    `\`run\` takes a deployed workflow (slug or id), not a path — "${trimmed}" looks like one.`,
+    "Ship the code first, then run it by slug: `boardwalk deploy <dir>` → `boardwalk run <slug>`. To do both at once: `boardwalk deploy <dir> --run`.",
+  );
+}
+
+function existsOnDisk(target: string): boolean {
+  try {
+    statSync(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** "version 7 · deployed 2h ago" — or just the version when the timestamp isn't available. */
+export function describeVersion(
+  detail: {
+    currentVersionId: string | null;
+    versions: { id: string; number: number; createdAt: number }[];
+  },
+  now: number,
+): string {
+  const current = detail.versions.find((v) => v.id === detail.currentVersionId);
+  if (current === undefined) return "no deployed version";
+  return `version ${String(current.number)} · deployed ${age(current.createdAt, now)} ago`;
+}
+
+/**
+ * Trigger a run and report it: poll to terminal, print the captured outputs, and fail the process
+ * when the run didn't complete. Shared by `run` and `deploy --run` so both report identically.
+ */
+export async function triggerAndReport(
+  client: BoardwalkClient,
+  args: {
+    orgSlug: string;
+    workflowId: string;
+    input: unknown;
+    environment?: string | undefined;
+    noWait: boolean;
+    jsonMode: boolean;
+    log: (line: string) => void;
+    emit: (line: string) => void;
+  },
+): Promise<void> {
+  const { orgSlug, workflowId, input, environment, noWait, jsonMode, log, emit } = args;
+
+  const run = await client.triggerRun(orgSlug, workflowId, input, environment);
   log(
-    `▶ run ${run.id} triggered (${run.status})${opts.environment !== undefined ? ` in ${opts.environment}` : ""}`,
+    `▶ run ${run.id} triggered (${run.status})${environment !== undefined ? ` in ${environment}` : ""}`,
   );
 
-  if (opts.noWait === true) {
+  if (noWait) {
     log(`  --no-wait: not polling. Track it with \`boardwalk runs ${run.id}\`.`);
     if (jsonMode) emit(JSON.stringify({ runId: run.id, status: run.status }));
     return;
