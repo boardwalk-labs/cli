@@ -234,8 +234,13 @@ export interface EnvironmentItem {
 /** One SCOPE of a workflow's persistent workspace — (workflow, environment). `environmentId: null`
  *  is the base scope: runs with no environment. */
 export interface WorkspaceScopeItem {
+  /** Opaque, stable id addressing this scope — what `resetWorkspace` takes. Empty against an older
+   *  API that doesn't send one, which the reset path checks before it can address anything. */
+  id: string;
   environmentId: string | null;
   environmentName: string | null;
+  /** The resolved `workspace.key` this scope belongs to; null when the workflow declares no key. */
+  workspaceKey: string | null;
   bytes: number;
   updatedAt: number;
 }
@@ -747,12 +752,14 @@ export class BoardwalkClient {
     return out;
   }
 
-  /** Clear ONE scope's persistent workspace. `null` = the base scope; the next run of the workflow
-   *  in that environment starts empty. The workflow itself is untouched. */
-  async resetWorkspace(workflowId: string, environmentId: string | null): Promise<void> {
-    const base = `/v1/workflows/${encodeURIComponent(workflowId)}/workspaces`;
-    const path = environmentId === null ? base : `${base}/${encodeURIComponent(environmentId)}`;
-    await this.request<undefined>("DELETE", path);
+  /** Clear ONE scope's persistent workspace: the next run in that scope starts empty. `scopeId` comes
+   *  from {@link listWorkspaces} — a scope has two axes (environment and workspace key) and no safe
+   *  default, so it is addressed explicitly. The workflow itself is untouched. */
+  async resetWorkspace(workflowId: string, scopeId: string): Promise<void> {
+    await this.request<undefined>(
+      "DELETE",
+      `/v1/workflows/${encodeURIComponent(workflowId)}/workspaces/${encodeURIComponent(scopeId)}`,
+    );
   }
 
   /** List the org's NON-secret variables — values INCLUDED (they're non-secret), across all
@@ -1547,8 +1554,10 @@ function parseWorkspaceRow(row: unknown): WorkspaceScopeItem | null {
     return null;
   }
   return {
+    id: typeof row.id === "string" ? row.id : "",
     environmentId: typeof row.environmentId === "string" ? row.environmentId : null,
     environmentName: typeof row.environmentName === "string" ? row.environmentName : null,
+    workspaceKey: typeof row.workspaceKey === "string" ? row.workspaceKey : null,
     bytes: row.bytes,
     updatedAt: row.updatedAt,
   };

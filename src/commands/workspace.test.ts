@@ -24,8 +24,10 @@ const NOW = 1_700_000_000_000;
 
 function scope(over: Partial<WorkspaceScopeItem> = {}): WorkspaceScopeItem {
   return {
+    id: "scope_base",
     environmentId: null,
     environmentName: null,
+    workspaceKey: null,
     bytes: 4096,
     updatedAt: NOW,
     ...over,
@@ -164,7 +166,7 @@ describe("runWorkspaceReset", () => {
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 
-  it("with --yes, resets the base scope", async () => {
+  it("with --yes, resets the addressed scope by its id", async () => {
     const { fetchImpl, calls } = routeFetch({ workspaces: [scope()] });
     const lines: string[] = [];
     await runWorkspaceReset(
@@ -172,14 +174,20 @@ describe("runWorkspaceReset", () => {
       { config: CONFIG, fetchImpl, log: (l) => lines.push(l) },
     );
     const del = calls.find((c) => c.method === "DELETE");
-    expect(del?.url).toContain("/v1/workflows/01H_wf/workspaces");
-    expect(del?.url).not.toContain("/workspaces/"); // base scope = the collection, no env segment
+    expect(del?.url).toContain("/v1/workflows/01H_wf/workspaces/scope_base");
     expect(lines.join("\n")).toContain("✓ reset");
   });
 
   it("with --environment, resets ONLY that environment's scope", async () => {
     const { fetchImpl, calls } = routeFetch({
-      workspaces: [scope({ environmentId: "01H_env", environmentName: "production" })],
+      workspaces: [
+        scope(),
+        scope({
+          id: "scope_prod",
+          environmentId: "01H_env",
+          environmentName: "production",
+        }),
+      ],
       environments: [{ id: "01H_env", name: "production", description: null }],
     });
     await runWorkspaceReset(
@@ -187,8 +195,47 @@ describe("runWorkspaceReset", () => {
       { config: CONFIG, fetchImpl, log: () => undefined },
     );
     expect(calls.find((c) => c.method === "DELETE")?.url).toContain(
-      "/v1/workflows/01H_wf/workspaces/01H_env",
+      "/v1/workflows/01H_wf/workspaces/scope_prod",
     );
+  });
+
+  it("with --key, resets ONLY that workspace key's scope", async () => {
+    const { fetchImpl, calls } = routeFetch({
+      workspaces: [scope(), scope({ id: "scope_acme", workspaceKey: "acme" })],
+    });
+    await runWorkspaceReset(
+      { workflow: "triager", key: "acme", yes: true, org: "acme", token: "t" },
+      { config: CONFIG, fetchImpl, log: () => undefined },
+    );
+    expect(calls.find((c) => c.method === "DELETE")?.url).toContain(
+      "/v1/workflows/01H_wf/workspaces/scope_acme",
+    );
+  });
+
+  // The dangerous one: the user asked to clear state, there IS state, and they named a scope that
+  // holds none. Reporting a clean "nothing to reset" is how the wrong thing survives.
+  it("refuses and lists the scopes when the addressed one holds nothing but others do", async () => {
+    const { fetchImpl, calls } = routeFetch({
+      workspaces: [scope({ id: "scope_acme", workspaceKey: "acme" })],
+    });
+    await expect(
+      runWorkspaceReset(
+        { workflow: "triager", yes: true, org: "acme", token: "t" },
+        { config: CONFIG, fetchImpl, log: () => undefined },
+      ),
+    ).rejects.toThrow(/other scopes/);
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("refuses when the API is too old to address a scope", async () => {
+    const { fetchImpl, calls } = routeFetch({ workspaces: [scope({ id: "" })] });
+    await expect(
+      runWorkspaceReset(
+        { workflow: "triager", yes: true, org: "acme", token: "t" },
+        { config: CONFIG, fetchImpl, log: () => undefined },
+      ),
+    ).rejects.toThrow(/too old/);
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 
   it("says so plainly when there's nothing persisted, rather than 'confirming' a no-op", async () => {

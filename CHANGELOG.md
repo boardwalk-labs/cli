@@ -2,6 +2,27 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.4
+
+### Changed
+
+- **`boardwalk workspace` addresses a scope explicitly.** A workflow's persistent workspace is scoped
+  by environment AND by the new `workspace.key` (an author-set template scoping state per customer,
+  repo, or tenant), so `workspace show` gains a key column and `workspace reset` gains `--key`.
+
+  `reset` now resolves the flags to exactly one scope and clears that one by its id. Two behaviours
+  changed on purpose:
+
+  - There is no longer a request shape that clears a scope you did not name. Previously the flags
+    defaulted to the unkeyed scope, which — once keys exist — reports success while every keyed scope
+    survives.
+  - If the addressed scope holds nothing **and other scopes do**, reset refuses and lists them rather
+    than reporting a clean "nothing to reset". You asked to clear state, there is state, and you named
+    the wrong scope; succeeding quietly is how the wrong thing survives.
+
+  Requires a control plane new enough to return scope ids; against an older one, reset says so instead
+  of guessing.
+
 ## Unreleased
 
 ### Added

@@ -871,17 +871,24 @@ function registerWorkspaceCommand(program: Command): void {
   workspace
     .command("reset")
     .argument("<workflow>", "workflow slug")
-    .option("--environment <name>", "reset this environment's workspace (default: the base scope)")
+    .option("--environment <name>", "the environment whose workspace to clear (default: none)")
+    .option("--key <key>", "the workspace.key whose state to clear (default: none)")
     .option("--yes", "actually reset — without it, prints what would be cleared and exits", false)
     .option("--org <slug>", "the org (optional once the project is linked)")
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .description(
-      "Clear a workflow's persistent workspace so the next run starts empty (irreversible; the workflow, its triggers, and its history are untouched).",
+      "Clear ONE scope of a workflow's persistent workspace so its next run starts empty (irreversible; every other scope, and the workflow, its triggers, and its history, are untouched).",
     )
     .action(
       async (
         workflow: string,
-        options: { environment?: string; yes?: boolean; org?: string; token?: string },
+        options: {
+          environment?: string;
+          key?: string;
+          yes?: boolean;
+          org?: string;
+          token?: string;
+        },
       ) => {
         const { runWorkspaceReset } = await import("./commands/workspace.js");
         await runWorkspaceReset({ workflow, ...options }, { config: loadConfig() });

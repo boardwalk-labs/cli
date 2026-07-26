@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 
 // `boardwalk workspace` — inspect and reset a workflow's PERSISTENT workspace:
-//   • workspace show <workflow>    → what it's storing, per environment: size + last written
-//   • workspace reset <workflow>   → clear it, so the next run starts empty (requires --yes)
+//   • workspace show <workflow>    → what it's storing, per scope: size + last written
+//   • workspace reset <workflow>   → clear ONE scope, so its next run starts empty (requires --yes)
 //
 // Every run gets a `/workspace` that is scratch unless the workflow opts in — `workspace.persist` in
 // the manifest, or an `agent({ memory })` call, which compounds its directory with no declaration.
-// What compounds is kept PER ENVIRONMENT: one workflow program runs against several (an environment
-// is chosen at trigger time, not in the manifest), so `--environment` addresses one of them and the
-// default addresses the base scope (runs with no environment).
+// What compounds is kept PER SCOPE — per environment (chosen at trigger time, not in the manifest,
+// so one program runs against several) and per `workspace.key` (an author-set template scoping state
+// per customer, repo, or tenant). `--environment` and `--key` address one; together they must select
+// EXACTLY ONE, and reset refuses to guess when they don't.
 //
 // Reset exists because state that compounds eventually compounds something wrong — a poisoned cache,
 // an agent memory that learned the wrong lesson, a half-finished index from a failed run. It clears
@@ -31,6 +32,8 @@ export interface WorkspaceShowOptions {
 export interface WorkspaceResetOptions {
   workflow: string;
   environment?: string | undefined;
+  /** The resolved `workspace.key` to clear. Omitted addresses the scope with no key. */
+  key?: string | undefined;
   yes?: boolean | undefined;
   org?: string | undefined;
   token?: string | undefined;
@@ -81,32 +84,65 @@ export async function runWorkspaceReset(
     environmentId = target.id;
   }
 
-  const scope = opts.environment ?? "the base scope (runs with no environment)";
+  const wantedKey = opts.key ?? null;
+  const scopes = await client.listWorkspaces(workflow.id);
+  const match = scopes.find(
+    (w) => w.environmentId === environmentId && w.workspaceKey === wantedKey,
+  );
+  const scope = describeScope(opts.environment, wantedKey);
+
+  if (match === undefined) {
+    // Nothing under the addressed scope. If OTHER scopes exist, say so and list them rather than
+    // reporting a clean "nothing to reset" — the user asked to clear state, and there IS state; they
+    // just named the wrong scope. Silently succeeding here is how the wrong thing survives.
+    if (scopes.length > 0) {
+      throw new CliError(
+        `${opts.workflow} has nothing persisted for ${scope}, but it does have other scopes.`,
+        ["Name the one you mean:", ...formatWorkspaces(opts.workflow, scopes).slice(2)].join("\n"),
+      );
+    }
+    log(`${opts.workflow} has nothing persisted for ${scope} — nothing to reset.`);
+    return;
+  }
+
+  if (match.id === "") {
+    throw new CliError(
+      "This Boardwalk API is too old to address a workspace scope.",
+      "Upgrade the control plane, or use the web UI.",
+    );
+  }
+
   if (opts.yes !== true) {
     // Say what will actually be lost, not just "are you sure": a size makes the difference between
     // "that's the cache, fine" and "that's four months of agent memory" obvious BEFORE the deletion.
-    const current = (await client.listWorkspaces(workflow.id)).find(
-      (w) => w.environmentId === environmentId,
-    );
-    if (current === undefined) {
-      log(`${opts.workflow} has nothing persisted for ${scope} — nothing to reset.`);
-      return;
-    }
     log(`About to reset the persistent workspace of ${opts.workflow} for ${scope}:`);
-    log(`  ${formatBytes(current.bytes)}, last written ${formatAge(current.updatedAt)}`);
+    log(`  ${formatBytes(match.bytes)}, last written ${formatAge(match.updatedAt)}`);
     log("");
-    log("The next run starts from an empty workspace. This is irreversible, and it does NOT");
-    log("affect the workflow, its triggers, or its history. Re-run with --yes to confirm:");
-    const envFlag = opts.environment === undefined ? "" : ` --environment ${opts.environment}`;
-    log(`  boardwalk workspace reset ${opts.workflow}${envFlag} --yes`);
+    log("The next run starts from an empty workspace. This is irreversible, it leaves every OTHER");
+    log("scope alone, and it does NOT affect the workflow, its triggers, or its history.");
+    log("Re-run with --yes to confirm:");
+    log(`  boardwalk workspace reset ${opts.workflow}${scopeFlags(opts)} --yes`);
     return;
   }
   try {
-    await client.resetWorkspace(workflow.id, environmentId);
+    await client.resetWorkspace(workflow.id, match.id);
     log(`✓ reset the persistent workspace of ${opts.workflow} for ${scope}.`);
   } catch (err) {
     throw elevationHint(err);
   }
+}
+
+/** How the addressed scope reads in prose. */
+function describeScope(environment: string | undefined, key: string | null): string {
+  const env = environment ?? "the base scope (runs with no environment)";
+  return key === null ? env : `${env}, key "${key}"`;
+}
+
+/** The flags that re-address this scope, for the confirm line. */
+function scopeFlags(opts: WorkspaceResetOptions): string {
+  const env = opts.environment === undefined ? "" : ` --environment ${opts.environment}`;
+  const key = opts.key === undefined ? "" : ` --key ${opts.key}`;
+  return `${env}${key}`;
 }
 
 /** Resolve a workflow by SLUG (what a user types) to the row the API is keyed by. */
@@ -139,14 +175,18 @@ export function formatWorkspaces(workflow: string, workspaces: WorkspaceScopeIte
   const lines = [`Persistent workspace · ${workflow}`, ""];
   for (const w of workspaces) {
     // Name it by environment; fall back to the raw id if the environment was deleted out from under
-    // the snapshot, and to "(base)" for the no-environment scope.
-    const scope = w.environmentName ?? w.environmentId ?? "(base)";
+    // the scope, and to "(base)" for the no-environment scope. A workspace key is the author's own
+    // string, so it is shown verbatim in its own column rather than folded into the environment.
+    const env = w.environmentName ?? w.environmentId ?? "(base)";
+    const key = w.workspaceKey ?? "";
     lines.push(
-      `  ${scope.padEnd(20)} ${formatBytes(w.bytes).padStart(9)}   last written ${formatAge(w.updatedAt)}`,
+      `  ${env.padEnd(20)} ${key.padEnd(18)} ${formatBytes(w.bytes).padStart(9)}   last written ${formatAge(w.updatedAt)}`,
     );
   }
   lines.push("");
-  lines.push("Reset one with `boardwalk workspace reset <workflow> [--environment <name>]`.");
+  lines.push(
+    "Reset one with `boardwalk workspace reset <workflow> [--environment <name>] [--key <key>]`.",
+  );
   return lines;
 }
 
