@@ -24,8 +24,8 @@ export interface LoginOptions {
   /** Persist this API key (`bwk_…`) instead of running the browser PKCE flow. */
   token?: string | undefined;
   /** Scope tier: `admin` authenticates against the elevated CLI client to obtain the org-admin
-   *  write scopes (secrets, inference providers, workflow delete). Omitted ⇒ the least-privilege
-   *  default login. The only recognized value is `admin`. */
+   *  credential-write scopes (secrets, inference providers). Omitted ⇒ the least-privilege default
+   *  login. The only recognized value is `admin`. */
   scopes?: string | undefined;
 }
 
@@ -72,7 +72,7 @@ export async function runLogin(deps: SessionDeps, opts: LoginOptions = {}): Prom
       );
     }
     clientIdOverride = adminId;
-    log("Requesting an ELEVATED session (secrets + inference providers + workflow delete).");
+    log("Requesting an ELEVATED session (secrets + inference providers).");
   }
 
   const session = await performLogin({

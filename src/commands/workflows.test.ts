@@ -294,7 +294,63 @@ describe("runWorkflowDelete", () => {
     expect(calls).toContainEqual({ url: `https://api.x/v1/workflows/${WF_ID}`, method: "DELETE" });
     expect(lines.join("\n")).toContain("✓ deleted workflow nightly-summary");
   });
+
+  // `workflow:delete` rides the DEFAULT login now, but a token's scopes are frozen at authorize
+  // time — so a session (or a control plane) predating the move still 403s. The hint names both fixes.
+  it("maps a missing-scope 403 to the re-login hint, naming the elevated login as the fallback", async () => {
+    const sink: string[] = [];
+    const fetchImpl = deletingFetch(403, {
+      error: {
+        code: "FORBIDDEN",
+        message: "the 'oauth_jwt' credential is missing the 'workflow:delete' scope",
+      },
+    });
+    await expect(
+      runWorkflowDelete(
+        { ref: WF_ID, yes: true, token: "t" },
+        { config: CONFIG, fetchImpl, log: (l) => sink.push(l) },
+      ),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("isn't permitted"),
+      hint: expect.stringMatching(/boardwalk login`.*--scopes admin/),
+    });
+  });
+
+  it("passes a ROLE shortfall through with the backend's own reason (not the re-login hint)", async () => {
+    const sink: string[] = [];
+    const fetchImpl = deletingFetch(403, {
+      error: { code: "FORBIDDEN", message: "role 'member' is below the required 'admin'" },
+    });
+    await expect(
+      runWorkflowDelete(
+        { ref: WF_ID, yes: true, token: "t" },
+        { config: CONFIG, fetchImpl, log: (l) => sink.push(l) },
+      ),
+    ).rejects.toMatchObject({ hint: "role 'member' is below the required 'admin'" });
+  });
 });
+
+/** A fetch that serves the workflow detail on GET and a chosen status+body on DELETE. */
+function deletingFetch(status: number, body: unknown): FetchLike {
+  return (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if ((init?.method ?? "GET") === "DELETE") {
+      return Promise.resolve(new Response(JSON.stringify(body), { status }));
+    }
+    if (/\/v1\/workflows\/[^/]+$/.test(url)) {
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            workflow: { id: WF_ID, slug: "nightly-summary", currentVersionId: "v2" },
+            manifest: {},
+            versions: [],
+          }),
+        ),
+      );
+    }
+    return Promise.resolve(new Response(JSON.stringify({ workflows: [] })));
+  };
+}
 
 describe("runWorkflowDisable", () => {
   it("resolves the workflow then POSTs /disable", async () => {

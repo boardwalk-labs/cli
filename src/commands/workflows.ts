@@ -137,8 +137,35 @@ export async function runWorkflowDelete(
     log(`  boardwalk workflows delete ${opts.ref.trim()} --yes`);
     return;
   }
-  await client.deleteWorkflow(id);
+  try {
+    await client.deleteWorkflow(id);
+  } catch (err) {
+    throw missingDeleteScopeHint(err);
+  }
   log(`✓ deleted workflow ${label}.`);
+}
+
+/**
+ * `workflow:delete` moved into the DEFAULT login's scope set, but a token's scopes are frozen at
+ * authorize time and carried through every refresh — so a session predating the move keeps 403ing
+ * until the user logs in again. A control plane predating it withholds the scope outright, and there
+ * the elevated login is still the answer; the hint covers both rather than asserting a cause we
+ * can't distinguish from a scope string. Role shortfalls and every other error pass through with the
+ * backend's own reason.
+ */
+function missingDeleteScopeHint(err: unknown): unknown {
+  if (
+    err instanceof CliError &&
+    err.status === 403 &&
+    (err.hint ?? "").includes("workflow:delete")
+  ) {
+    return new CliError(
+      "This session isn't permitted to delete workflows.",
+      "Run `boardwalk login` again to refresh it — or `boardwalk login --scopes admin` against an older Boardwalk — then retry (you must be an org admin).",
+      err.status,
+    );
+  }
+  return err;
 }
 
 export async function runWorkflowDisable(

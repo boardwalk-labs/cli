@@ -154,7 +154,7 @@ function buildProgram(): Command {
     .option("--token <key>", "store this API key (bwk_…) instead of the browser flow")
     .option(
       "--scopes <tier>",
-      "elevated tier `admin` for org-admin writes (secrets, inference providers, workflow delete)",
+      "elevated tier `admin` for org-admin credential writes (secrets, inference providers)",
     )
     .action(async (options: { token?: string; scopes?: string }) => {
       const { runLogin } = await import("./commands/session.js");

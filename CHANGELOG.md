@@ -2,6 +2,26 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.6
+
+### Changed
+
+- **`workflows delete` works from a plain `boardwalk login`.** The control plane moved
+  `workflow:delete` into the default CLI scope set, so deleting a workflow no longer needs
+  `boardwalk login --scopes admin`. It stays gated on the admin org role, exactly as on the web.
+  Elevated is now precisely what it says: secrets and inference providers.
+
+  A session's scopes are frozen when it is authorized and carried through every refresh, so a login
+  created before this change keeps failing until you run `boardwalk login` again. That denial now
+  explains itself instead of surfacing a raw scope string.
+
+- **The OAuth callback page reads "Go build some things."**
+
+### Requires
+
+- A control plane carrying the scope change. Against an older Boardwalk, `workflows delete` still
+  needs `boardwalk login --scopes admin` — the failure hint names that fallback.
+
 ## 0.3.5
 
 ### Fixed

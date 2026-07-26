@@ -310,13 +310,13 @@ function escapeHtml(value: string): string {
 
 /**
  * The page the browser lands on after the OAuth redirect. Deliberately minimal: bold text on the
- * near-black Boardwalk canvas, echoing the marketing line ("Agent automation that you control")
- * with our periwinkle accent underline. Fully self-contained — the loopback socket has no route to
- * our CDN, so it must render with zero network requests.
+ * near-black Boardwalk canvas, with our periwinkle accent underline on the verb. Fully
+ * self-contained — the loopback socket has no route to our CDN, so it must render with zero network
+ * requests.
  */
 function renderCallbackPage(ok: boolean, message: string): string {
   const heading = ok
-    ? 'Go <span class="u">automate</span> some things.'
+    ? 'Go <span class="u">build</span> some things.'
     : "Sign in didn&rsquo;t finish.";
   const hint = ok
     ? "You can close this tab and head back to your terminal."
