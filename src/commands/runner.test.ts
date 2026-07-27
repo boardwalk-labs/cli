@@ -203,9 +203,9 @@ describe("runner start", () => {
     // Registered through the MANAGEMENT API (one-step; no registration token in sight).
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url).toContain("/v1/orgs/acme/runners");
-    // The control plane gates BOTH poll and claim on the version stored at REGISTRATION
-    // (MIN_RUNNER_VERSION), and nothing refreshes it later — enrolling without one produces a
-    // runner that reports "(none)" and 403s forever while still looking idle in the dashboard.
+    // The console shows what a machine is running; compatibility itself is judged from what the
+    // daemon declares on each poll. Registering without a version made every runner display as
+    // unknown, and used to make it permanently unservable back when this was the gate.
     const registerBody = JSON.parse(calls[0]?.body ?? "{}") as { version?: string };
     expect(registerBody.version).toMatch(/^\d+\.\d+\.\d+/);
     // Identity persisted for restarts.
@@ -222,6 +222,89 @@ describe("runner start", () => {
     expect(arg.identity.runner_id).toBe("01H_new");
     expect(arg.once).toBe(true);
     expect(arg.isolation.mode).toBe("container"); // containerized by default
+  });
+
+  it("re-enrolls when the control plane refuses the saved credential (401)", async () => {
+    const identityDir = await tmpDir("bw-cli-runner-");
+    await saveIdentity(identityDir, {
+      runner_id: "01H_dead",
+      runner_token: "bwkr_revoked",
+      control_plane_url: "https://api.x",
+      pool: "default",
+      name: "mbp",
+      created_at: 1,
+    });
+    const { fetchImpl } = routeFetch(
+      () =>
+        new Response(
+          JSON.stringify({ runner: { ...RUNNER_ROW, id: "01H_fresh" }, runnerToken: "bwkr_new" }),
+          { status: 201 },
+        ),
+    );
+    // First start is refused for a dead credential; the second must be handed the NEW identity.
+    const seen: string[] = [];
+    const startRunner = vi.fn().mockImplementation((arg: { identity: { runner_id: string } }) => {
+      seen.push(arg.identity.runner_id);
+      if (seen.length === 1) {
+        return Promise.reject(
+          Object.assign(new Error("poll failed (401)"), {
+            status: 401,
+            operation: "poll",
+          }),
+        );
+      }
+      return Promise.resolve(undefined);
+    });
+
+    await runRunnerStart(
+      { org: "acme", pool: "default", token: "bwk_t", once: true },
+      {
+        config: CONFIG,
+        fetchImpl,
+        log: () => undefined,
+        identityDir,
+        startRunner,
+        hostname: () => "mbp",
+      },
+    );
+
+    // `runner start` converges on "enrolled and online" rather than trusting disk: a credential
+    // the control plane no longer accepts is stale local state, and the CLI holds the org
+    // credentials that can replace it.
+    expect(seen).toEqual(["01H_dead", "01H_fresh"]);
+    expect((await loadIdentity(identityDir, "https://api.x", "default"))?.runner_id).toBe(
+      "01H_fresh",
+    );
+  });
+
+  it("does NOT re-enroll when the DAEMON is refused (403) — a new credential can't fix that", async () => {
+    const identityDir = await tmpDir("bw-cli-runner-");
+    await saveIdentity(identityDir, {
+      runner_id: "01H_old_daemon",
+      runner_token: "bwkr_fine",
+      control_plane_url: "https://api.x",
+      pool: "default",
+      name: "mbp",
+      created_at: 1,
+    });
+    const { fetchImpl, calls } = routeFetch(() => new Response(null, { status: 500 }));
+    const startRunner = vi.fn().mockRejectedValue(
+      Object.assign(new Error("poll failed (403): below the minimum contract version"), {
+        status: 403,
+        operation: "poll",
+      }),
+    );
+
+    // The message says what happened; the HINT says what to do (update the daemon, not re-enroll).
+    await expect(
+      runRunnerStart(
+        { org: "acme", pool: "default", token: "bwk_t", once: true },
+        { config: CONFIG, fetchImpl, log: () => undefined, identityDir, startRunner },
+      ),
+    ).rejects.toMatchObject({ hint: expect.stringContaining("Update the CLI") });
+    // Re-registering the same binary would be refused identically, so it must not try.
+    expect(startRunner).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(0);
   });
 
   it("reuses a saved identity without re-registering", async () => {

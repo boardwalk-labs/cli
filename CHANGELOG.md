@@ -2,6 +2,24 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.11
+
+### Changed — `runner start` converges on "enrolled and online"
+
+It used to reuse whatever identity was on disk, unconditionally. That hidden state outlived
+upgrades, which is what made a rejected runner a dead end: the saved credential could not be
+replaced by anything the command did, so 0.3.9 and 0.3.10 had to ship recovery tooling for a
+state that should not have been reachable.
+
+Now a saved credential the control plane refuses (401) is treated as what it is — stale local
+state — and the CLI, which is already holding the org credentials, discards it and enrolls again,
+once. A refused DAEMON (403) is not retried, because re-registering the same binary would be
+refused identically; it exits naming the upgrade instead.
+
+Ships `@boardwalk-labs/runner` 0.3.17, which declares its wire revision on every poll and claim
+rather than once at registration — so the control plane judges what is actually running, and
+upgrading a runner is by itself enough to clear a compatibility refusal.
+
 ## 0.3.10
 
 ### Fixed — `runner remove` rescues an already-deleted runner

@@ -137,10 +137,9 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
   const orgSlug = requireOrg(org);
   const identityDir = deps.identityDir ?? defaultIdentityDir();
 
-  let identity: RunnerIdentity | null = await loadIdentity(identityDir, baseUrl, pool);
-  if (identity === null) {
-    // One-step enrollment: the management API mints + redeems the registration token server-side
-    // under your membership (owner/admin). No token ever appears here.
+  // One-step enrollment: the management API mints + redeems the registration token server-side
+  // under your membership (owner/admin). No token ever appears here.
+  const enroll = async (): Promise<RunnerIdentity> => {
     const name = opts.name ?? (deps.hostname ?? os.hostname)();
     const osName = machineOs();
     const arch = machineArch();
@@ -150,11 +149,11 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
       labels: splitLabels(opts.labels),
       ...(osName !== undefined ? { os: osName } : {}),
       ...(arch !== undefined ? { arch } : {}),
-      // The control plane gates poll/claim on the version stored at registration
-      // (MIN_RUNNER_VERSION); omitting it registers a runner that can never come online.
+      // Recorded for the console; compatibility itself is judged from what the daemon declares
+      // on each poll, so this is a display fact rather than a gate.
       version: packageVersion(),
     });
-    identity = {
+    const fresh: RunnerIdentity = {
       runner_id: registered.runnerId,
       runner_token: registered.runnerToken,
       control_plane_url: baseUrl,
@@ -163,8 +162,14 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
       name,
       created_at: Date.now(),
     };
-    const file = await saveIdentity(identityDir, identity);
+    const file = await saveIdentity(identityDir, fresh);
     log(`Registered runner "${name}" in pool "${pool}" (identity: ${file})`);
+    return fresh;
+  };
+
+  let identity: RunnerIdentity | null = await loadIdentity(identityDir, baseUrl, pool);
+  if (identity === null) {
+    identity = await enroll();
   } else {
     log(`Using saved runner identity "${identity.name}" (pool "${pool}")`);
   }
@@ -172,10 +177,10 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
   // The daemon lifecycle + isolation are the runner package's shared startRunner — the same code
   // the standalone `boardwalk-runner` bin runs, so the two entry points can't drift.
   const run = deps.startRunner ?? startRunner;
-  try {
-    await run({
+  const online = (id: RunnerIdentity): Promise<void> =>
+    run({
       baseUrl,
-      identity,
+      identity: id,
       isolation: isolationFromOptions(opts),
       workDir: opts.workDir ?? path.join(identityDir, "work"),
       log: (line) => {
@@ -183,27 +188,49 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
       },
       ...(opts.once === true ? { once: true } : {}),
     });
+
+  try {
+    await online(identity);
   } catch (err) {
-    throw rejectedIdentityError(err, identity.runner_id, orgSlug);
+    // This command's job is "this machine is enrolled and online", not "reuse whatever is on
+    // disk". A saved credential the control plane no longer accepts is stale local state, and we
+    // are holding the org credentials that can replace it — so replace it, once, and carry on.
+    // Only a 401: it means the credential is dead, which a new one fixes. A 403 is the daemon
+    // itself being refused, and re-registering the same binary would just be refused again.
+    if (!isDeadCredential(err)) throw asStartFailure(err, orgSlug);
+    log(`The saved identity was rejected; re-enrolling this machine.`);
+    await client.deregisterRunner(identity.runner_id).catch(() => undefined);
+    await forgetLocalIdentity(identityDir, identity.runner_id);
+    try {
+      await online(await enroll());
+    } catch (retryErr) {
+      throw asStartFailure(retryErr, orgSlug);
+    }
   }
 }
 
-/**
- * Turn a rejected standing identity into the one instruction that actually resolves it. The
- * control plane stores a runner's version at REGISTRATION and never refreshes it, so its own
- * advice — "upgrade the daemon and re-register" — is half a fix: upgrading changes nothing while
- * this file survives, because `runner start` reuses it instead of registering again.
- */
-function rejectedIdentityError(err: unknown, runnerId: string, orgSlug: string): unknown {
-  const status = (err as { status?: unknown }).status;
-  if ((err as { operation?: unknown }).operation !== "poll") return err;
-  if (status !== 401 && status !== 403) return err;
-  const detail = err instanceof Error ? err.message : String(err);
+/** A poll 401: the standing credential is dead, so a fresh one resolves it. */
+function isDeadCredential(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const { operation, status } = err as { operation?: unknown; status?: unknown };
+  return operation === "poll" && status === 401;
+}
+
+/** Name what a caller can do about a runner the control plane refused outright. */
+function asStartFailure(err: unknown, orgSlug: string): unknown {
+  if (typeof err !== "object" || err === null) return err;
+  const { operation, status } = err as { operation?: unknown; status?: unknown };
+  if (operation !== "poll" || (status !== 401 && status !== 403)) return err;
+  // Narrowed to `object` above, so only an Error carries a message worth quoting.
+  const detail = err instanceof Error ? err.message : `poll failed (${String(status)})`;
   return new CliError(
-    `This runner never came online — the control plane rejected its saved identity.\n  ${detail}`,
-    `Discard that identity and enroll fresh (removing clears the local copy too):\n` +
-      `  boardwalk runner remove ${runnerId} --org ${orgSlug} --yes\n` +
-      `  boardwalk runner start --org ${orgSlug}`,
+    `This runner never came online — the control plane refused it.\n  ${detail}`,
+    status === 403
+      ? `Update the CLI (which ships the runner daemon) and start it again:\n` +
+          `  npm i -g @boardwalk-labs/cli@latest   # or: brew upgrade boardwalk\n` +
+          `  boardwalk runner start --org ${orgSlug}`
+      : `Re-enrolling did not help, so the org credential is likely the problem. ` +
+          `Check \`boardwalk whoami\` and that you are an owner/admin of ${orgSlug}.`,
   );
 }
 
