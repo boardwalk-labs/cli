@@ -150,6 +150,11 @@ describe("runner start", () => {
     // Registered through the MANAGEMENT API (one-step; no registration token in sight).
     expect(calls[0]?.method).toBe("POST");
     expect(calls[0]?.url).toContain("/v1/orgs/acme/runners");
+    // The control plane gates BOTH poll and claim on the version stored at REGISTRATION
+    // (MIN_RUNNER_VERSION), and nothing refreshes it later — enrolling without one produces a
+    // runner that reports "(none)" and 403s forever while still looking idle in the dashboard.
+    const registerBody = JSON.parse(calls[0]?.body ?? "{}") as { version?: string };
+    expect(registerBody.version).toMatch(/^\d+\.\d+\.\d+/);
     // Identity persisted for restarts.
     const identity = await loadIdentity(identityDir, "https://api.x", "default");
     expect(identity?.runner_id).toBe("01H_new");
@@ -262,6 +267,9 @@ describe("runner register (two-step)", () => {
       { config: CONFIG, fetchImpl, log: (l) => lines.push(l), identityDir },
     );
     expect(calls[0]?.url).toBe("https://api.x/runner/v1/register");
+    // Same MIN_RUNNER_VERSION gate as the one-step path — the fleet flow must declare it too.
+    const registerBody = JSON.parse(calls[0]?.body ?? "{}") as { runner_version?: string };
+    expect(registerBody.runner_version).toMatch(/^\d+\.\d+\.\d+/);
     const identity = await loadIdentity(identityDir, "https://api.x", "fleet");
     expect(identity?.runner_token).toBe("bwkr_fleet");
     expect(lines.join("\n")).toContain("boardwalk runner start");

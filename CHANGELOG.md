@@ -2,7 +2,21 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
-## Unreleased
+## 0.3.8
+
+### Fixed — `boardwalk runner start` could never bring a runner online
+
+Registration never declared the runner's version. The control plane gates BOTH poll and claim on
+the version stored at registration (`MIN_RUNNER_VERSION`), and nothing refreshes it afterwards, so
+a freshly enrolled runner reported `(none)` and every poll came back 403 — self-hosted runners were
+unusable on any org, not merely stale ones. Both enrollment paths now send it: `version` on the
+one-step management registration, `runner_version` on the two-step fleet redemption.
+
+The failure was quiet in the way that costs the most time. The daemon printed
+`Runner <name> online in pool 'default'. Waiting for runs...` and then warned in a loop forever,
+`runner list` showed the runner as `idle`, and the 403's own advice — "Upgrade the boardwalk runner
+daemon and re-register" — could not work, because `runner start` reuses the saved identity file and
+never re-registers. (Fail-fast on that 403 is a `@boardwalk-labs/runner` change, not shipped here.)
 
 ### Fixed — a Python build can no longer ship native code for the wrong machine
 

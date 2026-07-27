@@ -20,6 +20,7 @@ import {
   PoolClient,
   defaultIdentityDir,
   loadIdentity,
+  packageVersion,
   saveIdentity,
   startRunner,
   type IsolationConfig,
@@ -148,6 +149,9 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
       labels: splitLabels(opts.labels),
       ...(osName !== undefined ? { os: osName } : {}),
       ...(arch !== undefined ? { arch } : {}),
+      // The control plane gates poll/claim on the version stored at registration
+      // (MIN_RUNNER_VERSION); omitting it registers a runner that can never come online.
+      version: packageVersion(),
     });
     identity = {
       runner_id: registered.runnerId,
@@ -198,6 +202,7 @@ export async function runRunnerRegister(
     labels: splitLabels(opts.labels),
     ...(osName === "linux" || osName === "macos" || osName === "windows" ? { os: osName } : {}),
     ...(arch !== undefined ? { arch } : {}),
+    runner_version: packageVersion(),
   });
   const file = await saveIdentity(deps.identityDir ?? defaultIdentityDir(), {
     runner_id: res.runner_id,
