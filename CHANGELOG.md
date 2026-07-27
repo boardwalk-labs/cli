@@ -2,6 +2,15 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.10
+
+### Fixed — `runner remove` rescues an already-deleted runner
+
+0.3.9's recovery path had a hole in exactly the case it was written for. A runner whose token was
+revoked is already gone from the control plane, so the `runner remove` it tells you to run answered
+404 and threw — before clearing the local identity, leaving the machine stuck on the dead one.
+A 404 now counts as removed: absent server-side is the state the command is trying to reach.
+
 ## 0.3.9
 
 ### Fixed — a rejected runner identity is now escapable

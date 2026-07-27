@@ -279,8 +279,21 @@ export async function runRunnerRemove(opts: RunnerRemoveOptions, deps: RunnerDep
     );
   }
   const { client } = await resolveOrgClient(deps, opts);
-  await client.deregisterRunner(opts.runnerId);
-  log(`Removed runner ${opts.runnerId}.`);
+  // A 404 means the row is already gone — which is the state a REVOKED runner is in, and the exact
+  // case this command has to rescue. Treating it as an error would refuse to clean up locally and
+  // leave the machine stuck on a dead identity, so absent counts as removed.
+  let alreadyGone = false;
+  try {
+    await client.deregisterRunner(opts.runnerId);
+  } catch (err) {
+    if ((err as { status?: unknown }).status !== 404) throw err;
+    alreadyGone = true;
+  }
+  log(
+    alreadyGone
+      ? `Runner ${opts.runnerId} was already gone from the control plane.`
+      : `Removed runner ${opts.runnerId}.`,
+  );
   // Deregistering kills the row; leaving the local identity behind means the next `runner start`
   // happily reuses a credential the control plane no longer knows. Only THIS machine's matching
   // identity is dropped — removing another box's runner must not touch anything here.

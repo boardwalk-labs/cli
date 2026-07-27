@@ -104,6 +104,28 @@ describe("runner remove", () => {
     expect(calls[0]?.url).toContain("/v1/runners/01H_runner");
   });
 
+  it("still clears the local identity when the runner is already gone (404)", async () => {
+    const identityDir = await tmpDir("bw-cli-runner-");
+    await saveIdentity(identityDir, {
+      runner_id: "01H_revoked",
+      runner_token: "bwkr_dead",
+      control_plane_url: "https://api.x",
+      pool: "default",
+      name: "mbp",
+      created_at: 1,
+    });
+    const { fetchImpl } = routeFetch(
+      () => new Response(JSON.stringify({ error: { message: "Not found" } }), { status: 404 }),
+    );
+    // A revoked runner IS already gone server-side — the case this command exists to rescue.
+    // Failing on the 404 would refuse to clean up and strand the machine on a dead identity.
+    await runRunnerRemove(
+      { runnerId: "01H_revoked", org: "acme", yes: true, token: "bwk_t" },
+      { config: CONFIG, fetchImpl, log: () => undefined, identityDir },
+    );
+    expect(await loadIdentity(identityDir, "https://api.x", "default")).toBeNull();
+  });
+
   it("clears THIS machine's saved identity for the removed runner, and only that one", async () => {
     const identityDir = await tmpDir("bw-cli-runner-");
     await saveIdentity(identityDir, {
