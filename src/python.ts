@@ -39,7 +39,7 @@ import {
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, posix, relative, sep } from "node:path";
+import { basename, join, posix, relative, sep } from "node:path";
 import { CliError } from "./errors.js";
 
 /** The program language, decided by the resolved entry's extension. */
@@ -49,6 +49,15 @@ export type WorkflowLanguage = "typescript" | "python";
 export const PY_TARGET_VERSION = "3.13";
 /** The hosted fleet's microVM platform (x86_64 Linux — nested virt is Intel-only). */
 export const PY_TARGET_PLATFORM = "x86_64-unknown-linux-gnu";
+/** The ABI tag a native extension must carry to load on the runner. Spelled out rather than built
+ *  from PY_TARGET_PLATFORM: that is a Rust-style triple carrying a vendor field (`unknown`) the
+ *  wheel tag drops. */
+export const PY_TARGET_EXT_SUFFIX = `.cpython-${PY_TARGET_VERSION.replace(".", "")}-x86_64-linux-gnu.so`;
+
+/** A version-locked native extension (`_pydantic_core.cpython-313-x86_64-linux-gnu.so`). Excludes
+ *  `foo.abi3.so` (the stable ABI is cross-version by design) and bare bundled libraries
+ *  (`libscipy_openblas-….so`) — neither is tied to an interpreter. */
+const NATIVE_EXT = /\.cpython-[0-9a-z]+-[^.]+\.so$/;
 
 const UV_INSTALL_HINT =
   "Install uv (the Python package manager the build uses to resolve + freeze dependencies): " +
@@ -272,6 +281,7 @@ export function materializeSitePackages(
     );
 
     const files = collectSitePackages(target);
+    assertNativeExtensionsMatchTarget(files);
     return {
       files,
       totalBytes: files.reduce((sum, f) => sum + f.size, 0),
@@ -283,6 +293,33 @@ export function materializeSitePackages(
     rmSync(tmp, { recursive: true, force: true });
     throw err;
   }
+}
+
+/**
+ * Refuse a layer holding a native extension built for anything but the hosted runner.
+ *
+ * uv resolves wheels for the TARGET, but a package with no matching wheel falls back to building
+ * its sdist for the BUILD machine — which packs and uploads clean, then fails whenever the run
+ * imports it. Checking the emitted binaries (rather than passing `--only-binary`) keeps the
+ * harmless case working: a pure-Python source build emits no native extension and passes untouched.
+ */
+export function assertNativeExtensionsMatchTarget(files: readonly SitePackagesFile[]): void {
+  const tagOf = (relPath: string): string | null => NATIVE_EXT.exec(basename(relPath))?.[0] ?? null;
+  const wrong = files.filter((f) => {
+    const tag = tagOf(f.relPath);
+    return tag !== null && tag !== PY_TARGET_EXT_SUFFIX;
+  });
+  const first = wrong[0];
+  if (first === undefined) return;
+  const tags = [...new Set(wrong.map((f) => tagOf(f.relPath)))].join(", ");
+  throw new CliError(
+    `This package's dependencies built native extensions for ${tags}, but hosted runs load ` +
+      `${PY_TARGET_EXT_SUFFIX} (CPython ${PY_TARGET_VERSION} on ${PY_TARGET_PLATFORM}) — they ` +
+      `cannot be imported on the runner. First of ${String(wrong.length)}: ${first.relPath}.`,
+    "A dependency had no wheel for the target, so uv built it from source for THIS machine. " +
+      "Upgrade uv (a current one finds wheels an old one misses), or pin a version that publishes " +
+      "a wheel. A dependency that can only ever build from source needs a custom runner image.",
+  );
 }
 
 /**

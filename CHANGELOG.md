@@ -2,6 +2,30 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## Unreleased
+
+### Fixed — a Python build can no longer ship native code for the wrong machine
+
+- **`check` / `build` / `deploy` now refuse a dependency layer holding a native extension built for
+  anything but the hosted runner.** The build resolves wheels for the runner's CPython and platform,
+  not yours — but a package with no matching wheel makes uv fall back to building its sdist _for the
+  build machine_, and that layer packed and uploaded clean, then failed only when a run imported it.
+  Observed with an outdated uv, which couldn't see numpy's wheels and quietly compiled macOS
+  binaries into a Linux artifact.
+
+  The check reads the ABI tag off the emitted `.so` files, rather than passing uv `--only-binary`,
+  so a source build that emits no native code (any pure-Python package, which many publish as an
+  sdist only) still works exactly as before. `foo.abi3.so` and bundled libraries like
+  `libscipy_openblas-….so` are skipped — neither is tied to an interpreter version.
+
+  The error names the offending tag and file, and points at uv:
+
+  ```
+  This package's dependencies built native extensions for .cpython-313-darwin.so, but hosted
+  runs load .cpython-313-x86_64-linux-gnu.so (CPython 3.13 on x86_64-unknown-linux-gnu) — they
+  cannot be imported on the runner. First of 19: numpy/_core/_multiarray_umath.cpython-313-darwin.so.
+  ```
+
 ## 0.3.7
 
 ### Changed — `run` and `deploy` split (BREAKING)

@@ -7,11 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildArtifact } from "./artifact.js";
 import {
+  assertNativeExtensionsMatchTarget,
   detectPythonDeps,
   languageOfEntry,
   materializeSitePackages,
   parsePyprojectDependencies,
   parseRequirementSpecs,
+  PY_TARGET_EXT_SUFFIX,
   PY_TARGET_PLATFORM,
   PY_TARGET_VERSION,
   type UvRunner,
@@ -213,6 +215,77 @@ describe("materializeSitePackages (uv runner seam)", () => {
       expect(site.files).toEqual([]); // fake installed nothing — empty is a valid layer
     } finally {
       site.cleanup();
+    }
+  });
+
+  it("a wrong-platform native extension fails the build instead of shipping", () => {
+    const fake: UvRunner = (args) => {
+      if (args[0] === "pip") {
+        // What an old uv does when it finds no wheel: build the sdist for THIS machine.
+        const target = args[args.indexOf("--target") + 1] ?? "";
+        mkdirSync(join(target, "numpy", "_core"), { recursive: true });
+        writeFileSync(
+          join(target, "numpy", "_core", "_multiarray_umath.cpython-313-darwin.so"),
+          "macho",
+        );
+      }
+      return { status: 0, stderr: "" };
+    };
+    expect(() =>
+      materializeSitePackages(dir, { source: "requirements", specs: ["numpy"] }, fake),
+    ).toThrow(/cpython-313-darwin\.so.*cannot be imported on the runner/s);
+  });
+});
+
+describe("assertNativeExtensionsMatchTarget", () => {
+  const file = (relPath: string) => ({ relPath, absPath: `/tmp/${relPath}`, size: 1 });
+
+  it("passes a layer whose native extensions carry the target's tag", () => {
+    expect(() => {
+      assertNativeExtensionsMatchTarget([
+        file(`pydantic_core/_pydantic_core${PY_TARGET_EXT_SUFFIX}`),
+      ]);
+    }).not.toThrow();
+  });
+
+  it("passes a pure-Python layer, however it was built", () => {
+    // The reason this checks emitted BINARIES rather than passing uv `--only-binary`: a
+    // pure-Python package built from an sdist emits none, and is portable.
+    expect(() => {
+      assertNativeExtensionsMatchTarget([file("idna/core.py"), file("idna/package_data.py")]);
+    }).not.toThrow();
+  });
+
+  it("ignores the stable ABI and bare bundled libraries — neither is interpreter-locked", () => {
+    expect(() => {
+      assertNativeExtensionsMatchTarget([
+        file("cffi/_cffi_backend.abi3.so"),
+        file("numpy.libs/libscipy_openblas64_-017048f4.so"),
+      ]);
+    }).not.toThrow();
+  });
+
+  it("names every offending tag and the first offending file", () => {
+    let message = "";
+    try {
+      assertNativeExtensionsMatchTarget([
+        file("numpy/_core/_multiarray_umath.cpython-313-darwin.so"),
+        file("numpy/random/mtrand.cpython-313-darwin.so"),
+        file("pandas/_libs/hashtable.cpython-311-x86_64-linux-gnu.so"),
+      ]);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain(".cpython-313-darwin.so");
+    expect(message).toContain(".cpython-311-x86_64-linux-gnu.so");
+    expect(message).toContain("First of 3: numpy/_core/_multiarray_umath.cpython-313-darwin.so");
+  });
+
+  it("points at uv rather than at the author's own code", () => {
+    try {
+      assertNativeExtensionsMatchTarget([file("x/y.cpython-313-darwin.so")]);
+    } catch (err) {
+      expect((err as { hint?: string }).hint).toMatch(/Upgrade uv/);
     }
   });
 });
