@@ -103,6 +103,37 @@ describe("runner remove", () => {
     expect(calls[0]?.method).toBe("DELETE");
     expect(calls[0]?.url).toContain("/v1/runners/01H_runner");
   });
+
+  it("clears THIS machine's saved identity for the removed runner, and only that one", async () => {
+    const identityDir = await tmpDir("bw-cli-runner-");
+    await saveIdentity(identityDir, {
+      runner_id: "01H_runner",
+      runner_token: "bwkr_gone",
+      control_plane_url: "https://api.x",
+      pool: "default",
+      name: "mbp",
+      created_at: 1,
+    });
+    await saveIdentity(identityDir, {
+      runner_id: "01H_other",
+      runner_token: "bwkr_keep",
+      control_plane_url: "https://api.x",
+      pool: "fleet",
+      name: "box-1",
+      created_at: 1,
+    });
+    const { fetchImpl } = routeFetch(() => new Response(null, { status: 204 }));
+    await runRunnerRemove(
+      { runnerId: "01H_runner", org: "acme", yes: true, token: "bwk_t" },
+      { config: CONFIG, fetchImpl, log: () => undefined, identityDir },
+    );
+    // Deregistering kills the credential; a surviving identity file would make the next
+    // `runner start` reuse a dead one. Another box's identity must be untouched.
+    expect(await loadIdentity(identityDir, "https://api.x", "default")).toBeNull();
+    expect((await loadIdentity(identityDir, "https://api.x", "fleet"))?.runner_id).toBe(
+      "01H_other",
+    );
+  });
 });
 
 describe("runner pools token", () => {

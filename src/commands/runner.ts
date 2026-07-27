@@ -16,6 +16,7 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
+import { readdir, readFile, unlink } from "node:fs/promises";
 import {
   PoolClient,
   defaultIdentityDir,
@@ -171,16 +172,39 @@ export async function runRunnerStart(opts: RunnerStartOptions, deps: RunnerDeps)
   // The daemon lifecycle + isolation are the runner package's shared startRunner — the same code
   // the standalone `boardwalk-runner` bin runs, so the two entry points can't drift.
   const run = deps.startRunner ?? startRunner;
-  await run({
-    baseUrl,
-    identity,
-    isolation: isolationFromOptions(opts),
-    workDir: opts.workDir ?? path.join(identityDir, "work"),
-    log: (line) => {
-      log(line.replace(/\n+$/, ""));
-    },
-    ...(opts.once === true ? { once: true } : {}),
-  });
+  try {
+    await run({
+      baseUrl,
+      identity,
+      isolation: isolationFromOptions(opts),
+      workDir: opts.workDir ?? path.join(identityDir, "work"),
+      log: (line) => {
+        log(line.replace(/\n+$/, ""));
+      },
+      ...(opts.once === true ? { once: true } : {}),
+    });
+  } catch (err) {
+    throw rejectedIdentityError(err, identity.runner_id, orgSlug);
+  }
+}
+
+/**
+ * Turn a rejected standing identity into the one instruction that actually resolves it. The
+ * control plane stores a runner's version at REGISTRATION and never refreshes it, so its own
+ * advice — "upgrade the daemon and re-register" — is half a fix: upgrading changes nothing while
+ * this file survives, because `runner start` reuses it instead of registering again.
+ */
+function rejectedIdentityError(err: unknown, runnerId: string, orgSlug: string): unknown {
+  const status = (err as { status?: unknown }).status;
+  if ((err as { operation?: unknown }).operation !== "poll") return err;
+  if (status !== 401 && status !== 403) return err;
+  const detail = err instanceof Error ? err.message : String(err);
+  return new CliError(
+    `This runner never came online — the control plane rejected its saved identity.\n  ${detail}`,
+    `Discard that identity and enroll fresh (removing clears the local copy too):\n` +
+      `  boardwalk runner remove ${runnerId} --org ${orgSlug} --yes\n` +
+      `  boardwalk runner start --org ${orgSlug}`,
+  );
 }
 
 /** `boardwalk runner register` — two-step fleet flow (redeem a token minted elsewhere). */
@@ -257,6 +281,36 @@ export async function runRunnerRemove(opts: RunnerRemoveOptions, deps: RunnerDep
   const { client } = await resolveOrgClient(deps, opts);
   await client.deregisterRunner(opts.runnerId);
   log(`Removed runner ${opts.runnerId}.`);
+  // Deregistering kills the row; leaving the local identity behind means the next `runner start`
+  // happily reuses a credential the control plane no longer knows. Only THIS machine's matching
+  // identity is dropped — removing another box's runner must not touch anything here.
+  const cleared = await forgetLocalIdentity(
+    deps.identityDir ?? defaultIdentityDir(),
+    opts.runnerId,
+  );
+  if (cleared !== null) log(`Cleared its saved identity (${cleared}).`);
+}
+
+/** Delete the saved identity naming `runnerId`, if this machine holds one. Returns its path. */
+async function forgetLocalIdentity(identityDir: string, runnerId: string): Promise<string | null> {
+  let entries: string[];
+  try {
+    entries = (await readdir(identityDir)).filter((n) => n.endsWith(".json"));
+  } catch {
+    return null; // no identity dir on this machine — nothing enrolled here
+  }
+  for (const entry of entries) {
+    const file = path.join(identityDir, entry);
+    try {
+      const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+      if ((parsed as { runner_id?: unknown }).runner_id !== runnerId) continue;
+      await unlink(file);
+      return file;
+    } catch {
+      continue; // unreadable/!json — not an identity we own
+    }
+  }
+  return null;
 }
 
 /** `boardwalk runner pools token` — mint a one-time registration token (fleet installs). */

@@ -2,6 +2,24 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.9
+
+### Fixed — a rejected runner identity is now escapable
+
+0.3.8 stopped the CLI from enrolling runners the control plane would refuse, but anything already
+holding a stale identity stayed stuck: the version a runner is judged on is written at registration
+and never refreshed, and `runner start` reuses the saved identity file rather than registering
+again — so the control plane's own advice ("upgrade the daemon and re-register") could not work.
+
+- **`runner remove` now clears this machine's saved identity for the runner it deregisters.**
+  Leaving it behind meant the next `runner start` reused a credential the control plane had already
+  destroyed. Only a matching identity is dropped — removing another box's runner touches nothing
+  locally.
+- **A refused runner now fails with the recovery.** Instead of the daemon's raw 403 repeating
+  forever, the command exits naming both commands that fix it.
+- Ships `@boardwalk-labs/runner` 0.3.16, where the daemon stops on a rejected identity rather than
+  retrying it forever, and only claims to be `online` after a poll the control plane accepts.
+
 ## 0.3.8
 
 ### Fixed — `boardwalk runner start` could never bring a runner online

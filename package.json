@@ -35,7 +35,7 @@
     "boardwalk": "tsx src/index.ts"
   },
   "dependencies": {
-    "@boardwalk-labs/runner": "^0.3.10",
+    "@boardwalk-labs/runner": "^0.3.16",
     "@boardwalk-labs/workflow": "0.3.2",
     "commander": "^13.1.0",
     "env-paths": "^3.0.0",
