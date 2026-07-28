@@ -2,6 +2,15 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.13
+
+### Added — `boardwalk check` accepts the `linear` trigger kind
+
+Workflow SDK 0.3.4: a descriptor may declare `{ "kind": "linear", "event": "issue.created" }` with
+the semantic vocabulary (`issue.created`, `issue.status_changed`, `issue.commented`). No URL, no
+secret. Connect the workspace via the web console (Connections -> Triggers -> Linear) and
+Boardwalk creates and verifies the workspace webhook itself.
+
 ## 0.3.12
 
 ### Added — `boardwalk check` accepts the `github` trigger kind
