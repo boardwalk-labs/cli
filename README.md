@@ -5,7 +5,7 @@ The `boardwalk` command — author, validate, deploy, and operate [Boardwalk](ht
 ```
 boardwalk setup                            # one-time: log in + wire up your coding agent
 boardwalk init my-workflow                 # scaffold a project from a template
-boardwalk check ./index.ts                 # validate locally (no auth/network)
+boardwalk check .                          # validate the package locally (no auth/network)
 boardwalk login                            # browser OAuth (PKCE) → stores a session
 boardwalk deploy . --org my-team           # ship it to the Boardwalk platform
 boardwalk run my-workflow --input '{"who":"world"}'   # run the DEPLOYED workflow, from anywhere
