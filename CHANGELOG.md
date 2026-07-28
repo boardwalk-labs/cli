@@ -2,6 +2,16 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.12
+
+### Added — `boardwalk check` accepts the `github` trigger kind
+
+Workflow SDK 0.3.3: a descriptor may declare
+`{ "kind": "github", "event": "pr.merged", "repos": ["acme/api"] }` with the semantic event
+vocabulary (`pr.opened`, `pr.merged`, `issue.opened`, `issue.commented`, `ci.completed`). No URL,
+no secret — events arrive through the org's GitHub connection, filtered and deduped platform-side
+before any run is created. Connect via the web console (Connections → Connect GitHub).
+
 ## 0.3.11
 
 ### Changed — `runner start` converges on "enrolled and online"
