@@ -17,7 +17,7 @@
 //   boardwalk cancel <runId>            Cancel a queued or in-flight run.
 //   boardwalk usage --org <s>           Show org usage: runs, compute, tokens, credit, cache.
 //   boardwalk runs [runId] [--logs|--follow]  List recent runs, show one, or stream its logs.
-//   boardwalk webhook <ref> [--rotate]        Show a workflow's inbound webhook URL (--rotate mints).
+//   boardwalk webhooks [create|rotate|delete] Manage the org's inbound webhook endpoints.
 //   boardwalk workflows [list|show|delete]    Inspect the org's workflows.
 //   boardwalk secrets [list|set|delete]       Manage org secrets (writes need login --scopes admin).
 //   boardwalk environments [list|create|delete]  Manage named environments (config sets a run targets).

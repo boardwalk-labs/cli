@@ -2,6 +2,13 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.17
+
+### Fixed
+
+- The command summary in `--help` still advertised the removed
+  `boardwalk webhook <ref> [--rotate]`. It now names `boardwalk webhooks`.
+
 ## 0.3.16
 
 ### Changed — `boardwalk webhooks` replaces `boardwalk webhook <ref>`
