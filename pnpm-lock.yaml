@@ -12,8 +12,8 @@ importers:
         specifier: ^0.3.17
         version: 0.3.17
       '@boardwalk-labs/workflow':
-        specifier: 0.3.4
-        version: 0.3.4
+        specifier: 0.3.5
+        version: 0.3.5
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -99,8 +99,8 @@ packages:
     resolution: {integrity: sha512-LCWebfCRyASJlfL7VZhAkI/O6cNWRFY+sOmON+YIoe6JGZwCFAxY3NqymUFaVbhXf7edJB/KbFzrhKrW2z28Wg==}
     engines: {node: '>=24'}
 
-  '@boardwalk-labs/workflow@0.3.4':
-    resolution: {integrity: sha512-Im+ObWjbHZk/B40Dne+AWf5knqrn9998YXo5diWZ5bmkSWLQwnSXZMPUTqtcvYhJq5bpfVdjYLp3HmjuSJAz1g==}
+  '@boardwalk-labs/workflow@0.3.5':
+    resolution: {integrity: sha512-xce5ImLtm6NK8ewUbIYIzrEHIWeMtTF2YIp58M8jPL3pXViSYqNNXxlKfEtf4AoGULq+E7AlgpVfZsmZH6ussg==}
     engines: {node: '>=24'}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -1993,7 +1993,7 @@ snapshots:
 
   '@boardwalk-labs/engine@0.3.0':
     dependencies:
-      '@boardwalk-labs/workflow': 0.3.4
+      '@boardwalk-labs/workflow': 0.3.5
       zod: 4.4.3
 
   '@boardwalk-labs/runner@0.3.17':
@@ -2014,7 +2014,7 @@ snapshots:
     dependencies:
       zod: 4.4.3
 
-  '@boardwalk-labs/workflow@0.3.4':
+  '@boardwalk-labs/workflow@0.3.5':
     dependencies:
       zod: 4.4.3
 
