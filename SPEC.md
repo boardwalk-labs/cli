@@ -1,6 +1,6 @@
 # SPEC — `cli` (`@boardwalk-labs/cli`)
 
-> The front door: author, validate, run locally, and deploy workflows. MIT. Public in **Phase 1**.
+> The front door: author, validate, deploy, and operate workflows. MIT. Public in **Phase 1**.
 >
 > Scope: the CLI talks to engines and to the hosted platform only via its public API.
 
