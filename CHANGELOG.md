@@ -2,6 +2,16 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.18
+
+### Fixed
+
+- **`boardwalk webhooks create` always failed with `Body.name must be a string`.** The request body
+  was nested one level (`{ body: input }`) where the client's `request()` takes it directly, so the
+  API received `{"body":{...}}` and saw no fields at all. Caught driving the command against dev.
+  The command's tests covered only its pure formatters; there is now a client test asserting the
+  wire body, which fails against the old shape.
+
 ## 0.3.17
 
 ### Fixed

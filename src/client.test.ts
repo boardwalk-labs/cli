@@ -683,3 +683,64 @@ describe("BoardwalkClient error mapping", () => {
     ).rejects.toMatchObject({ hint: "bad meta" });
   });
 });
+
+describe("webhook endpoints", () => {
+  const webhookRow = {
+    id: "wh1",
+    name: "stripe-prod",
+    url: "https://webhook.x/v1/webhooks/wh1",
+    description: null,
+    preset: "stripe",
+    header: null,
+  };
+
+  it("POSTs createWebhook with the fields at the TOP level of the body", async () => {
+    // Regression: the body was nested one level (`{ body: input }`), so the API saw no `name` and
+    // 400'd on every create. The formatter tests could never catch that — assert the wire shape.
+    const { fetchImpl, calls } = recordingFetch(201, {
+      webhook: { ...webhookRow, secret: "whk_1" },
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const created = await client.createWebhook("acme", { name: "stripe-prod", preset: "stripe" });
+
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toContain("/v1/orgs/acme/webhooks");
+    expect(JSON.parse(calls[0]?.body ?? "{}")).toEqual({ name: "stripe-prod", preset: "stripe" });
+    expect(created.secret).toBe("whk_1");
+  });
+
+  it("GETs listWebhooks and drops a malformed row rather than throwing", async () => {
+    const { fetchImpl, calls } = recordingFetch(200, {
+      webhooks: [webhookRow, { id: "wh2" }],
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const rows = await client.listWebhooks("acme");
+    expect(calls[0]?.method).toBe("GET");
+    expect(rows.map((w) => w.name)).toEqual(["stripe-prod"]);
+  });
+
+  it("POSTs rotateWebhook by id and requires the show-once secret in the response", async () => {
+    const { fetchImpl, calls } = recordingFetch(200, {
+      webhook: { ...webhookRow, secret: "whk_2" },
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    expect((await client.rotateWebhook("wh1")).secret).toBe("whk_2");
+    expect(calls[0]?.url).toContain("/v1/webhooks/wh1/rotate");
+
+    const missing = recordingFetch(200, { webhook: webhookRow });
+    const c2 = new BoardwalkClient({
+      baseUrl: "https://api.x",
+      token: "t",
+      fetchImpl: missing.fetchImpl,
+    });
+    await expect(c2.rotateWebhook("wh1")).rejects.toThrow(/unexpected webhook response/);
+  });
+
+  it("DELETEs a webhook by id", async () => {
+    const { fetchImpl, calls } = recordingFetch(204, {});
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    await client.deleteWebhook("wh1");
+    expect(calls[0]?.method).toBe("DELETE");
+    expect(calls[0]?.url).toContain("/v1/webhooks/wh1");
+  });
+});

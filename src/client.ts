@@ -512,7 +512,7 @@ export class BoardwalkClient {
     const body = await this.request<unknown>(
       "POST",
       `/v1/orgs/${encodeURIComponent(orgSlug)}/webhooks`,
-      { body: input },
+      input,
     );
     return requireWebhookWithSecret(body);
   }
