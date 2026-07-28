@@ -180,17 +180,18 @@ export interface WorkflowDetail {
   disabled: boolean;
 }
 
-/** A workflow's inbound webhook endpoint (GET /v1/orgs/:slug/workflows/:id/webhook). The URL is
- *  the bare workflow endpoint — the secret is NEVER carried in the URL; it rides in a header per
- *  the trigger's verifier `preset` (`token` = X-Boardwalk-Token, `custom_header` = the named
- *  `header`, `signature` = HMAC in X-Boardwalk-Signature, or a provider dialect like `github`).
- *  The secret VALUE is never returned by the read surface. */
-export interface WorkflowWebhookInfo {
+/** One of the org's inbound webhooks (GET /v1/orgs/:slug/webhooks). The secret is NEVER carried in
+ *  the URL; it rides in a header per the `preset` (`token` = X-Boardwalk-Token, `custom_header` =
+ *  the named `header`, `signature` = HMAC in X-Boardwalk-Signature, or a provider dialect like
+ *  `github`). The secret VALUE is returned only by create/rotate, once. */
+export interface WebhookInfo {
+  id: string;
+  /** The handle a descriptor references as `{ kind: "webhook", name }`. Immutable. */
+  name: string;
+  description: string | null;
   url: string;
-  /** The coarse family the manifest declared. */
-  auth: "token" | "signature";
-  /** The resolved verification dialect; null from an older server (fall back on `auth`). */
-  preset: string | null;
+  /** The verification dialect deliveries are checked against. */
+  preset: string;
   /** Bearer header name for the `custom_header` preset; null otherwise. */
   header: string | null;
 }
@@ -492,37 +493,43 @@ export class BoardwalkClient {
     return this.runList(body);
   }
 
-  /** Fetch a workflow's webhook URL + auth mode (GET /v1/orgs/:slug/workflows/:id/webhook). Returns
-   *  null when the workflow has no enabled webhook trigger. The secret value is never returned here. */
-  async getWorkflowWebhook(
-    orgSlug: string,
-    workflowId: string,
-  ): Promise<WorkflowWebhookInfo | null> {
-    const body = await this.request<unknown>(
+  /** The org's inbound webhooks (GET /v1/orgs/:slug/webhooks). Secret values are never returned. */
+  async listWebhooks(orgSlug: string): Promise<WebhookInfo[]> {
+    const body = await this.request<{ webhooks?: unknown }>(
       "GET",
-      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows/${encodeURIComponent(workflowId)}/webhook`,
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/webhooks`,
     );
-    return parseWebhookInfo(isRecord(body) ? body.webhook : null);
+    const rows = Array.isArray(body.webhooks) ? body.webhooks : [];
+    return rows.map(parseWebhookInfo).filter((w): w is WebhookInfo => w !== null);
   }
 
-  /** Rotate a workflow's webhook secret (POST .../webhook/rotate; admin-gated server-side) and return
-   *  it ONCE as `secret` — the URL stays the bare endpoint (the secret is never in the URL; the
-   *  sender delivers it per the verifier preset). Null when no webhook trigger. */
-  async rotateWorkflowWebhook(
+  /** Create a webhook (POST /v1/orgs/:slug/webhooks; admin-gated) — the signing secret comes back
+   *  ONCE. `secret` in the input stores a sender-owned key instead of minting one. */
+  async createWebhook(
     orgSlug: string,
-    workflowId: string,
-  ): Promise<(WorkflowWebhookInfo & { secret: string }) | null> {
+    input: { name: string; description?: string; preset: string; header?: string; secret?: string },
+  ): Promise<WebhookInfo & { secret: string }> {
     const body = await this.request<unknown>(
       "POST",
-      `/v1/orgs/${encodeURIComponent(orgSlug)}/workflows/${encodeURIComponent(workflowId)}/webhook/rotate`,
+      `/v1/orgs/${encodeURIComponent(orgSlug)}/webhooks`,
+      { body: input },
     );
-    const webhook = isRecord(body) ? body.webhook : null;
-    const info = parseWebhookInfo(webhook);
-    if (info === null) return null;
-    if (!isRecord(webhook) || typeof webhook.secret !== "string") {
-      throw new CliError("The API returned an unexpected webhook response shape.");
-    }
-    return { ...info, secret: webhook.secret };
+    return requireWebhookWithSecret(body);
+  }
+
+  /** Rotate a webhook's signing secret (POST /v1/webhooks/:id/rotate; admin-gated), returned ONCE.
+   *  The URL is unchanged — the old secret stops working immediately. */
+  async rotateWebhook(id: string): Promise<WebhookInfo & { secret: string }> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/webhooks/${encodeURIComponent(id)}/rotate`,
+    );
+    return requireWebhookWithSecret(body);
+  }
+
+  /** Delete a webhook and its secret (DELETE /v1/webhooks/:id; admin-gated). */
+  async deleteWebhook(id: string): Promise<void> {
+    await this.request<unknown>("DELETE", `/v1/webhooks/${encodeURIComponent(id)}`);
   }
 
   /** List the org's secrets — metadata only (names/scope/kind/last4), never values. */
@@ -1500,18 +1507,29 @@ function stringArray(value: unknown): string[] {
 }
 
 /** Read a secret catalog row into a `SecretListItem`, or null when it lacks an id/name. */
-/** Validate the API's `webhook` field. Returns null for an absent or malformed value (the workflow
- *  has no webhook trigger, or an older/odd response) — callers map null to an actionable message. */
-function parseWebhookInfo(raw: unknown): WorkflowWebhookInfo | null {
+/** Validate one `webhook` row; null for a malformed one, which list drops rather than crashing on. */
+function parseWebhookInfo(raw: unknown): WebhookInfo | null {
   if (!isRecord(raw)) return null;
+  if (typeof raw.id !== "string" || typeof raw.name !== "string") return null;
   if (typeof raw.url !== "string" || raw.url.length === 0) return null;
-  if (raw.auth !== "token" && raw.auth !== "signature") return null;
   return {
+    id: raw.id,
+    name: raw.name,
     url: raw.url,
-    auth: raw.auth,
-    preset: typeof raw.preset === "string" && raw.preset.length > 0 ? raw.preset : null,
+    description: typeof raw.description === "string" ? raw.description : null,
+    preset: typeof raw.preset === "string" && raw.preset.length > 0 ? raw.preset : "token",
     header: typeof raw.header === "string" && raw.header.length > 0 ? raw.header : null,
   };
+}
+
+/** The create/rotate response, which must carry the show-once secret. */
+function requireWebhookWithSecret(body: unknown): WebhookInfo & { secret: string } {
+  const webhook = isRecord(body) ? body.webhook : null;
+  const info = parseWebhookInfo(webhook);
+  if (info === null || !isRecord(webhook) || typeof webhook.secret !== "string") {
+    throw new CliError("The API returned an unexpected webhook response shape.");
+  }
+  return { ...info, secret: webhook.secret };
 }
 
 function parseSecretRow(row: unknown): SecretListItem | null {

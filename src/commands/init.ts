@@ -58,9 +58,9 @@ const HELLO_DESCRIPTOR = `{
   "title": "{{title}}",
   "triggers": [
     { "kind": "manual" },
-    // Run on a schedule, or on an authenticated webhook:
+    // Run on a schedule, or on one of the org's webhooks (\`boardwalk webhooks create\`):
     //   { "kind": "cron", "expr": "0 9 * * 1-5", "timezone": "America/New_York" },
-    //   { "kind": "webhook", "auth": "token" },
+    //   { "kind": "webhook", "name": "my-hook" },
   ],
   // Secrets the run may read (set values with \`boardwalk secrets set\`):
   //   "permissions": { "secrets": [{ "name": "STRIPE_API_KEY" }] },
@@ -175,9 +175,9 @@ const HELLO_PY_DESCRIPTOR = `{
   "entry": "main.py",
   "triggers": [
     { "kind": "manual" },
-    // Run on a schedule, or on an authenticated webhook:
+    // Run on a schedule, or on one of the org's webhooks (\`boardwalk webhooks create\`):
     //   { "kind": "cron", "expr": "0 9 * * 1-5", "timezone": "America/New_York" },
-    //   { "kind": "webhook", "auth": "token" },
+    //   { "kind": "webhook", "name": "my-hook" },
   ],
   // Secrets the run may read (set values with \`boardwalk secrets set\`):
   //   "permissions": { "secrets": [{ "name": "STRIPE_API_KEY" }] },

@@ -450,33 +450,6 @@ function buildProgram(): Command {
       },
     );
 
-  program
-    .command("webhook")
-    .argument("<ref>", "workflow id (a ULID) or slug")
-    .option("--org <slug>", "the org (needed to resolve a slug; optional once linked)")
-    .option("--rotate", "regenerate the secret and reveal the full working URL once (admin)", false)
-    .option("--json", "print the raw response as JSON", false)
-    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .description("Show a workflow's inbound webhook URL, or rotate its secret with --rotate.")
-    .action(
-      async (
-        ref: string,
-        options: { org?: string; rotate?: boolean; json?: boolean; token?: string },
-      ) => {
-        const { runWebhook } = await import("./commands/webhook.js");
-        await runWebhook(
-          {
-            ref,
-            org: options.org,
-            rotate: options.rotate,
-            json: options.json,
-            token: options.token,
-          },
-          { config: loadConfig() },
-        );
-      },
-    );
-
   registerWorkflowsCommand(program);
   registerSecretsCommand(program);
   registerEnvironmentsCommand(program);
@@ -484,10 +457,84 @@ function buildProgram(): Command {
   registerRunnerCommand(program);
   registerVariablesCommand(program);
   registerInferenceCommand(program);
+  registerWebhooksCommand(program);
   registerModelsCommand(program);
   registerNotificationsCommand(program);
 
   return program;
+}
+
+/** Register `webhooks` + its `list` / `create` / `rotate` / `delete` subcommands (bare ⇒ list). */
+function registerWebhooksCommand(program: Command): void {
+  const webhooks = program
+    .command("webhooks")
+    .description("Manage the org's inbound webhooks (list, create, rotate, delete).");
+
+  webhooks
+    .command("list", { isDefault: true })
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("List the org's webhooks (endpoints only — never signing secrets).")
+    .action(async (options: { org?: string; json?: boolean; token?: string }) => {
+      const { runWebhooksList } = await import("./commands/webhooks.js");
+      await runWebhooksList(options, { config: loadConfig() });
+    });
+
+  webhooks
+    .command("create")
+    .argument("<name>", 'the name workflows attach with ({ "kind": "webhook", "name": … })')
+    .option("--preset <preset>", "verification dialect (default: token)")
+    .option("--header <name>", "header carrying the secret (custom_header preset)")
+    .option("--secret <value>", "store the sender's own signing secret ('-' reads stdin)")
+    .option("--description <text>", "what sends to this endpoint")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description(
+      "Create a webhook; the signing secret is shown ONCE. Needs `login --scopes admin`.",
+    )
+    .action(
+      async (
+        name: string,
+        options: {
+          preset?: string;
+          header?: string;
+          secret?: string;
+          description?: string;
+          org?: string;
+          json?: boolean;
+          token?: string;
+        },
+      ) => {
+        const { runWebhooksCreate } = await import("./commands/webhooks.js");
+        await runWebhooksCreate({ name, ...options }, { config: loadConfig() });
+      },
+    );
+
+  webhooks
+    .command("rotate")
+    .argument("<name>", "the webhook's name")
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--json", "print the raw response as JSON", false)
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Regenerate the signing secret, shown ONCE. The old secret stops working.")
+    .action(async (name: string, options: { org?: string; json?: boolean; token?: string }) => {
+      const { runWebhooksRotate } = await import("./commands/webhooks.js");
+      await runWebhooksRotate({ name, ...options }, { config: loadConfig() });
+    });
+
+  webhooks
+    .command("delete")
+    .argument("<name>", "the webhook's name")
+    .option("--yes", "confirm deletion", false)
+    .option("--org <slug>", "the org (optional once the project is linked)")
+    .option("--token <token>", "use this Bearer token instead of stored/env credentials")
+    .description("Delete a webhook and its secret. Attached workflows show as not connected.")
+    .action(async (name: string, options: { yes?: boolean; org?: string; token?: string }) => {
+      const { runWebhooksDelete } = await import("./commands/webhooks.js");
+      await runWebhooksDelete({ name, ...options }, { config: loadConfig() });
+    });
 }
 
 /** Register `workflows` + its `list` / `show` / `delete` subcommands (bare `workflows` ⇒ list). */

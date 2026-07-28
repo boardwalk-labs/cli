@@ -2,6 +2,31 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.16
+
+### Changed — `boardwalk webhooks` replaces `boardwalk webhook <ref>`
+
+A webhook is now an org-level endpoint rather than a property of one workflow (workflow SDK 0.3.7),
+so the command follows:
+
+```
+boardwalk webhooks                     # name, URL, verification (never secrets)
+boardwalk webhooks create <name>       # create one; the signing secret is shown ONCE
+boardwalk webhooks rotate <name>       # new secret, shown ONCE; the old one stops working
+boardwalk webhooks delete <name> --yes
+```
+
+Create it once, point a sender at its URL, then attach any number of workflows with
+`{ "kind": "webhook", "name": "<name>" }` in their descriptor triggers — **every attached workflow
+runs on every delivery**. To split events between workflows, create a second webhook and choose
+which events go where on the sender's side.
+
+For a sender that owns its signing key (Stripe, Slack, Sentry, PagerDuty, anything Standard
+Webhooks), pass it with `--secret` — or `--secret -` to read stdin so it stays out of shell history.
+
+`boardwalk webhook <id|slug>` is **removed**, along with the descriptor's `auth` field: how a
+delivery is verified is a property of the endpoint, chosen where the endpoint is created.
+
 ## 0.3.13
 
 ### Added — `boardwalk check` accepts the `linear` trigger kind
