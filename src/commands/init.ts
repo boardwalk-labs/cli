@@ -7,10 +7,11 @@
 // ($BOARDWALK_TEMPLATES_URL to point at a fork/mirror). The default `hello` template is
 // BUILT IN — `init` works offline and with zero configuration.
 //
-// After scaffolding, init also writes the Boardwalk agent skills into
-// `.claude/skills/` (fetched from the plugins repo; $BOARDWALK_SKILLS_URL to override)
-// so a coding agent working in the project can drive the CLI with local context.
-// This step is best-effort: offline it is skipped with a note and init still succeeds.
+// init writes the PACKAGE and nothing else. It deliberately does NOT vendor the Boardwalk
+// agent skills into `.claude/skills/`: a copy fetched at scaffold time is pinned to nothing,
+// ages the moment the CLI upgrades, and lands in the user's repo as ~37KB of frozen docs it
+// then has to maintain. The plugin (`claude plugin install boardwalk@boardwalk-labs`) delivers
+// the same skills globally and updates with the plugin, so `finish` points there instead.
 //
 // Never overwrites: every target path is checked before anything is written.
 
@@ -36,96 +37,54 @@ export interface InitDeps {
 /** Where templates live: the examples repo, raw. Overridable for forks/mirrors. */
 const DEFAULT_TEMPLATES_URL = "https://raw.githubusercontent.com/boardwalk-labs/examples/main";
 
-/** Where the agent skills live: the plugins repo, raw. Overridable for forks/mirrors. */
-const DEFAULT_SKILLS_URL =
-  "https://raw.githubusercontent.com/boardwalk-labs/plugins/main/plugins/boardwalk/skills";
-
-/** The skills init drops into a fresh project (the CLI surface + authoring quality). */
-const INIT_SKILLS = ["boardwalk-use-cli", "write-good-workflows"] as const;
-
 // ── The built-in `hello` template (offline floor) ───────────────────────────────────────
 //
 // The two-file shape: a `run` function (src/index.ts) + a `workflow.jsonc` deployment descriptor.
-// The scaffold defaults to TYPED — an interface in, a typed return out — because the deploy derives
-// those types into the dashboard's input form and the callers' contract. A bare `run(input)` is the
-// untyped floor, and the tsconfig relaxes `noImplicitAny` so it stays squiggle-free.
+// The scaffold defaults to TYPED — an interface in, an explicit return out — because the deploy
+// derives those types into the dashboard's input form and the callers' contract. A bare
+// `run(input)` is the untyped floor, and the tsconfig relaxes `noImplicitAny` so it stays
+// squiggle-free.
+//
+// Kept SHORT on purpose. The scaffold's job is a correct starting point you can read in one
+// screen, not a tutorial: every commented-out option here is a line the author has to read and
+// then delete. The reference lives in the docs and the JSON schema, which stay current; a comment
+// baked into a generated file does not.
 
 const HELLO_DESCRIPTOR = `{
-  // The deployment descriptor — what the control plane must know WITHOUT running your code.
-  // Your behavior and I/O contract live in src/index.ts; this file is policy, read as data.
+  // Deployment policy, read as data — triggers, permissions, budget.
+  // Your behavior and I/O contract live in src/index.ts.
   "$schema": "https://boardwalk.sh/schemas/workflow.json",
   "slug": "{{slug}}",
   "title": "{{title}}",
-  "triggers": [
-    { "kind": "manual" },
-    // Run on a schedule, or on one of the org's webhooks (\`boardwalk webhooks create\`):
-    //   { "kind": "cron", "expr": "0 9 * * 1-5", "timezone": "America/New_York" },
-    //   { "kind": "webhook", "name": "my-hook" },
-  ],
-  // Secrets the run may read (set values with \`boardwalk secrets set\`):
-  //   "permissions": { "secrets": [{ "name": "STRIPE_API_KEY" }] },
-  // Cost caps — a breach pauses the run for approval, never a hard kill:
-  //   "budget": { "max_usd": 5 },
+  "triggers": [{ "kind": "manual" }],
 }
 `;
 
 const HELLO_PROGRAM = `import { agent } from "@boardwalk-labs/workflow";
 
-// Your native types ARE the I/O contract: the deploy derives their schemas, so the
-// dashboard's run form and other callers know the shape. No annotation is fine too —
-// a bare \`run(input)\` receives the raw JSON untouched.
 interface Input {
-  /** Who to greet (defaults to "world"). */
   name?: string;
 }
 
-interface Greeting {
-  greeting: string;
-}
-
-// The platform calls this function with the trigger's payload; whatever you return is
-// the run's output, persisted and handed to whoever called it.
-export default async function run(input: Input): Promise<Greeting> {
-  const who = input.name ?? "world";
-  // agent() runs a full agent loop and resolves to its answer.
-  const greeting = await agent(\`Write a one-line greeting for \${who}.\`);
-  return { greeting };
+// Your native types are the I/O contract: the deploy derives their schemas for the
+// dashboard's run form. Whatever you return is the run's output.
+export default async function run(input: Input): Promise<{ greeting: string }> {
+  return { greeting: await agent(\`Write a one-line greeting for \${input.name ?? "world"}.\`) };
 }
 `;
 
-// Scaffolded filled-in enough to be true on day one, and shaped so editing it is the obvious move.
-// A README is the one part of a workflow the dashboard can't derive, so the scaffold writes the
-// skeleton rather than leaving a blank page and a note in a skill nobody reads.
+// A README is the one part of a workflow the dashboard can't derive, so the scaffold writes a
+// skeleton rather than leaving a blank page. Short enough to be replaced, not edited around.
 const HELLO_README = `# {{title}}
 
-Greets whoever you pass as input. Replace this paragraph with what your workflow is really for:
-what it touches, what it costs, and what to do when it pages you. This file is the workflow's
-landing page in the Boardwalk dashboard, so write it for whoever debugs the workflow at 3am rather
-than whoever wrote it. \`workflow.jsonc\` already states the triggers and the budget, so don't
-restate them here.
-
-## Setup
-
-No secrets required. When you add one, declare it under \`permissions.secrets\` in
-\`workflow.jsonc\`, set its value with \`boardwalk secrets set\`, and note here how to get one.
-
-## Run
+Greets whoever you pass as input. Replace this with what your workflow is really for: what it
+touches, what it costs, and what to do when it pages you. This file is the workflow's landing page
+in the Boardwalk dashboard, so write it for whoever debugs the run at 3am.
 
 \`\`\`sh
-boardwalk check .                                        # validate it locally
-boardwalk deploy . --org <your-org> --run --input '{"name":"Ada"}'  # deploy, then trigger a real run
+boardwalk check .
+boardwalk deploy . --org <your-org> --run --input '{"name":"Ada"}'
 \`\`\`
-
-## How it works
-
-\`src/index.ts\` exports the workflow: a \`run(input)\` function the platform calls with the
-trigger's payload. Its return value is the run's output. \`workflow.jsonc\` is the deployment
-descriptor — the triggers, permissions, and budget the control plane enforces around the run.
-
-## Make it yours
-
-Grow the \`Input\` and return types — the deploy derives their schemas so the dashboard's run form
-never lies. Then swap the \`manual\` trigger for a \`cron\` expression to run it on a schedule.
 `;
 
 const HELLO_PACKAGE_JSON = `{
@@ -163,26 +122,17 @@ const HELLO_GITIGNORE = `node_modules/
 // The same two-file shape in Python: a `run` function (main.py) + the descriptor. Mirrors the
 // package-format spec's §10 example — pydantic models in/out, `async def run` — because native
 // types ARE the I/O contract in both languages. Dependencies resolve at build time with uv; the
-// `boardwalk` SDK ships in the runtime, so the scaffold deliberately does NOT depend on the (not
-// yet published) PyPI package.
+// `boardwalk` SDK ships in the runtime, so the scaffold does not declare it as a dependency (it
+// IS on PyPI — uncommenting it only buys editor type-checking, and costs artifact bytes).
 
 const HELLO_PY_DESCRIPTOR = `{
-  // The deployment descriptor — what the control plane must know WITHOUT running your code.
-  // Your behavior and I/O contract live in main.py; this file is policy, read as data.
+  // Deployment policy, read as data — triggers, permissions, budget.
+  // Your behavior and I/O contract live in main.py.
   "$schema": "https://boardwalk.sh/schemas/workflow.json",
   "slug": "{{slug}}",
   "title": "{{title}}",
   "entry": "main.py",
-  "triggers": [
-    { "kind": "manual" },
-    // Run on a schedule, or on one of the org's webhooks (\`boardwalk webhooks create\`):
-    //   { "kind": "cron", "expr": "0 9 * * 1-5", "timezone": "America/New_York" },
-    //   { "kind": "webhook", "name": "my-hook" },
-  ],
-  // Secrets the run may read (set values with \`boardwalk secrets set\`):
-  //   "permissions": { "secrets": [{ "name": "STRIPE_API_KEY" }] },
-  // Cost caps — a breach pauses the run for approval, never a hard kill:
-  //   "budget": { "max_usd": 5 },
+  "triggers": [{ "kind": "manual" }],
 }
 `;
 
@@ -192,9 +142,8 @@ from boardwalk import agent  # a capability - imported, like boto3
 from pydantic import BaseModel
 
 
-# Your native types ARE the I/O contract: the deploy derives their schemas, so the
-# dashboard's run form and other callers know the shape. No annotation is fine too -
-# a bare \`def run(input)\` receives the raw JSON untouched.
+# Your native types are the I/O contract: the deploy derives their schemas for the
+# dashboard's run form. Whatever you return is the run's output.
 class Lead(BaseModel):
     email: str
     company: str
@@ -205,8 +154,6 @@ class Score(BaseModel):
     tier: Literal["hot", "warm", "cold"]
 
 
-# The platform calls this function with the trigger's payload; whatever you return is
-# the run's output. Add \`, context\` only if you need run metadata.
 async def run(input: Lead) -> Score:
     signals = await agent(f"Find buying signals for {input.company}")
     score = int(await agent(f"Score 0-100, reply with digits only:\\n{signals}"))
@@ -220,43 +167,24 @@ requires-python = ">=3.13"
 dependencies = [
   "pydantic>=2",
   # The \`boardwalk\` SDK ships in the Boardwalk runtime — a deploy needs no install here.
-  # It publishes to PyPI when Python workflows go GA; add it then for editor type-checking:
+  # Uncomment for editor type-checking (it costs artifact bytes, nothing else):
   # "boardwalk",
 ]
 `;
 
 const HELLO_PY_README = `# {{title}}
 
-Scores an inbound lead. Replace this paragraph with what your workflow is really for:
-what it touches, what it costs, and what to do when it pages you. This file is the workflow's
-landing page in the Boardwalk dashboard, so write it for whoever debugs the workflow at 3am rather
-than whoever wrote it. \`workflow.jsonc\` already states the triggers and the budget, so don't
-restate them here.
+Scores an inbound lead. Replace this with what your workflow is really for: what it touches, what
+it costs, and what to do when it pages you. This file is the workflow's landing page in the
+Boardwalk dashboard, so write it for whoever debugs the run at 3am.
 
-## Setup
-
-No secrets required. When you add one, declare it under \`permissions.secrets\` in
-\`workflow.jsonc\`, set its value with \`boardwalk secrets set\`, and note here how to get one.
-
-## Run
+Dependencies in \`pyproject.toml\` are resolved and frozen with \`uv\` at build time and ship inside
+the artifact, so nothing installs when a run starts.
 
 \`\`\`sh
-boardwalk check .                                        # validate it locally (resolves deps with uv)
+boardwalk check .
 boardwalk deploy . --org <your-org> --run --input '{"email":"ada@example.com","company":"Acme"}'
 \`\`\`
-
-## How it works
-
-\`main.py\` exports the workflow: an \`async def run(input)\` function the platform calls with the
-trigger's payload. Its return value is the run's output. \`workflow.jsonc\` is the deployment
-descriptor — the triggers, permissions, and budget the control plane enforces around the run.
-Dependencies declared in \`pyproject.toml\` are resolved and frozen with \`uv\` at build time and
-ship inside the artifact — nothing installs when a run starts.
-
-## Make it yours
-
-Grow the \`Lead\` and \`Score\` models — the deploy derives their schemas so the dashboard's run
-form never lies. Then swap the \`manual\` trigger for a \`cron\` expression to run it on a schedule.
 `;
 
 const HELLO_PY_GITIGNORE = `.venv/
@@ -322,7 +250,6 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
     );
     scaffold(dir, files);
     log(`✓ scaffolded "${slug}" (template: ${templateName})`);
-    await writeAgentSkills(dir, deps, log);
     finish(log, opts, [], templateName === "hello-python" ? "python" : "typescript");
     return;
   }
@@ -357,48 +284,7 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
   const dir = resolve(opts.dir);
   scaffold(dir, files);
   log(`✓ scaffolded "${template.name}" (template: ${template.name})`);
-  await writeAgentSkills(dir, deps, log);
   finish(log, opts, template.secrets);
-}
-
-/**
- * Drop the Boardwalk agent skills into `<dir>/.claude/skills/` so a coding agent working in
- * the project can operate the CLI with local context (the same skills the Boardwalk plugin
- * installs globally). Best-effort by design: init's offline floor must hold, so ANY fetch
- * problem skips the whole step with a note. Fetch-all-then-write keeps it atomic — either
- * every skill lands or none does. Existing files are never overwritten.
- */
-async function writeAgentSkills(
-  dir: string,
-  deps: InitDeps,
-  log: (line: string) => void,
-): Promise<void> {
-  const env = deps.env ?? process.env;
-  const baseUrl = (env.BOARDWALK_SKILLS_URL ?? DEFAULT_SKILLS_URL).replace(/\/+$/, "");
-  const fetchImpl = deps.fetchImpl ?? fetch;
-
-  const bodies: [string, string][] = [];
-  try {
-    for (const name of INIT_SKILLS) {
-      bodies.push([name, await fetchText(`${baseUrl}/${name}/SKILL.md`, fetchImpl, "skill")]);
-    }
-  } catch {
-    log("- skipped agent skills (couldn't reach the skills repo — offline?)");
-    log("  they also ship in the Boardwalk plugin: claude plugin install boardwalk@boardwalk-labs");
-    return;
-  }
-
-  const written: string[] = [];
-  for (const [name, body] of bodies) {
-    const target = join(dir, ".claude", "skills", name, "SKILL.md");
-    if (existsSync(target)) continue;
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, body);
-    written.push(name);
-  }
-  if (written.length > 0) {
-    log(`✓ wrote agent skills: .claude/skills/{${written.join(", ")}}`);
-  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────────────
@@ -454,6 +340,11 @@ function finish(
     log(`  boardwalk secrets set <name> --org <your-org>   # needed: ${secrets.join(", ")}`);
   }
   log("  boardwalk deploy . --org <your-org> --run");
+  // The skills are NOT vendored into the project (see the module header): pointing at the plugin
+  // keeps one copy that upgrades, instead of a frozen one per scaffolded repo.
+  log("");
+  log("  to teach your coding agent the CLI:");
+  log("  claude plugin install boardwalk@boardwalk-labs");
 }
 
 async function fetchRegistry(

@@ -40,9 +40,10 @@ downgrades to `--print-only` so it can never hang waiting on stdin.
 ## The author loop
 
 - **`init [dir]`** — scaffold a workflow project: program file, `package.json`, `.gitignore`.
-  The default template deploys green immediately. Also drops the Boardwalk agent skills into
-  `.claude/skills/` so a coding agent in the project can drive the CLI with local context
-  (best-effort: skipped offline; `BOARDWALK_SKILLS_URL` overrides the source).
+  The default template deploys green immediately and works fully offline. It writes the package
+  and nothing else — to give a coding agent the CLI in context, install the plugin
+  (`claude plugin install boardwalk@boardwalk-labs`), which stays current instead of freezing a
+  copy in your repo.
 - **`check <file|dir>`** — validate without deploying: full manifest-schema validation (the same
   schema every engine enforces) + an esbuild compile proving every import resolves — precise
   errors before anything ships.

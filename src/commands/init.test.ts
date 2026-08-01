@@ -50,13 +50,6 @@ const offlineFetch = (() => {
   throw new Error("offline");
 }) as unknown as typeof fetch;
 
-const SKILLS_ENV = { BOARDWALK_SKILLS_URL: "https://skills.test" };
-
-const SKILL_FILES: Record<string, string> = {
-  "/boardwalk-use-cli/SKILL.md": "---\nname: boardwalk-use-cli\n---\nUse the CLI.\n",
-  "/write-good-workflows/SKILL.md": "---\nname: write-good-workflows\n---\nWrite well.\n",
-};
-
 describe("runInit (built-in template)", () => {
   let dir: string;
   beforeEach(() => {
@@ -66,7 +59,7 @@ describe("runInit (built-in template)", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("scaffolds hello: the two-file shape (descriptor + typed run), offline (skills skipped with a note)", async () => {
+  it("scaffolds hello: the two-file shape (descriptor + typed run), fully offline", async () => {
     const target = join(dir, "my-digest");
     const lines: string[] = [];
     await runInit(
@@ -98,8 +91,23 @@ describe("runInit (built-in template)", () => {
     expect(readFileSync(join(target, "tsconfig.json"), "utf8")).toContain('"noImplicitAny": false');
     const out = lines.join("\n");
     expect(out).toContain('scaffolded "my-digest"');
-    expect(out).toContain("skipped agent skills");
+    // init writes the PACKAGE only — no vendored skills copy to go stale in the repo.
     expect(existsSync(join(target, ".claude"))).toBe(false);
+    expect(out).toContain("claude plugin install boardwalk@boardwalk-labs");
+  });
+
+  it("scaffolds a package you can read in one screen", async () => {
+    // The scaffold is a starting point, not a tutorial: every commented-out option is a line the
+    // author reads and then deletes. This pins the budget so it can't creep back.
+    const target = join(dir, "small");
+    await runInit(
+      { dir: target, template: "hello" },
+      { log: () => undefined, fetchImpl: offlineFetch },
+    );
+    const lines = (f: string) => readFileSync(join(target, f), "utf8").trimEnd().split("\n").length;
+    expect(lines("workflow.jsonc")).toBeLessThanOrEqual(10);
+    expect(lines(join("src", "index.ts"))).toBeLessThanOrEqual(14);
+    expect(lines("README.md")).toBeLessThanOrEqual(14);
   });
 
   it("scaffolds --python: main.py entry, pydantic models, pyproject with no boardwalk dep", async () => {
@@ -211,66 +219,6 @@ describe("runInit (built-in template)", () => {
   });
 });
 
-describe("runInit (agent skills)", () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "bw-init-skills-"));
-  });
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("writes the agent skills into .claude/skills/ when the skills repo is reachable", async () => {
-    const target = join(dir, "with-skills");
-    const lines: string[] = [];
-    await runInit(
-      { dir: target, template: "hello" },
-      { log: (l) => lines.push(l), fetchImpl: registryFetch(SKILL_FILES), env: SKILLS_ENV },
-    );
-
-    expect(
-      readFileSync(join(target, ".claude", "skills", "boardwalk-use-cli", "SKILL.md"), "utf8"),
-    ).toContain("Use the CLI");
-    expect(
-      readFileSync(join(target, ".claude", "skills", "write-good-workflows", "SKILL.md"), "utf8"),
-    ).toContain("Write well");
-    expect(lines.join("\n")).toContain("wrote agent skills");
-  });
-
-  it("skips ALL skills when any one is missing (atomic, init still succeeds)", async () => {
-    const target = join(dir, "partial-skills");
-    const partial = { ...SKILL_FILES };
-    delete partial["/write-good-workflows/SKILL.md"];
-    const lines: string[] = [];
-    await runInit(
-      { dir: target, template: "hello" },
-      { log: (l) => lines.push(l), fetchImpl: registryFetch(partial), env: SKILLS_ENV },
-    );
-
-    expect(existsSync(join(target, ".claude"))).toBe(false);
-    expect(lines.join("\n")).toContain("skipped agent skills");
-    expect(existsSync(join(target, "src", "index.ts"))).toBe(true);
-  });
-
-  it("writes skills after a registry template too", async () => {
-    const target = join(dir, "remote-with-skills");
-    // One mock serves both hosts — registryFetch matches on pathname only.
-    await runInit(
-      { dir: target, template: "remote-digest" },
-      {
-        log: () => undefined,
-        fetchImpl: registryFetch({ ...REMOTE_FILES, ...SKILL_FILES }),
-        env: { ...ENV, ...SKILLS_ENV },
-      },
-    );
-
-    expect(existsSync(join(target, ".claude", "skills", "boardwalk-use-cli", "SKILL.md"))).toBe(
-      true,
-    );
-    expect(existsSync(join(target, "lib", "util.ts"))).toBe(true);
-  });
-});
-
 describe("runInit (registry template)", () => {
   let dir: string;
   beforeEach(() => {
@@ -294,6 +242,8 @@ describe("runInit (registry template)", () => {
     const out = lines.join("\n");
     expect(out).toContain("boardwalk secrets set");
     expect(out).toContain("API_KEY");
+    // A registry template gets no vendored skills either — the template's files, nothing more.
+    expect(existsSync(join(target, ".claude"))).toBe(false);
   });
 
   it("lists built-in + registry templates when the name is unknown", async () => {
