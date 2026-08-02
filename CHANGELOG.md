@@ -2,6 +2,34 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.19
+
+### Changed — `boardwalk init` scaffolds the package and nothing else
+
+`init` used to fetch two `SKILL.md` files from the plugins repo's `main` branch into
+`.claude/skills/` on every scaffold. That copy was pinned to nothing, so it aged the moment the CLI
+upgraded and an agent reading it could describe a CLI you don't have. It was also 91% of what
+`init` wrote (37KB of 40KB), and it stayed in your repo, since the scaffolded `.gitignore` never
+covered `.claude/`.
+
+The Boardwalk plugin ships the same skills globally and upgrades with the plugin, so `init` now
+points there instead:
+
+```
+claude plugin install boardwalk@boardwalk-labs
+```
+
+`BOARDWALK_SKILLS_URL` is gone with it. `init` now touches the network only for
+`--template <name>`; the built-in `hello` and `hello-python` templates are fully offline.
+
+### Changed — the scaffold fits on one screen
+
+The generated files dropped from 621 lines to 53. The commented-out trigger, secret, and budget
+blocks in `workflow.jsonc` and the four-section READMEs were lines you read once and then deleted;
+the reference is the JSON schema (`https://boardwalk.sh/schemas/workflow.json`) and the docs, which
+stay current. The typed I/O contract is unchanged — `run` still takes a typed input and declares an
+explicit return, so the deploy derives the same schemas for the dashboard's run form.
+
 ## 0.3.18
 
 ### Fixed
