@@ -2,6 +2,49 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## Unreleased
+
+### Added — `check` and `deploy` typecheck the package
+
+esbuild bundling is strip-only, so a type error (`sleep({ minutes: 15 })`, a misspelled option)
+used to sail through `check` AND `deploy` and surface as a runtime failure on the platform — a
+full deploy+run cycle to discover a typo-class mistake. Both commands now run the package's OWN
+tsc (`tsc --noEmit` against its tsconfig) after building. Fail-soft: no `typescript` resolvable
+from the package, or no tsconfig, degrades to a one-line note, never a block; `--no-typecheck`
+opts out. The `hello` scaffold ships `typescript` as a devDependency (excluded from the types
+harvest — toolchain, not dependency types) plus a `typecheck` script.
+
+### Added — a failed run says WHY, inline
+
+`run` / `deploy --run` used to end a failed wait with `output: (none)` and a pointer at
+`runs <id> --logs` — the error message the API already had was never shown. The run-result block
+now prints `error:` (and `hint:` when the platform sent one) inline, and `--json` mode carries an
+`error` object. The dead `outcome:` line no longer prints as `(none)`.
+
+### Changed
+
+- **`workflows show` shows the trigger config and the derived I/O contract.** Triggers render one
+  line each with their load-bearing config (`cron "0 9 * * 1" · America/Anchorage · input {…}`,
+  `webhook "name"`) instead of bare kinds, and new `Input` / `Output` lines digest the deploy-derived
+  schemas (`topic: string · style: "terse" | "friendly" · bullets?: number`) — previously invisible
+  outside the dashboard, so an author couldn't confirm their typed contract took effect.
+- **Artifact uploads retry once.** A single dropped connection or storage 5xx no longer kills a
+  deploy; the presigned PUT is idempotent, so it gets one quiet retry before failing with guidance.
+- **`runs <id> --logs` says what it hid.** The default channels drop agent/log events silently, so a
+  one-agent run read as if nothing happened; a trailing `· N agent events not shown — add --verbose`
+  line now appears when filtering hid anything.
+- **`init` lists templates in `--help` and offline.** The registry template names ride the help text
+  with a pointer at the examples repo, and an unreachable registry degrades to the built-in list
+  instead of a bare network error.
+- **Scaffold templates model best practice.** `hello` scopes its leaf to `builtins: "none"` (a pure
+  model call needs no file/bash/web tools); `hello-python` uses `agent(..., schema=...)` for a
+  validated object instead of `int()`-parsing the model's text, and bounds the task instead of
+  sending a fresh user's first run on a 17-search web hunt for a fictional company. `check` only
+  prints the pydantic note when pydantic is actually missing from the dependencies.
+- **`whoami` flags a stale expiry.** A past `expires=` now reads `(stale — auto-refreshes on the
+next API call)` instead of contradicting the `Logged in` line; `workflows delete`'s permission
+  hint explains the frozen-scopes cause plainly.
+
 ## 0.3.19
 
 ### Changed — `boardwalk init` scaffolds the package and nothing else

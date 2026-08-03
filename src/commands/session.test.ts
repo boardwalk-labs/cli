@@ -61,6 +61,22 @@ describe("runLogin --token (first-class API-key auth)", () => {
     expect(lines.join("\n")).toContain("org demo-org (owner) id=01ORGDEMO");
   });
 
+  it("whoami flags a past expiry as stale instead of printing a silent contradiction", async () => {
+    const c = config(dir);
+    CredentialStore.atConfigDir(dir).putSession({
+      accessToken: "at_old",
+      refreshToken: "rt",
+      expiresAt: Date.now() - 60_000,
+      clientId: "boardwalk-cli",
+      tokenEndpoint: "https://auth.x/oauth/token",
+      scope: "workflow:read",
+    });
+    const lines: string[] = [];
+    const offline = (() => Promise.reject(new Error("offline"))) as typeof fetch;
+    await runWhoami({ config: c, log: (l) => lines.push(l), fetchImpl: offline });
+    expect(lines.join("\n")).toContain("stale — auto-refreshes on the next API call");
+  });
+
   it("logout clears the stored key", async () => {
     const c = config(dir);
     await runLogin({ config: c }, { token: "bwk_x" });

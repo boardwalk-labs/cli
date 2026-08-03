@@ -22,6 +22,7 @@ import {
   parseChannels,
   type EventRenderer,
 } from "../render/renderer.js";
+import { channelOf, matchesChannels, type RunEvent } from "@boardwalk-labs/workflow";
 import type { FetchLike } from "../auth/pkce.js";
 
 export interface RunsOptions {
@@ -117,6 +118,10 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
         .getRunEvents(runId)
         .catch((e: unknown) => runNotFound(runId, e));
       for (const row of snapshot.events) renderer.render(row.event);
+      // Default channels hide the agent/log traffic — say so, or a one-agent run reads as if
+      // nothing happened between "running" and the output.
+      const hint = hiddenChannelsHint(opts, snapshot.events);
+      if (hint !== null) write(hint);
       return;
     }
     const run = await client.getRunDetail(runId).catch((e: unknown) => runNotFound(runId, e));
@@ -164,6 +169,26 @@ export async function runRuns(opts: RunsOptions, deps: RunsDeps): Promise<void> 
     log("");
     log("  More runs available — raise --limit or filter with --status.");
   }
+}
+
+/** A trailing "N events not shown" line for the channel-filtered `--logs` view, or null when the
+ *  active channels already showed everything. Exported for tests. */
+export function hiddenChannelsHint(
+  opts: Pick<RunsOptions, "jsonStream" | "verbose" | "stream">,
+  events: readonly { event: RunEvent }[],
+): string | null {
+  if (opts.jsonStream === true) return null;
+  const channels = parseChannels({ verbose: opts.verbose ?? false, stream: opts.stream });
+  const hidden = new Map<string, number>();
+  for (const { event } of events) {
+    if (!matchesChannels(event, channels)) {
+      const ch = channelOf(event);
+      hidden.set(ch, (hidden.get(ch) ?? 0) + 1);
+    }
+  }
+  if (hidden.size === 0) return null;
+  const counts = [...hidden.entries()].map(([ch, n]) => `${String(n)} ${ch}`).join(" + ");
+  return `· ${counts} events not shown — add --verbose (or --stream ${[...hidden.keys()].join(",")})`;
 }
 
 /** Build the event renderer for --logs/--follow: NDJSON with --json-stream, else the channel-filtered

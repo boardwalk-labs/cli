@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 import { describe, it, expect } from "vitest";
-import { formatRunDetail, formatRuns, runRuns } from "./runs.js";
+import { formatRunDetail, formatRuns, runRuns, hiddenChannelsHint } from "./runs.js";
 import type { RunDetail, RunListItem } from "../client.js";
+import type { RunEvent } from "@boardwalk-labs/workflow";
 import type { CliConfig } from "../config.js";
 import type { FetchLike } from "../auth/pkce.js";
 
@@ -450,5 +451,33 @@ describe("runRuns --workflow", () => {
       { config: CONFIG, fetchImpl, log: () => undefined, now: NOW },
     );
     expect(urls).toEqual(["https://api.x/v1/orgs/acme/workflows/01KV0000000000000000000007/runs"]);
+  });
+});
+
+describe("hiddenChannelsHint", () => {
+  const ev = (kind: string, extra: Record<string, unknown> = {}): { event: RunEvent } =>
+    ({ event: { kind, runId: "r", turnId: "t", seq: 1, t: 0, ...extra } }) as never;
+
+  it("counts events the default channels hide, grouped by channel", () => {
+    const events = [
+      ev("run_status", { status: "running" }),
+      ev("turn_started", { agentId: "a1" }),
+      ev("turn_ended", { agentId: "a1" }),
+      ev("program_output", { stream: "stdout", text: "hi" }),
+    ];
+    const hint = hiddenChannelsHint({}, events);
+    expect(hint).toContain("2 agent");
+    expect(hint).toContain("1 log");
+    expect(hint).toContain("--verbose");
+  });
+
+  it("is null when --verbose (nothing hidden) or --json-stream (machine output)", () => {
+    const events = [ev("turn_started", { agentId: "a1" })];
+    expect(hiddenChannelsHint({ verbose: true }, events)).toBeNull();
+    expect(hiddenChannelsHint({ jsonStream: true }, events)).toBeNull();
+  });
+
+  it("is null when every event already rendered", () => {
+    expect(hiddenChannelsHint({}, [ev("run_status", { status: "running" })])).toBeNull();
   });
 });

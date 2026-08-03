@@ -161,7 +161,14 @@ describe("describeVersion", () => {
 });
 
 /** Route every endpoint `run` touches. `orgs` drives the credential's scope (/v1/me). */
-function platform(opts: { orgs?: string[]; statuses?: string[]; outputs?: unknown[] } = {}): {
+function platform(
+  opts: {
+    orgs?: string[];
+    statuses?: string[];
+    outputs?: unknown[];
+    error?: { code: string; message: string; hint?: string };
+  } = {},
+): {
   fetchImpl: FetchLike;
   calls: { method: string; url: string; body?: unknown }[];
 } {
@@ -241,6 +248,7 @@ function platform(opts: { orgs?: string[]; statuses?: string[]; outputs?: unknow
           outcomeStatus: status === "completed" ? "success" : null,
           startedAt: null,
           completedAt: null,
+          ...(status === "failed" && opts.error !== undefined ? { error: opts.error } : {}),
         },
       });
     }
@@ -313,6 +321,29 @@ describe("runRun — a purely control-plane command", () => {
         { config: CONFIG, fetchImpl, log: () => undefined, now: NOW },
       ),
     ).rejects.toMatchObject({ message: expect.stringContaining("failed") });
+  });
+
+  it("a failed run's error + hint print inline in the result block", async () => {
+    const { fetchImpl } = platform({
+      statuses: ["failed"],
+      error: {
+        code: "NOT_FOUND",
+        message: 'Secret "X" is not set in this org.',
+        hint: "Set it with `boardwalk secrets set X`.",
+      },
+    });
+    const lines: string[] = [];
+    await expect(
+      runRun(
+        { workflow: "nightly-summary", token: "t" },
+        { config: CONFIG, fetchImpl, log: (l) => lines.push(l), now: NOW },
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining("failed") });
+    const out = lines.join("\n");
+    expect(out).toContain('error:   NOT_FOUND: Secret "X" is not set in this org.');
+    expect(out).toContain("hint:    Set it with `boardwalk secrets set X`.");
+    // The dead outcome column never prints as a "(none)" line readers must puzzle over.
+    expect(out).not.toContain("outcome:");
   });
 
   it("a multi-org login must name the org — it never guesses", async () => {

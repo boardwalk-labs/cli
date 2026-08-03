@@ -272,3 +272,26 @@ describe("stripJsonComments", () => {
     expect(JSON.parse(stripJsonComments(text))).toEqual({ a: 1, b: [1, 2] });
   });
 });
+
+describe("toolchain exclusion", () => {
+  it("skips the `typescript` package (the scaffold devDependency) but keeps everything else", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bw-harvest-ts-"));
+    try {
+      mkdirSync(join(dir, "node_modules", "typescript", "lib"), { recursive: true });
+      writeFileSync(join(dir, "node_modules", "typescript", "package.json"), "{}");
+      writeFileSync(
+        join(dir, "node_modules", "typescript", "lib", "lib.dom.d.ts"),
+        "declare var x: 1;",
+      );
+      mkdirSync(join(dir, "node_modules", "zod"), { recursive: true });
+      writeFileSync(join(dir, "node_modules", "zod", "package.json"), "{}");
+      writeFileSync(join(dir, "node_modules", "zod", "index.d.ts"), "export {};");
+      const { files } = harvestTypes(dir);
+      const paths = files.map((f) => f.relPath);
+      expect(paths).toContain("node_modules/zod/index.d.ts");
+      expect(paths.some((p) => p.includes("/typescript/"))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -83,6 +83,8 @@ interface DeployCliOptions {
   yes?: boolean;
   /** Commander `--no-types-harvest`: defaults true, false when the flag is passed. */
   typesHarvest?: boolean;
+  /** Commander `--no-typecheck`: defaults true, false when the flag is passed. */
+  typecheck?: boolean;
   run?: boolean;
   input?: string;
   environment?: string;
@@ -116,7 +118,10 @@ function buildProgram(): Command {
     .argument("[dir]", "directory to scaffold into (created if missing)", ".")
     .option(
       "--template <name>",
-      "template: the built-in `hello` / `hello-python`, or any name from the examples registry",
+      "template: built-in `hello` / `hello-python`, or any name from the examples registry " +
+        "(hello-routine, claude-code-cron, morning-digest, webhook-responder, fan-out-judge, " +
+        "classify-and-act, code-review, pipeline, loop-until-done, … — " +
+        "https://github.com/boardwalk-labs/examples)",
       "hello",
     )
     .option("--python", "scaffold a Python workflow (main.py + pyproject.toml)", false)
@@ -133,12 +138,13 @@ function buildProgram(): Command {
       "--no-types-harvest",
       "skip packing the TypeScript types harvest (the machine layer the backend derives I/O schemas from)",
     )
+    .option("--no-typecheck", "skip running the package's own tsc (TypeScript packages)")
     .description(
       "Validate a workflow package locally (no auth, no network; schemas derive at deploy).",
     )
-    .action(async (file: string, options: { typesHarvest?: boolean }) => {
+    .action(async (file: string, options: { typesHarvest?: boolean; typecheck?: boolean }) => {
       const { runCheck } = await import("./commands/check.js");
-      await runCheck({ file, typesHarvest: options.typesHarvest });
+      await runCheck({ file, typesHarvest: options.typesHarvest, typecheck: options.typecheck });
     });
 
   program
@@ -238,6 +244,7 @@ function buildProgram(): Command {
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
     .option("-y, --yes", "skip the confirmation when the deploy would CREATE a new workflow", false)
     .option("--no-types-harvest", "skip packing the TypeScript types harvest (machine layer)")
+    .option("--no-typecheck", "skip running the package's own tsc (TypeScript packages)")
     .option("--run", "after deploying, trigger the version just shipped and wait for it", false)
     .option("--input <json>", "trigger payload for --run, passed to run(input)")
     .option("--environment <name>", "environment for --run (its secrets + variables)")
@@ -253,6 +260,7 @@ function buildProgram(): Command {
           token: options.token,
           yes: options.yes ?? false,
           typesHarvest: options.typesHarvest,
+          typecheck: options.typecheck,
           run: options.run ?? false,
           input: options.input,
           environment: options.environment,

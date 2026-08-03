@@ -162,7 +162,9 @@ function missingDeleteScopeHint(err: unknown): unknown {
   ) {
     return new CliError(
       "This session isn't permitted to delete workflows.",
-      "Run `boardwalk login` again to refresh it — or `boardwalk login --scopes admin` against an older Boardwalk — then retry (you must be an org admin).",
+      "Your login predates this permission (scopes freeze at login) — run `boardwalk login` again, " +
+        "then retry as an org admin. If a fresh login still can't delete, your control plane is " +
+        "older: use `boardwalk login --scopes admin`.",
       err.status,
     );
   }
@@ -245,7 +247,15 @@ export function formatWorkflowDetail(w: WorkflowDetail): string[] {
   if (w.disabled) lines.push(field("Status", "disabled"));
   if (w.title !== null) lines.push(field("Title", w.title));
   if (w.description !== null) lines.push(field("Description", w.description));
-  lines.push(field("Triggers", w.triggers.length > 0 ? w.triggers.join(", ") : "—"));
+  // Trigger summaries carry the config a reader came to check (a cron's expr + timezone); the
+  // bare kinds are the fallback for an older API's response.
+  const triggerLines = w.triggerSummaries.length > 0 ? w.triggerSummaries : w.triggers;
+  lines.push(field("Triggers", triggerLines.length > 0 ? (triggerLines[0] ?? "—") : "—"));
+  for (const extra of triggerLines.slice(1)) lines.push(field("", extra));
+  // The derived I/O contract — otherwise invisible outside the dashboard's run form.
+  lines.push(field("Input", schemaSummary(w.inputSchema) ?? "(untyped)"));
+  const output = schemaSummary(w.outputSchema);
+  if (output !== null) lines.push(field("Output", output));
   lines.push(field("Secrets", w.secrets.length > 0 ? w.secrets.join(", ") : "—"));
   if (w.entry !== null) lines.push(field("Entry", w.entry));
   // Name the source files, never dump them — `--source` prints the code on demand.
@@ -280,6 +290,33 @@ function col(s: string, width: number): string {
 /** A "  Label   value" detail row. */
 function field(label: string, value: string): string {
   return `  ${label.padEnd(12)} ${value}`;
+}
+
+/** One-line digest of a derived JSON-schema object: `topic: string · style: "terse" | "friendly"
+ *  · bullets?: number`. Null when there is nothing legible to say (no properties). Exported for
+ *  tests. */
+export function schemaSummary(schema: Record<string, unknown> | null): string | null {
+  if (schema === null) return null;
+  const props = schema.properties;
+  if (typeof props !== "object" || props === null || Array.isArray(props)) return null;
+  const required = new Set(
+    Array.isArray(schema.required) ? schema.required.filter((r) => typeof r === "string") : [],
+  );
+  const parts: string[] = [];
+  for (const [name, def] of Object.entries(props)) {
+    parts.push(`${name}${required.has(name) ? "" : "?"}: ${typeLabel(def)}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function typeLabel(def: unknown): string {
+  if (typeof def !== "object" || def === null || Array.isArray(def)) return "any";
+  const d = def as Record<string, unknown>;
+  if (Array.isArray(d.enum)) return d.enum.map((v) => JSON.stringify(v)).join(" | ");
+  if (d.type === "array") return `${typeLabel(d.items)}[]`;
+  if (typeof d.type === "string") return d.type;
+  if (Array.isArray(d.anyOf) || Array.isArray(d.oneOf)) return "union";
+  return "any";
 }
 
 /** "completed · 2h ago" / "never run" for the last-run column. */

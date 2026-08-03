@@ -110,7 +110,15 @@ export async function runWhoami(deps: SessionDeps): Promise<void> {
   // A stored API key has no token endpoint / refresh token; an OAuth session does.
   const method = session.tokenEndpoint === null ? "API key" : "OAuth session";
   const scope = session.scope ?? "(none)";
-  const expiry = session.expiresAt !== null ? new Date(session.expiresAt).toISOString() : "never";
+  // The stored expiry is PRE-refresh (this line is local by contract) — say so when it has
+  // already passed, or "expires=<past date>" under "Logged in" reads like a contradiction.
+  const canRefresh = session.tokenEndpoint !== null;
+  const expiry =
+    session.expiresAt === null
+      ? "never"
+      : session.expiresAt <= Date.now()
+        ? `${new Date(session.expiresAt).toISOString()} (stale — ${canRefresh ? "auto-refreshes on the next API call" : "re-run `boardwalk login`"})`
+        : new Date(session.expiresAt).toISOString();
   log(`Logged in via ${method}. scope=${scope} expires=${expiry}`);
 
   const orgLines = await whoamiOrgLines(deps, store);

@@ -69,7 +69,12 @@ interface Input {
 // Your native types are the I/O contract: the deploy derives their schemas for the
 // dashboard's run form. Whatever you return is the run's output.
 export default async function run(input: Input): Promise<{ greeting: string }> {
-  return { greeting: await agent(\`Write a one-line greeting for \${input.name ?? "world"}.\`) };
+  // \`builtins: "none"\` = a pure model call — no file/bash/web tools for a task that needs
+  // none. Drop it (the default is every built-in tool) when the agent genuinely needs hands.
+  const greeting = await agent(\`Write a one-line greeting for \${input.name ?? "world"}.\`, {
+    builtins: "none",
+  });
+  return { greeting };
 }
 `;
 
@@ -91,8 +96,14 @@ const HELLO_PACKAGE_JSON = `{
   "name": "{{name}}",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@boardwalk-labs/workflow": "^0.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5"
   }
 }
 `;
@@ -155,9 +166,15 @@ class Score(BaseModel):
 
 
 async def run(input: Lead) -> Score:
-    signals = await agent(f"Find buying signals for {input.company}")
-    score = int(await agent(f"Score 0-100, reply with digits only:\\n{signals}"))
-    return Score(score=score, tier="hot" if score > 70 else "warm" if score > 40 else "cold")
+    # \`schema=\` makes the leaf return a VALIDATED object — no string parsing, and a malformed
+    # answer fails the run loudly instead of shipping quietly. \`builtins="none"\` keeps a pure
+    # judgment call from wandering into web research; drop it when the task needs tools.
+    scored = await agent(
+        f"Judge {input.company} ({input.email}) as a sales lead, from the name and domain alone.",
+        schema=Score.model_json_schema(),
+        builtins="none",
+    )
+    return Score.model_validate(scored)
 `;
 
 const HELLO_PY_PYPROJECT = `[project]
@@ -259,7 +276,18 @@ export async function runInit(opts: InitOptions, deps: InitDeps = {}): Promise<v
   const baseUrl = (env.BOARDWALK_TEMPLATES_URL ?? DEFAULT_TEMPLATES_URL).replace(/\/+$/, "");
   const fetchImpl = deps.fetchImpl ?? fetch;
 
-  const registry = await fetchRegistry(baseUrl, fetchImpl);
+  // Offline (or a broken registry) must still answer "what templates ARE there" — degrade to
+  // the built-in list instead of surfacing a bare network error for a template typo.
+  let registry: RegistryTemplate[];
+  try {
+    registry = await fetchRegistry(baseUrl, fetchImpl);
+  } catch (err) {
+    throw new CliError(
+      `Template "${opts.template}" is not a built-in, and the examples registry could not be reached.`,
+      `Built-ins work offline: ${Object.keys(BUILTIN_TEMPLATES).join(", ")}. ` +
+        `Registry: ${baseUrl} (${err instanceof Error ? err.message : "unreachable"})`,
+    );
+  }
   const template = registry.find((t) => t.name === opts.template);
   if (template === undefined) {
     const available = [...Object.keys(BUILTIN_TEMPLATES), ...registry.map((t) => t.name)];

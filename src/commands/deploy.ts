@@ -27,6 +27,8 @@ import {
 } from "../deployment.js";
 import { projectDirFor, readLink } from "../project.js";
 import { stdioPrompter, type Prompter } from "../prompt.js";
+import { resolveProjectRoot } from "../descriptor.js";
+import { typecheckPackage, type TscRunner } from "../typecheck.js";
 import type { FetchLike } from "../auth/pkce.js";
 
 export interface DeployOptions {
@@ -39,6 +41,9 @@ export interface DeployOptions {
   /** Pack the TypeScript types harvest (machine layer). Default ON; `--no-types-harvest` opts out —
    *  the backend then has nothing to derive I/O schemas from. */
   typesHarvest?: boolean | undefined;
+  /** Run the package's own tsc before shipping (default ON for TypeScript packages);
+   *  `--no-typecheck` opts out. */
+  typecheck?: boolean | undefined;
   /** `--run`: trigger the version this deploy just shipped, then report it like `run` does. */
   run?: boolean | undefined;
   /** Trigger payload for `--run` (ignored otherwise). */
@@ -57,6 +62,8 @@ export interface DeployDeps {
   prompter?: Prompter;
   /** Whether stdin can prompt (defaults to the real TTY state). */
   interactive?: boolean;
+  /** Test seam for the tsc invocation. */
+  tscRunner?: TscRunner;
 }
 
 /**
@@ -101,6 +108,14 @@ export async function runDeploy(opts: DeployOptions, deps: DeployDeps): Promise<
   );
   const machineSummary = machineSummaryLine(prog.artifact, opts.typesHarvest !== false);
   if (machineSummary !== null) log(`  ${machineSummary}`);
+
+  // Type errors ship as runtime failures otherwise (the bundle is strip-only), and the loop most
+  // authors live in is `deploy --run`, not `check` — so the gate belongs here too. Fail-soft when
+  // the package has no tsc of its own; `--no-typecheck` opts out.
+  if (prog.artifact.language !== "python" && opts.typecheck !== false) {
+    const outcome = typecheckPackage(resolveProjectRoot(opts.file), deps.tscRunner);
+    if (outcome.ran) log("  types:    OK (tsc --noEmit)");
+  }
 
   const store = CredentialStore.atConfigDir(deps.config.configDir);
   const { token, baseUrl } = await resolveApiTarget({

@@ -168,6 +168,12 @@ export interface WorkflowDetail {
   description: string | null;
   currentVersionId: string | null;
   triggers: string[];
+  /** One display line per trigger — the kind plus its load-bearing config (a cron's expr,
+   *  timezone, and static input; a webhook's endpoint name), read from the manifest. */
+  triggerSummaries: string[];
+  /** The deploy-derived I/O schemas from the manifest (`null` when none derived). */
+  inputSchema: Record<string, unknown> | null;
+  outputSchema: Record<string, unknown> | null;
   secrets: string[];
   /** The program entry file (e.g. `index.mjs`) when the API reports it. */
   entry: string | null;
@@ -380,6 +386,8 @@ export interface BoardwalkClientOptions {
   baseUrl: string;
   token: string;
   fetchImpl?: FetchLike;
+  /** Delay before the artifact-upload retry (tests pass 0). */
+  uploadRetryDelayMs?: number;
 }
 
 const UNSAFE_METHODS: ReadonlySet<string> = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -414,11 +422,13 @@ export class BoardwalkClient {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly fetchImpl: FetchLike;
+  private readonly uploadRetryDelayMs: number;
 
   constructor(opts: BoardwalkClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.token = opts.token;
     this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.uploadRetryDelayMs = opts.uploadRetryDelayMs ?? 2000;
   }
 
   async listWorkflows(orgSlug: string): Promise<WorkflowSummary[]> {
@@ -873,19 +883,31 @@ export class BoardwalkClient {
 
   /** Upload the artifact bytes straight to storage via the presigned PUT. The Content-Type MUST
    *  equal the one signed into the URL, or the store rejects the PUT. No auth header — the URL
-   *  carries the signature. */
+   *  carries the signature. A PUT is idempotent, so a network fault or a storage 5xx gets ONE
+   *  quiet retry before failing — a deploy shouldn't die to a single dropped connection. */
   async uploadArtifact(uploadUrl: string, contentType: string, bytes: Uint8Array): Promise<void> {
-    let res: Response;
-    try {
-      res = await this.fetchImpl(uploadUrl, {
+    const attempt = async (): Promise<Response> =>
+      this.fetchImpl(uploadUrl, {
         method: "PUT",
         headers: { "Content-Type": contentType },
         body: bytes,
       });
+    let res: Response;
+    try {
+      try {
+        res = await attempt();
+      } catch {
+        await delayMs(this.uploadRetryDelayMs);
+        res = await attempt();
+      }
+      if (res.status >= 500) {
+        await delayMs(this.uploadRetryDelayMs);
+        res = await attempt();
+      }
     } catch (err) {
       throw new CliError(
-        "Could not upload the program artifact to storage.",
-        err instanceof Error ? err.message : undefined,
+        "Could not upload the program artifact to storage (retried once).",
+        err instanceof Error ? `${err.message} — check your network and re-run` : undefined,
       );
     }
     if (!res.ok) {
@@ -1461,6 +1483,9 @@ function parseWorkflowDetail(body: unknown): WorkflowDetail {
     currentVersionId:
       typeof workflow.currentVersionId === "string" ? workflow.currentVersionId : null,
     triggers: triggerKinds(manifest.triggers),
+    triggerSummaries: triggerSummaries(manifest.triggers),
+    inputSchema: isRecord(manifest.input_schema) ? manifest.input_schema : null,
+    outputSchema: isRecord(manifest.output_schema) ? manifest.output_schema : null,
     secrets: secretNames(permissions.secrets),
     entry: typeof program.entry === "string" ? program.entry : null,
     source: sourceFiles(program.files),
@@ -1489,6 +1514,35 @@ function triggerKinds(value: unknown): string[] {
     if (isRecord(t) && typeof t.kind === "string") kinds.push(t.kind);
   }
   return kinds;
+}
+
+/** One display line per trigger — the kind alone tells a scheduled workflow's reader nothing;
+ *  the expr/timezone/static-input (or webhook name) is the part they came to check. */
+function triggerSummaries(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const t of value) {
+    if (!isRecord(t) || typeof t.kind !== "string") continue;
+    if (t.kind === "cron") {
+      let line = `cron "${typeof t.expr === "string" ? t.expr : "?"}"`;
+      if (typeof t.timezone === "string") line += ` · ${t.timezone}`;
+      if (isRecord(t.input)) {
+        const input = JSON.stringify(t.input);
+        line += ` · input ${input.length > 60 ? `${input.slice(0, 57)}…` : input}`;
+      }
+      out.push(line);
+    } else if (t.kind === "webhook") {
+      out.push(typeof t.name === "string" ? `webhook "${t.name}"` : "webhook");
+    } else if (t.kind === "workflow_run") {
+      const slugs = Array.isArray(t.workflows)
+        ? t.workflows.filter((s) => typeof s === "string")
+        : [];
+      out.push(`workflow_run [${slugs.join(", ")}]`);
+    } else {
+      out.push(t.kind);
+    }
+  }
+  return out;
 }
 
 /** Map a manifest `permissions.secrets: [{ name }]` array to its name strings (lenient). */
@@ -1657,6 +1711,12 @@ function isRunSummary(value: unknown): value is RunSummary {
     (value.startedAt === null || typeof value.startedAt === "number") &&
     (value.completedAt === null || typeof value.completedAt === "number")
   );
+}
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /** Best-effort read of a response body for an error message (never throws). */

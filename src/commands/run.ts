@@ -232,17 +232,27 @@ export async function triggerAndReport(
   // Best-effort: a flaky events read shouldn't sink an otherwise-successful run — the result
   // block still prints, just with the `--logs` pointer instead of the inline output.
   const outputs = await collectRunOutputs(client, run.id).catch(() => []);
+  // A failed run's WHY is on the run detail — fetch it here so the result block answers it
+  // inline instead of forcing a second command (same best-effort stance as the outputs read).
+  const error =
+    terminal.status === "completed"
+      ? null
+      : await client
+          .getRunDetail(run.id)
+          .then((detail) => detail.error)
+          .catch(() => null);
   if (jsonMode) {
     emit(
       JSON.stringify({
         runId: terminal.id,
         status: terminal.status,
         outcome: terminal.outcomeStatus ?? null,
+        ...(error !== null ? { error } : {}),
         outputs,
       }),
     );
   } else {
-    printOutcome(log, terminal, outputs);
+    printOutcome(log, terminal, outputs, error);
   }
   if (terminal.status !== "completed") {
     throw new CliError(
@@ -276,11 +286,22 @@ export function parseInput(raw: string | undefined): unknown {
   }
 }
 
-function printOutcome(log: (line: string) => void, run: RunSummary, outputs: string[]): void {
+function printOutcome(
+  log: (line: string) => void,
+  run: RunSummary,
+  outputs: string[],
+  error: { code: string; message: string; hint?: string } | null,
+): void {
   log("──────── run result ────────");
   log(`run:     ${run.id}`);
   log(`status:  ${run.status}`);
-  log(`outcome: ${run.outcomeStatus ?? "(none)"}`);
+  // `outcome` is a reserved control-plane column nothing writes today — show it only if it
+  // ever carries a value, never as a `(none)` line readers have to puzzle over.
+  if (run.outcomeStatus !== null) log(`outcome: ${run.outcomeStatus}`);
+  if (error !== null) {
+    log(`error:   ${error.code}: ${error.message}`);
+    if (error.hint !== undefined) log(`hint:    ${error.hint}`);
+  }
   if (outputs.length === 0) {
     log("output:  (none)");
   } else {

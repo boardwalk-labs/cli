@@ -2,6 +2,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
+  schemaSummary,
   formatWorkflowList,
   formatWorkflowDetail,
   formatWorkflowSource,
@@ -47,6 +48,9 @@ function detail(over: Partial<WorkflowDetail> = {}): WorkflowDetail {
     description: "Summarize the day.",
     currentVersionId: "v2",
     triggers: ["cron", "manual"],
+    triggerSummaries: ['cron "0 9 * * 1" · America/Anchorage', "manual"],
+    inputSchema: null,
+    outputSchema: null,
     secrets: ["GITHUB_TOKEN"],
     entry: "index.mjs",
     source: [{ path: "index.ts", content: "export const meta = { slug: 'nightly-summary' };\n" }],
@@ -132,7 +136,9 @@ describe("formatWorkflowDetail", () => {
     const out = formatWorkflowDetail(detail()).join("\n");
     expect(out).toContain("Workflow nightly-summary");
     expect(out).toMatch(/Id\s+01KV0000000000000000000007/);
-    expect(out).toMatch(/Triggers\s+cron, manual/);
+    expect(out).toMatch(/Triggers\s+cron "0 9 \* \* 1" · America\/Anchorage/);
+    expect(out).toMatch(/\n\s+manual\n/);
+    expect(out).toMatch(/Input\s+\(untyped\)/);
     expect(out).toMatch(/Secrets\s+GITHUB_TOKEN/);
     expect(out).toMatch(/Version\s+v2 \(current\)/);
     expect(out).toMatch(/→ v2\s+v2/); // current version marked
@@ -394,5 +400,28 @@ describe("runWorkflowEnable", () => {
       method: "POST",
     });
     expect(lines.join("\n")).toContain("✓ enabled workflow nightly-summary");
+  });
+});
+
+describe("schemaSummary", () => {
+  it("digests properties with required marks, enums, and arrays", () => {
+    expect(
+      schemaSummary({
+        type: "object",
+        properties: {
+          topic: { type: "string" },
+          style: { enum: ["terse", "friendly"] },
+          bullets: { type: "number" },
+          tags: { type: "array", items: { type: "string" } },
+        },
+        required: ["topic", "style"],
+      }),
+    ).toBe('topic: string · style: "terse" | "friendly" · bullets?: number · tags?: string[]');
+  });
+
+  it("is null for null, propertyless, or empty schemas", () => {
+    expect(schemaSummary(null)).toBeNull();
+    expect(schemaSummary({ type: "object" })).toBeNull();
+    expect(schemaSummary({ type: "object", properties: {} })).toBeNull();
   });
 });

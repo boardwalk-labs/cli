@@ -106,7 +106,7 @@ describe("runInit (built-in template)", () => {
     );
     const lines = (f: string) => readFileSync(join(target, f), "utf8").trimEnd().split("\n").length;
     expect(lines("workflow.jsonc")).toBeLessThanOrEqual(10);
-    expect(lines(join("src", "index.ts"))).toBeLessThanOrEqual(14);
+    expect(lines(join("src", "index.ts"))).toBeLessThanOrEqual(19);
     expect(lines("README.md")).toBeLessThanOrEqual(14);
   });
 
@@ -268,7 +268,7 @@ describe("runInit (registry template)", () => {
         { dir: join(dir, "x"), template: "anything" },
         { log: () => undefined, fetchImpl: registryFetch({}), env: ENV },
       ),
-    ).rejects.toThrow(/template registry/);
+    ).rejects.toThrow(/not a built-in, and the examples registry could not be reached/);
   });
 
   it("rejects unsafe file paths from a registry", async () => {

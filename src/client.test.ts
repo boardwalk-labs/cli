@@ -442,6 +442,9 @@ describe("BoardwalkClient.getWorkflowDetail", () => {
       description: "runs nightly",
       currentVersionId: "v2",
       triggers: ["cron", "manual"],
+      triggerSummaries: ['cron "?"', "manual"],
+      inputSchema: null,
+      outputSchema: null,
       secrets: ["GITHUB_TOKEN"],
       entry: "index.mjs",
       source: null,
@@ -742,5 +745,62 @@ describe("webhook endpoints", () => {
     await client.deleteWebhook("wh1");
     expect(calls[0]?.method).toBe("DELETE");
     expect(calls[0]?.url).toContain("/v1/webhooks/wh1");
+  });
+});
+
+describe("BoardwalkClient.uploadArtifact", () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+
+  it("retries ONCE after a network fault (the PUT is idempotent)", async () => {
+    let attempts = 0;
+    const fetchImpl = (() => {
+      attempts += 1;
+      if (attempts === 1) return Promise.reject(new TypeError("fetch failed"));
+      return Promise.resolve(new Response(null, { status: 200 }));
+    }) as FetchLike;
+    const client = new BoardwalkClient({
+      baseUrl: "https://api.x",
+      token: "t",
+      fetchImpl,
+      uploadRetryDelayMs: 0,
+    });
+    await client.uploadArtifact("https://store/put", "application/gzip", bytes);
+    expect(attempts).toBe(2);
+  });
+
+  it("retries a storage 5xx once, then reports the terminal status", async () => {
+    let attempts = 0;
+    const fetchImpl = (() => {
+      attempts += 1;
+      return Promise.resolve(new Response("busy", { status: 503 }));
+    }) as FetchLike;
+    const client = new BoardwalkClient({
+      baseUrl: "https://api.x",
+      token: "t",
+      fetchImpl,
+      uploadRetryDelayMs: 0,
+    });
+    await expect(
+      client.uploadArtifact("https://store/put", "application/gzip", bytes),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("503"),
+    });
+    expect(attempts).toBe(2);
+  });
+
+  it("says it retried when the network fault persists", async () => {
+    const fetchImpl = (() => Promise.reject(new TypeError("fetch failed"))) as FetchLike;
+    const client = new BoardwalkClient({
+      baseUrl: "https://api.x",
+      token: "t",
+      fetchImpl,
+      uploadRetryDelayMs: 0,
+    });
+    await expect(
+      client.uploadArtifact("https://store/put", "application/gzip", bytes),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("retried once"),
+      hint: expect.stringContaining("check your network"),
+    });
   });
 });

@@ -56,6 +56,17 @@ const DECLARATION_SUFFIXES = [".d.ts", ".d.mts", ".d.cts"] as const;
  *  types. (`.pnpm` and other dotdirs ARE walked — pnpm's real package trees live there.) */
 const SKIP_DIR_NAMES = new Set([".bin"]);
 
+/** Toolchain packages skipped as DIRECT node_modules children: the scaffold ships `typescript`
+ *  as a devDependency (for `check`'s local tsc), and its ~3.5 MB of compiler-bundled `lib.*.d.ts`
+ *  would otherwise ride every artifact. The derivation sandbox brings its own standard libs — a
+ *  scaffold without `typescript` installed derived fine before this devDependency existed. */
+const TOOLCHAIN_PACKAGES = new Set(["typescript"]);
+
+/** True when `relDir` is a node_modules directory itself (top-level or nested/pnpm). */
+function isNodeModulesDir(relDir: string): boolean {
+  return relDir === "node_modules" || relDir.endsWith("/node_modules");
+}
+
 /**
  * Harvest the machine layer from `projectRoot`: declaration files + package metadata under
  * `node_modules`, the root `package.json`, and the effective tsconfig chain. A project with no
@@ -130,6 +141,7 @@ function walkNodeModules(
       if (st === null) continue;
       if (st.isDirectory()) {
         if (SKIP_DIR_NAMES.has(ent.name) || stack.includes(real)) continue; // shim dir / cycle
+        if (TOOLCHAIN_PACKAGES.has(ent.name) && isNodeModulesDir(relDir)) continue;
         walkNodeModules(abs, rel, realRoot, [...stack, real], add);
       } else if (st.isFile() && isHarvestFileName(ent.name)) {
         add({ relPath: rel, absPath: abs, size: st.size });
@@ -139,6 +151,7 @@ function walkNodeModules(
 
     if (ent.isDirectory()) {
       if (SKIP_DIR_NAMES.has(ent.name)) continue;
+      if (TOOLCHAIN_PACKAGES.has(ent.name) && isNodeModulesDir(relDir)) continue;
       const real = tryRealpath(abs);
       if (real === null) continue;
       walkNodeModules(abs, rel, realRoot, [...stack, real], add);
