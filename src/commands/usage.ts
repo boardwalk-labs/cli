@@ -84,7 +84,7 @@ export async function runUsage(opts: UsageOptions, deps: UsageDeps): Promise<voi
 
 /**
  * Render the plan block: one gauge per allowance in REAL units plus a bar ("14.2 of 25
- * agent-hours"), and a single "Allowances reset <date>" line — never a bare percentage (the
+ * compute-hours"), and a single "Allowances reset <date>" line — never a bare percentage (the
  * decided display). Empty for plans without allowances.
  * Pure — exported for tests.
  */
@@ -96,7 +96,7 @@ export function formatAllowances(a: AllowancesSummary | null): string[] {
     // the web billing page, so `usage` and the dashboard read as one product.
     `Plan · ${planLabel(a.plan) ?? a.plan}`,
     "",
-    gauge("Agent-hours", g.agentHours.used, g.agentHours.included, (n) => trim1(n)),
+    gauge("Compute-hours", g.computeHours.used, g.computeHours.included, (n) => trim1(n)),
     gauge("Managed inference", g.tokenPool.usedCents, g.tokenPool.includedCents, usd),
     gauge("Searches", g.searches.used, g.searches.included, (n) =>
       Math.round(n).toLocaleString("en-US"),
@@ -117,7 +117,7 @@ export function formatAllowances(a: AllowancesSummary | null): string[] {
   return lines;
 }
 
-/** "  Agent-hours  [████████░░░░░░░░░░░░]  14.2 of 25" — a 20-cell bar plus the real units. */
+/** "  Compute-hours  [████████░░░░░░░░░░░░]  14.2 of 25" — a 20-cell bar plus the real units. */
 function gauge(label: string, used: number, included: number, fmt: (n: number) => string): string {
   const ratio = included <= 0 ? 0 : Math.min(1, Math.max(0, used / included));
   const filled = Math.round(ratio * 20);

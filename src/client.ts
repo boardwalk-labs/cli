@@ -366,7 +366,7 @@ export interface UsageSummary {
 
 /** One plan-allowance gauge (real units): what the cycle includes vs what's been drawn. */
 export interface AllowanceGauges {
-  agentHours: { included: number; used: number };
+  computeHours: { included: number; used: number };
   tokenPool: { includedCents: number; usedCents: number };
   searches: { included: number; used: number };
 }
@@ -1304,12 +1304,12 @@ function parseAllowances(body: unknown): AllowancesSummary | null {
   };
   let gauges: AllowanceGauges | null = null;
   if (g !== null) {
-    const hours = numPair(g.agentHours, "included", "used");
+    const hours = numPair(g.computeHours, "included", "used");
     const pool = numPair(g.tokenPool, "includedCents", "usedCents");
     const searches = numPair(g.searches, "included", "used");
     if (hours !== null && pool !== null && searches !== null) {
       gauges = {
-        agentHours: { included: hours[0], used: hours[1] },
+        computeHours: { included: hours[0], used: hours[1] },
         tokenPool: { includedCents: pool[0], usedCents: pool[1] },
         searches: { included: searches[0], used: searches[1] },
       };

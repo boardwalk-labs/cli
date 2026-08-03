@@ -2,6 +2,20 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.21
+
+### Changed — the allowance unit is now "compute-hours"
+
+`usage` renders the compute gauge as **Compute-hours** (was "Agent-hours"), matching the dashboard
+and the pricing page. The meter is `runtime_seconds` scaled by vCPU, so the old name never counted
+agents: concurrent `agent()` calls on one 1-vCPU machine drew a single unit, a run with no `agent()`
+calls still drew units, and a 4-vCPU hour drew 4.
+
+The allowances payload field renamed with it (`gauges.agentHours` → `gauges.computeHours`). The
+parse requires all three gauges or it shows none, so CLI and control plane must match on this
+field: **0.3.21 needs a control plane that has shipped the rename**, and an older CLI against the
+new API silently renders no gauges at all. There is no compatibility shim in either direction.
+
 ## 0.3.20
 
 ### Added — `check` and `deploy` typecheck the package

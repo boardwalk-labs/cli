@@ -58,7 +58,7 @@ function sampleAllowances(): unknown {
     periodEnd: 1_722_678_400_000, // 2024-08-03 UTC
     cancelAtPeriodEnd: false,
     gauges: {
-      agentHours: { included: 25, used: 14.2 },
+      computeHours: { included: 25, used: 14.2 },
       tokenPool: { includedCents: 1000, usedCents: 610 },
       searches: { included: 500, used: 312 },
     },
@@ -206,7 +206,7 @@ describe("formatAllowances", () => {
       plan: "solo",
       periodEnd: Date.UTC(2026, 7, 3),
       gauges: {
-        agentHours: { included: 25, used: 14.2 },
+        computeHours: { included: 25, used: 14.2 },
         tokenPool: { includedCents: 1000, usedCents: 610 },
         searches: { included: 500, used: 312 },
       },
