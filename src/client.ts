@@ -81,6 +81,15 @@ export interface RunListItem {
   completedAt: number | null;
   /** Billed runtime (set at terminal); 0 while in flight. */
   runtimeSeconds: number;
+  /** The run's recorded spend in USD, summed from the same rows the bill is forwarded from. Null for
+   *  a run with no recorded usage yet; absent on servers that don't report it on list reads. */
+  costUsd?: number | null;
+  /** The resolved `concurrency.key` — which lane this run queued on. Null when the workflow declares
+   *  no template; absent on servers that don't report it. Use it to tell queued runs apart. */
+  concurrencyKey?: string | null;
+  /** The resolved `workspace.key` — which persistent workspace this run compounds into. Null when the
+   *  workflow declares no template; absent on servers that don't report it. */
+  workspaceKey?: string | null;
 }
 
 /** A page of org runs + an opaque cursor for the next page (null when there are no more). */
@@ -208,6 +217,9 @@ export interface SecretListItem {
   id: string;
   name: string;
   scope: string;
+  /** The environment this secret belongs to, or null for the org-level base tier (what the CLI
+   *  writes). The same name can exist in several environments holding different values. */
+  environmentId: string | null;
   kind: string;
   last4: string | null;
   description: string | null;
@@ -563,6 +575,21 @@ export class BoardwalkClient {
       "POST",
       `/v1/orgs/${encodeURIComponent(orgSlug)}/secrets`,
       input,
+    );
+    const secret = isRecord(body) ? parseSecretRow(body.secret) : null;
+    if (secret === null)
+      throw new CliError("The API returned an unexpected secret response shape.");
+    return secret;
+  }
+
+  /** Replace an existing secret's VALUE in place (POST /v1/secrets/:id/rotate). The name and ARN are
+   *  unchanged, so every workflow that references the name keeps working — this is how a mangled or
+   *  expired credential is repaired without a rename + redeploy. Elevated login required. */
+  async rotateSecret(id: string, value: string): Promise<SecretListItem> {
+    const body = await this.request<unknown>(
+      "POST",
+      `/v1/secrets/${encodeURIComponent(id)}/rotate`,
+      { value },
     );
     const secret = isRecord(body) ? parseSecretRow(body.secret) : null;
     if (secret === null)
@@ -1364,6 +1391,15 @@ function parseRunRow(row: unknown): RunListItem | null {
     startedAt: typeof row.startedAt === "number" ? row.startedAt : null,
     completedAt: typeof row.completedAt === "number" ? row.completedAt : null,
     runtimeSeconds: numOr(row.runtimeSeconds, 0),
+    // Optional per-run attribution (spend + the resolved lane/workspace scopes). Spread only when the
+    // server reported the field, so `--json` on an older server shows no misleading nulls.
+    ...("costUsd" in row ? { costUsd: typeof row.costUsd === "number" ? row.costUsd : null } : {}),
+    ...("concurrencyKey" in row
+      ? { concurrencyKey: typeof row.concurrencyKey === "string" ? row.concurrencyKey : null }
+      : {}),
+    ...("workspaceKey" in row
+      ? { workspaceKey: typeof row.workspaceKey === "string" ? row.workspaceKey : null }
+      : {}),
   };
 }
 
@@ -1592,6 +1628,7 @@ function parseSecretRow(row: unknown): SecretListItem | null {
     id: row.id,
     name: row.name,
     scope: typeof row.scope === "string" ? row.scope : "",
+    environmentId: typeof row.environmentId === "string" ? row.environmentId : null,
     kind: typeof row.kind === "string" ? row.kind : "",
     last4: typeof row.last4 === "string" ? row.last4 : null,
     description: typeof row.description === "string" ? row.description : null,

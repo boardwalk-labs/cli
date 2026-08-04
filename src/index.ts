@@ -669,7 +669,9 @@ function registerSecretsCommand(program: Command): void {
     .option("--description <text>", "optional human description")
     .option("--org <slug>", "the org (optional once the project is linked)")
     .option("--token <token>", "use this Bearer token instead of stored/env credentials")
-    .description("Set a secret value (staged server-side). Needs `boardwalk login --scopes admin`.")
+    .description(
+      "Set a secret value, replacing it in place if the name exists (staged server-side). Needs `boardwalk login --scopes admin`.",
+    )
     .action(
       async (
         name: string,

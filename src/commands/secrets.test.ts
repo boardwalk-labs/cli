@@ -21,6 +21,7 @@ function secret(over: Partial<SecretListItem> = {}): SecretListItem {
     id: "01HSEC0000000000000000000A",
     name: "GITHUB_TOKEN",
     scope: "org",
+    environmentId: null,
     kind: "api_key",
     last4: "cdef",
     description: null,
@@ -35,11 +36,13 @@ interface Call {
   body: string | undefined;
 }
 
-/** Route by method+url: secrets list (GET /secrets), create (POST /secrets), delete (DELETE /secrets/:id). */
+/** Route by method+url: secrets list (GET /secrets), create (POST /secrets), rotate (POST
+ *  /secrets/:id/rotate), delete (DELETE /secrets/:id). */
 function routeFetch(routes: {
   secrets?: unknown[];
   createStatus?: number;
   createBody?: unknown;
+  rotateBody?: unknown;
   deleteStatus?: number;
 }): { fetchImpl: FetchLike; calls: Call[] } {
   const calls: Call[] = [];
@@ -49,6 +52,11 @@ function routeFetch(routes: {
     calls.push({ url, method, body: typeof init?.body === "string" ? init.body : undefined });
     if (method === "DELETE") {
       return Promise.resolve(new Response(null, { status: routes.deleteStatus ?? 204 }));
+    }
+    if (method === "POST" && url.endsWith("/rotate")) {
+      return Promise.resolve(
+        new Response(JSON.stringify(routes.rotateBody ?? { secret: secret({ last4: "9999" }) })),
+      );
     }
     if (method === "POST") {
       return Promise.resolve(
@@ -145,6 +153,42 @@ describe("runSecretSet", () => {
         { config: CONFIG, fetchImpl, log: () => undefined },
       ),
     ).rejects.toThrow(/Invalid --scope/);
+  });
+
+  it("replaces an existing secret's value in place when the name already exists", async () => {
+    // The repair path: create 409s, so `set` resolves the name to its id and rotates. Same id, same
+    // ARN — no rename, no redeploy of the workflows that reference it.
+    const { fetchImpl, calls } = routeFetch({
+      createStatus: 409,
+      createBody: { error: { message: "Secret name 'GITHUB_TOKEN' already exists" } },
+      secrets: [secret({ id: "01HSEC_TARGET" })],
+    });
+    const lines: string[] = [];
+    await runSecretSet(
+      { name: "GITHUB_TOKEN", value: "repaired", org: "acme", token: "t" },
+      { config: CONFIG, fetchImpl, log: (l) => lines.push(l) },
+    );
+    const rotate = calls.find((c) => c.url.endsWith("/rotate"));
+    expect(rotate?.url).toBe("https://api.x/v1/secrets/01HSEC_TARGET/rotate");
+    expect(JSON.parse(rotate?.body ?? "{}")).toEqual({ value: "repaired" });
+    expect(lines.join("\n")).toContain("✓ updated secret GITHUB_TOKEN");
+  });
+
+  it("surfaces the conflict when the clashing name exists only in an environment", async () => {
+    // Environment-scoped values are edited per environment in the console; guessing which one the
+    // author meant would write the wrong tenant's credential.
+    const { fetchImpl, calls } = routeFetch({
+      createStatus: 409,
+      createBody: { error: { message: "already exists" } },
+      secrets: [secret({ id: "01HSEC_ENV", environmentId: "01HENV" })],
+    });
+    await expect(
+      runSecretSet(
+        { name: "GITHUB_TOKEN", value: "v", org: "acme", token: "t" },
+        { config: CONFIG, fetchImpl, log: () => undefined },
+      ),
+    ).rejects.toMatchObject({ status: 409, hint: expect.stringContaining("already exists") });
+    expect(calls.some((c) => c.url.endsWith("/rotate"))).toBe(false);
   });
 
   it("maps a 403 to an elevated-login hint", async () => {

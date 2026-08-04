@@ -193,6 +193,36 @@ describe("BoardwalkClient.getRun", () => {
   });
 });
 
+describe("BoardwalkClient.getRunDetail", () => {
+  it("reads the per-run attribution fields (spend + the resolved lane/workspace scopes)", async () => {
+    const { fetchImpl } = recordingFetch(200, {
+      run: {
+        id: "run1",
+        workflowId: "wf9",
+        status: "queued",
+        costUsd: 0.42,
+        concurrencyKey: "acme/api",
+        workspaceKey: null,
+      },
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const run = await client.getRunDetail("run1");
+    expect(run.costUsd).toBe(0.42);
+    expect(run.concurrencyKey).toBe("acme/api");
+    expect(run.workspaceKey).toBeNull();
+  });
+
+  it("omits them entirely on a server that doesn't report them (no misleading nulls)", async () => {
+    const { fetchImpl } = recordingFetch(200, {
+      run: { id: "run1", workflowId: "wf9", status: "queued" },
+    });
+    const client = new BoardwalkClient({ baseUrl: "https://api.x", token: "t", fetchImpl });
+    const run = await client.getRunDetail("run1");
+    expect("concurrencyKey" in run).toBe(false);
+    expect("costUsd" in run).toBe(false);
+  });
+});
+
 describe("BoardwalkClient.cancelRun", () => {
   it("POSTs /v1/runs/:id/cancel with an Idempotency-Key and resolves on 204", async () => {
     const { fetchImpl, calls } = recordingFetch(204, "");

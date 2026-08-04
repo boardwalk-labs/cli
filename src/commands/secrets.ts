@@ -2,8 +2,9 @@
 
 // `boardwalk secrets` — manage the org's secrets catalog from the terminal:
 //   • secrets list            → names/scope/kind/last4 (VALUES are never shown — they can't be read)
-//   • secrets set <name>      → stage a value (from --value, --from-file, or stdin); needs an
-//                               ELEVATED login (`boardwalk login --scopes admin`) or a bwk_ API key
+//   • secrets set <name>      → stage a value (from --value, --from-file, or stdin), replacing the
+//                               value in place if the name already exists; needs an ELEVATED login
+//                               (`boardwalk login --scopes admin`) or a bwk_ API key
 //   • secrets delete <name>   → remove a secret (requires --yes; elevated)
 //
 // Values never touch argv by default — pipe them (`echo $TOKEN | boardwalk secrets set X`) or pass
@@ -124,12 +125,50 @@ export async function runSecretSet(opts: SecretSetOptions, deps: SecretsDeps): P
   if (opts.description !== undefined) input.description = opts.description;
   try {
     const row = await client.createSecret(requireOrg(org), input);
-    log(
-      `✓ set secret ${row.name} (${row.scope}/${row.kind}${row.last4 !== null ? `, …${row.last4}` : ""}).`,
-    );
+    log(`✓ set secret ${row.name}${describeSecret(row)}.`);
   } catch (err) {
+    // `set` is an UPSERT: an existing name takes the new value in place (POST …/rotate — same id,
+    // same ARN), so every workflow referencing it keeps working. Without this, repairing a mangled
+    // value meant delete + recreate or a rename + redeploy of every consumer.
+    if (err instanceof CliError && err.status === 409) {
+      const row = await rotateExisting(client, requireOrg(org), name, value);
+      if (row !== null) {
+        log(`✓ updated secret ${row.name}${describeSecret(row)}.`);
+        return;
+      }
+    }
     throw elevationHint(err, "Writing a secret");
   }
+}
+
+/** `(kind, …last4)` suffix for a written secret. `scope` is server-side-optional, so it is only
+ *  shown when the API returned one. */
+function describeSecret(row: SecretListItem): string {
+  const scope = row.scope.length > 0 ? `${row.scope}/` : "";
+  return ` (${scope}${row.kind}${row.last4 !== null ? `, …${row.last4}` : ""})`;
+}
+
+/**
+ * Replace the value of the org-BASE secret named `name`. Returns null when the conflict wasn't a
+ * plain base-tier name clash (nothing matched, or only environment-scoped rows did — those are
+ * edited per environment in the console, and guessing which one the author meant would write the
+ * wrong tenant's credential), leaving the caller to surface the original conflict.
+ */
+async function rotateExisting(
+  client: {
+    listSecrets: (org: string) => Promise<SecretListItem[]>;
+    rotateSecret: (id: string, value: string) => Promise<SecretListItem>;
+  },
+  org: string,
+  name: string,
+  value: string,
+): Promise<SecretListItem | null> {
+  const existing = (await client.listSecrets(org)).filter(
+    (s) => s.name === name && s.environmentId === null,
+  );
+  const target = existing.length === 1 ? existing[0] : undefined;
+  if (target === undefined) return null;
+  return await client.rotateSecret(target.id, value);
 }
 
 export async function runSecretDelete(opts: SecretDeleteOptions, deps: SecretsDeps): Promise<void> {
