@@ -2,6 +2,19 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.23
+
+### Changed — validates the workflow SDK 0.3.11 contract
+
+`check` and `deploy` validate the descriptor with the SDK, so they refused the additions in
+`@boardwalk-labs/workflow` 0.3.11 until now: `concurrency: { "mode": "latest_wins" }` (the same
+one-at-a-time lane, except a new run replaces the ones still waiting in it rather than queueing
+behind them) and a `?? 'fallback'` in a `concurrency.key` / `workspace.key` template
+(`"${input.repository.full_name ?? 'none'}"`, used when the path is missing or null — without it, a
+keyed workflow behind a GitHub App fails every ping and installation delivery).
+
+The key-template syntax check also used to be skipped unless the mode was exactly `serial`.
+
 ## 0.3.22
 
 ### Changed — `secrets set` repairs an existing value in place
