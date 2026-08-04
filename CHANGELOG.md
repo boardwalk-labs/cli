@@ -2,6 +2,30 @@
 
 Notable changes to `@boardwalk-labs/cli`. Pre-1.0, changes ship as patch releases.
 
+## 0.3.22
+
+### Changed — `secrets set` repairs an existing value in place
+
+Setting a name that already exists used to fail with a conflict, and there was no rotate verb, so
+fixing a mangled or expired credential meant renaming it, editing every descriptor that referenced
+it, and redeploying those workflows. `set` is now an upsert: on a conflict it resolves the name to
+its id and replaces the value in place (same secret, same reference), so nothing downstream moves.
+The endpoint behind it is not new; the CLI simply never exposed it.
+
+A name that exists only inside an _environment_ still surfaces the conflict. Which environment was
+meant is ambiguous, and guessing it would write the wrong tenant's credential.
+
+### Added — per-run attribution on run reads
+
+Run reads now carry `costUsd` and the resolved `concurrencyKey` / `workspaceKey` when the control
+plane reports them, so `runs --json` can attribute spend per run and tell queued runs apart (which
+lane is backed up, which tenant's workspace a run compounds into) without releasing them. Each is
+omitted rather than nulled against a control plane that doesn't report it, so `--json` never shows
+a misleading null.
+
+This also fixes `runs <id>`'s **Spend** line, which was declared and rendered but never parsed from
+the response, so it had never appeared.
+
 ## 0.3.21
 
 ### Changed — the allowance unit is now "compute-hours"
